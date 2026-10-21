@@ -11,7 +11,8 @@
 
 ## Done
 
-- Design concept recorded: `docs/DESIGN.md` (ledger row 7).
+- Design concept recorded: `docs/DESIGN.md` (ledger row 7); round-1 answers 3D,
+  destruction, verbs, HP/clock, deathmatch, profiles, one level (rows 8–13).
 - Day-1 scaffold (`cos init`): AGENTS.md, HANDOFF.md, docs, scripts, `.claude/`,
   `.cos/` hooks.
 - Git repo on `main`, identity `Tank Battle Dev <dev@tankbattle.local>`, remote
@@ -29,14 +30,15 @@
 
 ## Next action (one)
 
-**Record the owner's answers to `docs/DESIGN.md` §3** as they arrive (same commit as
-the design doc edit), then cut the first gameplay brief from `docs/BRIEF.md` against
-the provisional slice in §4. Do not design past the answers.
+**Record the owner's round-2 rulings** (`docs/DESIGN.md` §4: T1–T3, G1–G4) as ledger rows
+in the same commit as the design-doc edit, then cut the first gameplay brief from
+`docs/BRIEF.md` against §5 — world + destruction + the hunter profile only. No second
+profile and no extra content before that slice is gated.
 
 ## Open questions for the owner
 
-- **`docs/DESIGN.md` §3** — seven questions, each with options and a dispatcher lean.
-  The core concept is settled (ledger row 7).
+- **`docs/DESIGN.md` §4** — three tensions and four gaps, each with options and a lean.
+  The concept and round-1 answers are settled (ledger rows 7–13); these are not.
 
 ## Read first
 

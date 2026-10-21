@@ -33,7 +33,7 @@ reconciled: fec3cfc · 2026-10-21T21:16:00Z
 
 SESSION | id=goal-072ded4a-732a-401f-887e-b7618c07216a | model=deepseek/flash | harness=DSH | state=idle — chief of staff, goal created and PAUSED by designation
 
-QUEUE | row=1 | owner: DESIGN DISCUSSION in progress — core concept received (Tron-world tank simulation, destructible world, single player + all-AI tuning, several characters); 7 questions open, no gameplay brief until answered | src=docs/DESIGN.md §3 + ledger row 7
+QUEUE | row=1 | owner: DESIGN round 2 — concept and round-1 answers decided (3D Tron world, breakable+regenerating world, drive/aim/fire, 3 HP + damage clock, deathmatch, profiles over one core, one authored level); 3 tensions + 4 gaps open, no gameplay brief until ruled | src=docs/DESIGN.md §4 + ledger rows 8–14
 
 QUEUE | row=2 | publish the static build to the app host once there is something to play | src=docs/ARCHITECTURE.md §4
 
@@ -65,10 +65,11 @@ RECOVERY | repo=/home/administrator/projects/Tank battle | remote=https://github
 
 ## Open questions for the owner
 
-1. **Answer `docs/DESIGN.md` §3** (seven questions). The core concept is recorded and
-   settled (ledger row 7); what remains is projection, destruction depth, verbs,
-   lethality, single-player shape, character architecture, level format. No gameplay
-   brief is cut before those answers.
+1. **Rule on `docs/DESIGN.md` §4** — the three tensions (damage clock vs. ambusher;
+   breaching vs. regeneration; shard deflection vs. a plan-able AI) and the four gaps
+   (verticality, floor holes, deathmatch scale, match end + debris budget). The concept
+   is settled (ledger row 7) and the round-1 answers are recorded (rows 8–13); none of
+   the round-2 leans is decided yet (row 14).
 
 ## Traps (each with the rule that prevents it)
 
