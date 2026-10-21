@@ -211,9 +211,25 @@ against it, and it outranks "it renders".
 - **Palette.** Black field, emissive hues, nothing in between. Team colours: cyan
   `#00e5ff`, orange `#ff7a00`, magenta `#ff2fd6`, lime `#b6ff00`; white only for the
   hottest cores. No mid-greys and no default UI blue.
-- **Material rule.** Surfaces are near-black; the identity comes from **emissive edge
-  lines** (screen-space-constant line weight) carried by bloom. If a surface reads by
-  its fill rather than its edges, it is off-style.
+- **Surface rule — NO WORLD TEXTURES (owner ruling, 2026-10-21, with a Tron reference
+  image).** "Tron style means NO TEXTURES AT ALL for the world. Just triangles that
+  contain nothing and still are not see through with neon lines. or maybe a little
+  texture, but it needs to be almost unnoticable against the lines." Concretely:
+  - **No image files on any world surface** — no albedo, normal, roughness or decal maps.
+    If variation is needed it is procedural in the shader and barely perceptible; the
+    reference image's own surfaces are flat and untextured.
+  - **Opaque, near-black fills.** World geometry is never see-through (owner: "still are
+    not see through"); only effects (muzzle flash, impact, shields) may blend.
+  - **Identity comes from edges.** Emissive edge lines at screen-space-constant weight,
+    carried by bloom. If a surface reads by its fill rather than its outline, it is
+    off-style. This is why every visible edge needs a line, including concave ones.
+  - **One material seam.** A single `NeonSurface` factory (dark unlit fill + edge lines +
+    an optional faint fresnel rim, since an unlit near-black fill otherwise disappears
+    into the void). No ad-hoc `MeshStandardMaterial` appearing in a later slice.
+  - **The floor is line geometry or a shader grid, never a texture;** the reference's
+    hexagonal pattern is geometry, and cells must map to destructible panels.
+  - The reference image lives at `.probe-assets/reference-tron-look.png` (gitignored,
+    third-party reference, never shipped).
 - **Post pipeline.** ACES tone mapping, strong UnrealBloom (threshold/strength/radius
   tuned once and pinned in one config module), subtle vignette; DPR capped at 2. Bloom
   is part of the look, so it is part of the performance budget.

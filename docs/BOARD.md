@@ -100,3 +100,7 @@ RECOVERY | repo=/home/administrator/projects/Tank battle | remote=https://github
   The "2.5D simulation" framing was withdrawn by the owner: *"This should be FULLY 3D.
   Nothing here is 2D. You seem to regress that way."* Rule: the owner sets the fidelity;
   the dispatcher's job is to keep the core renderer-free so the fidelity stays affordable.
+- `TRAP` — **generated concept art can pull the material system off-brief.** The Muse
+  arena image read as rock and fog; the owner's rule is **no world textures at all**, just
+  opaque near-black triangles and neon lines. Rule: generated art informs composition,
+  colour and mood — never surface treatment. DESIGN §9 is the contract.
