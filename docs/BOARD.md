@@ -39,6 +39,8 @@ QUEUE | row=1 | owner: DESIGN COMPLETE — no open questions; fully 3D, breakabl
 
 QUEUE | row=2 | publish the static build to the app host once there is something to play | src=docs/ARCHITECTURE.md §4
 
+QUEUE | row=3 | owner (STANDING): hero-quality presentation — glow and pop, TRON HUD, nothing spreadsheet-shaped; judged as screenshots at A2 (the look) and A5 (the interface), and it outranks "it renders" | src=docs/DESIGN.md §9
+
 LANDED | row=0 | sha=fec3cfc04e433dbf15b2c4b462b23a3f52752931 | verify=MY OWN: cheap tier `pnpm run build` GREEN (exit 2) then full gate GREEN — 8/8 vitest, exit 0, raw `.gate-logs/gate.log` | arms=A e52d62cd (baseline 8/8) · B ef5a7653 (no tolerance) RED on "credits a long frame as at most maxFrame" · C 33e50a4e (no clamp) RED on the same pin · D 986d8409 (no negative guard) RED on "rejects a frame time that is negative or not finite" | docs=ARCHITECTURE, TESTING, ledger 1–5 | note=day-1 bootstrap: scaffold, gate, canvas skeleton, one seam per row above
 
 RECOVERY | repo=/home/administrator/projects/Tank battle | remote=https://github.com/ArndRosemeier/Tank-battle.git | branch=main | gate=bash scripts/gate.sh (0 green · 1 red · 2 cheap only · 9 refused/VOID) | logs=.gate-logs/ | worktrees=git worktree list

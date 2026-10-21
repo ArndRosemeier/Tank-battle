@@ -175,21 +175,65 @@ tuning, not design, and live in §7 as vetoable defaults.
 
 ## 8 · Slice roadmap
 
-- **Slice A — the world fights back.** Level data → 3D cells; three.js scene; drive/aim/
-  fire; shells; destruction; debris tiers; slow regen + displacement; 3 HP and the
-  damage clock; one authored level. **No AI yet** (a static target drone may be used to
-  prove hits). Pins: cell damage/debris/regen, displacement rule, deterministic seeded
-  run, batch of one scripted duel.
-- The headless runner built in B is the **future game server** (§5.11): a multiplayer
-  transport wraps commands and state, it does not re-implement the world.
-- **Slice B — one character, then the rig.** Nav grid with dirty-cell invalidation, 3D
-  line of sight and shot feasibility, one profile (a hunt-heavy mix), headless batch of
-  100 seeded matches with win rate and accuracy; live all-AI spectate.
-- **Slice C — the cast and the teams.** Profiles as data + registry; sniper/ambusher/
-  brute-*mixes*; teams ≤4×≤4 with target selection and no-FF blocking; team win
-  conditions and the time threshold.
+- **A1 — the world model** (in flight). Cells, materials, height, destruction, two
+  debris tiers, slow regen + displacement, deterministic state hash. No renderer.
+- **A2 — the render foundation, and the look.** three.js scene over A1 data: emissive
+  edge material system, bloom/post pipeline, luminous grid floor, camera (3rd person
+  with 1st-person zoom), placeholder tank and block. **This slice is where "hero
+  quality" is judged, before any gameplay rides on it.**
+- **A3 — drive / aim / fire.** Tank movement, turret, shells, impact and destruction
+  VFX, debris motion, regeneration animation, 3 HP and the lethal clock with HUD feedback.
+- **A4 — level data and the one authored level.**
+- **A5 — the HUD/UI pass.** The TRON interface: segmented health, reticle, team panels,
+  kill feed, menus. No default widgets anywhere.
+- **B — one character, then the rig.** Nav with dirty-cell invalidation, 3D line of
+  sight and shot feasibility, one profile, headless batch of 100 seeded matches; live
+  all-AI spectate.
+- **C — the cast and the teams.** Profiles as validated data, behaviour mixes, teams
+  ≤4×≤4, no friendly fire, win conditions.
 
-## 9 · Non-goals for v1
+The headless runner built in B is the **future game server** (§5.11): a multiplayer
+transport wraps commands and state, it does not re-implement the world.
+
+**On schedule honesty:** the hero bar moves the first genuinely good-looking build to
+after A2 and the readable interface to after A5. Until then the thing on screen is a
+tech demo, and it will be reported as one.
+
+## 9 · Presentation — the hero-quality bar
+
+**Owner's bar, verbatim (2026-10-21):** "Despite the simple graphics, i want to have
+absolute hero quality here. Things need to GLOW and POP with a UI that screams in
+TRON-Style and has absolutely nothing to do with spread sheet buttons."
+
+This is a **standing requirement**, not a task: every presentation slice is judged
+against it, and it outranks "it renders".
+
+- **Palette.** Black field, emissive hues, nothing in between. Team colours: cyan
+  `#00e5ff`, orange `#ff7a00`, magenta `#ff2fd6`, lime `#b6ff00`; white only for the
+  hottest cores. No mid-greys and no default UI blue.
+- **Material rule.** Surfaces are near-black; the identity comes from **emissive edge
+  lines** (screen-space-constant line weight) carried by bloom. If a surface reads by
+  its fill rather than its edges, it is off-style.
+- **Post pipeline.** ACES tone mapping, strong UnrealBloom (threshold/strength/radius
+  tuned once and pinned in one config module), subtle vignette; DPR capped at 2. Bloom
+  is part of the look, so it is part of the performance budget.
+- **World legibility.** Luminous grid floor; damage reads as fractured edges; a breaching
+  shell flashes the cell it kills; regeneration is **lines redrawing** (a grow-in over
+  the regen delay, so the slow heal is visible and tense); shards dissolve in a flash;
+  big blocks are glowing cages.
+- **HUD.** Drawn by **one** UI module in TRON language: angular frames, corner brackets,
+  segmented health, a charge/heat ring around the reticle, team panels, animated wipes.
+  Diegetic extras (team brackets, target reticles) live in the 3D layer. **No default
+  HTML controls, ever** — every control is drawn in this style; raw `<button>`/`<input>`
+  in the app shell is forbidden and a source pin enforces it.
+- **Performance budget.** 60 fps at 1080p with 16 tanks and live debris on this machine.
+  Measured, not assumed; a quality setting may scale bloom, never correctness.
+- **Assets.** One bundled OFL techno font (Orbitron or Rajdhani); no runtime CDN.
+- **Enforcement.** The renderer stays truth-free (§5.1) and the HUD reads core state
+  only — no duplicated game state. Each presentation slice is reviewed as screenshots
+  by the owner before it is called done; my report carries the images, not adjectives.
+
+## 10 · Non-goals for v1
 
 **Network transport and matchmaking** in v1 — the architecture is built for them
 (§5.9–12), but nothing is wired over a socket yet · multiple tank kinds · campaign ·
