@@ -86,3 +86,8 @@ RECOVERY | repo=/home/administrator/projects/Tank battle | remote=https://github
   mode from "Tank battle" alone and offered four of them as if they were the choice.
   Rule: before the first gameplay brief, the design discussion fixes the experience
   (ledger row 6).
+- `TRAP` — **a gate run stamps the journal with HEAD at run time**, so gating BEFORE
+  committing records the parent sha and leaves the commit it was meant to cover
+  uncovered (the stop hook caught `44b514f` this way; the run had recorded
+  `926d25f`). Rule: **commit first, gate second, push third** — the push is still
+  blocked because nothing is pushed until the run is green.
