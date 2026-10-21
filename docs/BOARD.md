@@ -94,8 +94,10 @@ RECOVERY | repo=/home/administrator/projects/Tank battle | remote=https://github
 - `TRAP` — **a gate run stamps the journal with HEAD at run time**, so gating BEFORE
   committing records the parent sha and leaves the commit it was meant to cover
   uncovered (the stop hook caught `44b514f` this way; the run had recorded
-  `926d25f`). Rule: **commit first, gate second, push third** — the push is still
-  blocked because nothing is pushed until the run is green.
+  `926d25f`). **A rebase after a gate does the same thing:** the sha changes, so the
+  journal line points at a commit that no longer exists (measured on my own
+  `5db0aae` → `0b4e39c`). Rule: **commit, rebase, gate, push** — the gate run must be
+  the last thing that happens to the tree before it is pushed.
 - `TRAP` — **a dispatcher must not hedge the world model to save implementation cost.**
   The "2.5D simulation" framing was withdrawn by the owner: *"This should be FULLY 3D.
   Nothing here is 2D. You seem to regress that way."* Rule: the owner sets the fidelity;
