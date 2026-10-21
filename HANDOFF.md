@@ -37,10 +37,10 @@
 
 ## Next action (one)
 
-**A2b is in flight** with the same writer: fix the six named look defects (dotted
-silhouettes, flat wall volumes, no tank barrel, board-on-a-table composition, team
-luminance mismatch, weak floor holes) and pin the GPU-independent budget. Then A3
-(drive/aim/fire) — see `docs/DESIGN.md` §8.
+**A2c is in flight**: turn the §9 luminance budget into `scripts/look-budget.py`, then
+bring the measured surfaces into 2–10 % (they are 14–17 %), normalise the team hulls
+(lime 31.7 %), and restore line dominance. Then A3 (drive/aim/fire) per
+`docs/DESIGN.md` §8.
 
 ## Open questions for the owner
 

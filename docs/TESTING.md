@@ -293,3 +293,19 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
 - **Performance limit:** no reachable GPU on this host — SwiftShader at 3.7–3.8 fps for
   16 tanks at 1080p, 115 draw calls. The DoD clause is amended (ledger row 31); the
   number is a regression baseline, never a "60 fps" claim.
+
+### row 33 — the dispatcher's own verification (f316baa)
+
+- **Integrated gate:** 39/39, exit 0 (integrated before running, after learning the
+  stale-tree lesson).
+- **My arms:** `no-polygon-offset` → RED on the D1 pin; `team-luma-off` → RED on the
+  ±10 % luma pin; `budget-doubled` (spawns concatenated) → RED on the scene-budget pin.
+  Tree restored to `c92abd25` after each, verified by hash.
+- **VOID probe recorded:** one arm changed bytes but not geometry, so its green proved
+  nothing. Named VOID rather than counted as evidence.
+- **Dispatcher error recorded:** the budget arm's backup path was `/tmp` while the `trap`
+  restored from `.gate-logs/`, so the mutation survived; the printed "restored" hash was
+  the *mutated* value. Caught by comparing with the baseline and repaired from the real
+  backup. Rule added to the board traps.
+- **Measured §9 result:** surfaces 14–17 % of white (budget 2–10 %), lime hull 31.7 %,
+  44.8 % of pixels in the 10–20 % band. A2b fails the surface budget; A2c dispatched.
