@@ -31,7 +31,9 @@ parsed as a retirement claim).
 ```
 reconciled: fec3cfc · 2026-10-21T21:16:00Z
 
-SESSION | id=goal-072ded4a-732a-401f-887e-b7618c07216a | model=deepseek/flash | harness=DSH | state=idle — chief of staff, goal created and PAUSED by designation
+SESSION | id=goal-072ded4a-732a-401f-887e-b7618c07216a | model=deepseek/flash | harness=DSH | state=dispatching — chief of staff, goal created and PAUSED by designation
+
+IN-FLIGHT | row=26 | session=c79ef7e7-11ef-4fc8-bf05-66592b60dedf | worktree=/home/administrator/projects/Tank battle/worktrees/a1-world | branch=feat/a1-world-model | base=17b51d1 | state=running | scope=Slice A1: seeded rng, 3D-aware cell world (materials, height, hp), destruction + two debris tiers, slow regen + displacement, deterministic state hash, pins. NO renderer, NO AI, NO tanks.
 
 QUEUE | row=1 | owner: DESIGN COMPLETE — no open questions; fully 3D, breakable slow-regen world with displacement, drive/aim/fire, 3 HP + LETHAL wounded clock, no friendly fire, 4 teams × 4 tanks, player + 3 AI squadmates, profiles as mixes, one authored level, multiplayer preserved-not-built | src=docs/DESIGN.md, ledger rows 7–25
 
