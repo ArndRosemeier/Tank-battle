@@ -395,3 +395,17 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
   backup. Rule added to the board traps.
 - **Measured §9 result:** surfaces 14–17 % of white (budget 2–10 %), lime hull 31.7 %,
   44.8 % of pixels in the 10–20 % band. A2b fails the surface budget; A2c dispatched.
+
+### row 35 — the dispatcher's verification, and a weak gate found
+
+- Integrated gate 39/39, exit 0.
+- **Patch measurements** (PIL, 10×10 medians) on the new frames: wide walls 3.9–7.8 %,
+  floor 9.4 %, hull 10.6 % (one 20.2 % sample is a bloom-lit band, not a flat surface);
+  tank floor 11.0 %, walls 1.6–5.1 %, hull 9.0 %. Against A2b (14–17 % walls/floor, 31.7 %
+  lime hull) the pass is real.
+- **`look-budget.py` passes the OLD A2 frames too.** Its whole-frame surface median cannot
+  see a locally bright wall, so a PASS does not mean "no bright surfaces". It is a floor,
+  not a guarantee. **Hardening required (A3b):** a tile-median metric (e.g. 24×14 tiles,
+  p90 of tile medians ≤ 10 % of white) so a bright wall cannot hide in a dark frame.
+- The writer's own arms (`bright-fill`, `dim-lines`, `bloom-flood`) each made `shot.sh`
+  exit 1, so the tool does catch *global* regressions — the gap is spatial, not plain.

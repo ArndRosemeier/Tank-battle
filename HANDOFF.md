@@ -37,10 +37,10 @@
 
 ## Next action (one)
 
-**A2c is in flight**: turn the §9 luminance budget into `scripts/look-budget.py`, then
-bring the measured surfaces into 2–10 % (they are 14–17 %), normalise the team hulls
-(lime 31.7 %), and restore line dominance. Then A3 (drive/aim/fire) per
-`docs/DESIGN.md` §8.
+**A3a is in flight**: the pure combat core (drive/aim/fire with pitch, shells, cell and
+tank damage, team immunity, the lethal wound clock, win conditions) with headless pins
+and a scripted duel. Then A3b wires it to the renderer + input, and hardens
+`look-budget.py` with the tile metric.
 
 ## Open questions for the owner
 
