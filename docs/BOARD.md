@@ -29,11 +29,11 @@ parsed as a retirement claim).
 ## Board
 
 ```
-reconciled: fec3cfc · 2026-10-21T21:16:00Z
+reconciled: 0b4e39c · 2026-10-22T00:12Z
 
-SESSION | id=goal-072ded4a-732a-401f-887e-b7618c07216a | model=deepseek/flash | harness=DSH | state=dispatching — chief of staff, goal created and PAUSED by designation
+SESSION | id=goal-072ded4a-732a-401f-887e-b7618c07216a | model=deepseek/flash | harness=DSH | state=idle — chief of staff, goal created and PAUSED by designation
 
-IN-FLIGHT | row=26 | session=c79ef7e7-11ef-4fc8-bf05-66592b60dedf | worktree=/home/administrator/projects/Tank battle/worktrees/a1-world | branch=feat/a1-world-model | base=17b51d1 | state=running | scope=Slice A1: seeded rng, 3D-aware cell world (materials, height, hp), destruction + two debris tiers, slow regen + displacement, deterministic state hash, pins. NO renderer, NO AI, NO tanks.
+LANDED | row=26 | sha=e62865b53115d54db1e5e868595123d24459229c | verify=MY OWN: full gate GREEN · 26/26 vitest (world 14, rng 2, purity 2, timestep 8) · exit 0 · lock acquired · raw `.gate-logs/gate.log` | arms (mine, 4, none of them the writer's): cap-newest-first dec8e2ac RED on "shards are capped…"; mirror-off-by-one-step d0ef2ec8 RED on "a shard deflects a shell at its stored mirror angle"; height-boundary-inclusive 8b159335 RED on "a wall stops a shell at its own height…"; displacement-stacks-occupants 3e1d4c5c RED on "displacement is deterministic…"; src tree restored to 6ad2e950 after every arm | retired: worktree worktrees/a1-world, branch feat/a1-world-model, session c79ef7e7 | docs=ledger 26, ARCHITECTURE, TESTING | note=Slice A1, the pure world model (1,690 lines incl. tests); no renderer, no tanks, no AI. Finding: arm D red the determinism pin, not the "nearest free cell" pin — free-ness is pinned only indirectly.
 
 QUEUE | row=1 | owner: DESIGN COMPLETE — no open questions; fully 3D, breakable slow-regen world with displacement, drive/aim/fire, 3 HP + LETHAL wounded clock, no friendly fire, 4 teams × 4 tanks, player + 3 AI squadmates, profiles as mixes, one authored level, multiplayer preserved-not-built | src=docs/DESIGN.md, ledger rows 7–25
 
@@ -107,3 +107,8 @@ RECOVERY | repo=/home/administrator/projects/Tank battle | remote=https://github
   (surface 2–10 % luminance, modulation ≤ ±3 %, features ≥ ~32 px, `SURFACE_DETAIL`
   default ~0.3 and verifiable at 0). Rule: generated art informs composition, colour and
   mood — never surface treatment. DESIGN §9 is the contract.
+- `TRAP` — **a brief's base sha goes stale the moment the dispatcher keeps committing.**
+  The A1 brief named `17b51d1`; by push time the remote was `93742ff` (three design commits
+  later). The rebase was clean, but a clean rebase is not evidence the base was right.
+  Rule: re-read `origin/main` at brief time, or create the worktree immediately before
+  dispatch, and say in the brief which sha it is.

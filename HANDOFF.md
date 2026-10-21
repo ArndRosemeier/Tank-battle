@@ -14,6 +14,9 @@
 - Design ruled through round 2: concept and answers recorded in `docs/DESIGN.md`
   (ledger rows 7–21): fully 3D, breakable slow-regen world with displacement, drive/aim/
   fire, 3 HP + wounded clock, 4 teams × 4 tanks, profiles as behaviour mixes, one level.
+- **A1 landed** `e62865b`: pure world model (rng, cells by height, destruction, two
+  debris tiers, slow regen with deterministic displacement, state hash). Verified by my
+  own full gate (26/26) and four of my own injections; worktree, branch and session retired.
 - Day-1 scaffold (`cos init`): AGENTS.md, HANDOFF.md, docs, scripts, `.claude/`,
   `.cos/` hooks.
 - Git repo on `main`, identity `Tank Battle Dev <dev@tankbattle.local>`, remote
@@ -31,9 +34,11 @@
 
 ## Next action (one)
 
-**Verify the A1 landing when the writer reports** — its sha on the remote, my own full
-gate, my own differential. Then dispatch A2 (three.js scene, drive/aim/fire) against
-`docs/DESIGN.md` §8. A1 is the world model only, with no renderer.
+**Cut the A2 brief** — the render foundation and the look (`docs/DESIGN.md` §8 A2, §9):
+three.js scene over the A1 world, the one `NeonSurface` seam with `SURFACE_DETAIL`,
+bloom/post pipeline pinned in one config module, luminous grid floor, 3rd/4th-person
+camera, placeholder tank. Name `.probe-assets/reference-tron-look.png` and the
+0-vs-default screenshot test. A2 is where the hero bar is first judged.
 
 ## Open questions for the owner
 

@@ -110,3 +110,23 @@ the pipeline's last status.
 
 A VOID probe, a wrong-file green, a discarded log and a run against a stale tree are
 **recorded, not hidden**. An honest unknown is worth more than a confident green.
+
+### row 26 — the dispatcher's own verification (e62865b)
+
+Not the writer's arms. Four injections, each aimed at a *different* named pin, with the
+lock held, the tree restored from HEAD in a `trap`, and the whole `src/` tree hash
+printed per arm (`6ad2e950…` baseline, restored identically after every arm).
+
+| arm | src tree sha256 (mutated) | result |
+| --- | --- | --- |
+| cap-newest-first (`shift()`→`pop()`) | `dec8e2acb9ee…` | RED on `shards are capped; when the cap is exceeded the oldest despawns first` |
+| mirror-off-by-one-step (next normal in the table) | `d0ef2ec8ada8…` | RED on `a shard deflects a shell at its stored mirror angle` |
+| height-boundary-inclusive (`<`→`<=` in `isSolidAt`) | `8b159335a4ec…` | RED on `a wall stops a shell at its own height and never above it` |
+| displacement-stacks-occupants (shove onto an occupied cell) | `3e1d4c5c7121…` | RED on `displacement is deterministic: …` |
+
+- **Finding:** the fourth arm red the *determinism* pin rather than
+  `…displaced to the nearest free cell…`, so free-ness is pinned only indirectly. Not a
+  defect (the behaviour is caught), but a pin-coverage gap worth closing when A2 starts
+  moving tanks around.
+- **Raw logs:** `.gate-logs/arm-<name>.log`; harness `.gate-logs/differential-a1.sh`.
+- **Gate:** my own full tier on the integrated tree — 26/26, exit 0, `lock=acquired`.
