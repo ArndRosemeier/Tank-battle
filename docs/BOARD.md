@@ -101,6 +101,9 @@ RECOVERY | repo=/home/administrator/projects/Tank battle | remote=https://github
   Nothing here is 2D. You seem to regress that way."* Rule: the owner sets the fidelity;
   the dispatcher's job is to keep the core renderer-free so the fidelity stays affordable.
 - `TRAP` — **generated concept art can pull the material system off-brief.** The Muse
-  arena image read as rock and fog; the owner's rule is **no world textures at all**, just
-  opaque near-black triangles and neon lines. Rule: generated art informs composition,
-  colour and mood — never surface treatment. DESIGN §9 is the contract.
+  arena image read as rock and fog, and the first reading of the owner's Tron reference
+  was "no textures at all" — the owner then refined it: modern Tron has appeal, so
+  textures are allowed but **subdued, low-frequency, and the lines dominate absolutely**
+  (surface 2–10 % luminance, modulation ≤ ±3 %, features ≥ ~32 px, `SURFACE_DETAIL`
+  default ~0.3 and verifiable at 0). Rule: generated art informs composition, colour and
+  mood — never surface treatment. DESIGN §9 is the contract.

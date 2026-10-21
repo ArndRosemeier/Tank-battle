@@ -211,25 +211,38 @@ against it, and it outranks "it renders".
 - **Palette.** Black field, emissive hues, nothing in between. Team colours: cyan
   `#00e5ff`, orange `#ff7a00`, magenta `#ff2fd6`, lime `#b6ff00`; white only for the
   hottest cores. No mid-greys and no default UI blue.
-- **Surface rule — NO WORLD TEXTURES (owner ruling, 2026-10-21, with a Tron reference
-  image).** "Tron style means NO TEXTURES AT ALL for the world. Just triangles that
-  contain nothing and still are not see through with neon lines. or maybe a little
-  texture, but it needs to be almost unnoticable against the lines." Concretely:
-  - **No image files on any world surface** — no albedo, normal, roughness or decal maps.
-    If variation is needed it is procedural in the shader and barely perceptible; the
-    reference image's own surfaces are flat and untextured.
-  - **Opaque, near-black fills.** World geometry is never see-through (owner: "still are
-    not see through"); only effects (muzzle flash, impact, shields) may blend.
-  - **Identity comes from edges.** Emissive edge lines at screen-space-constant weight,
-    carried by bloom. If a surface reads by its fill rather than its outline, it is
-    off-style. This is why every visible edge needs a line, including concave ones.
-  - **One material seam.** A single `NeonSurface` factory (dark unlit fill + edge lines +
-    an optional faint fresnel rim, since an unlit near-black fill otherwise disappears
-    into the void). No ad-hoc `MeshStandardMaterial` appearing in a later slice.
-  - **The floor is line geometry or a shader grid, never a texture;** the reference's
-    hexagonal pattern is geometry, and cells must map to destructible panels.
-  - The reference image lives at `.probe-assets/reference-tron-look.png` (gitignored,
-    third-party reference, never shipped).
+- **Surface rule — lines dominate absolutely; texture is subdued (owner ruling, revised
+  2026-10-21).** The first reference was *modern* Tron and the owner found its appeal
+  worth keeping: "Thats a modern version of tron, the classic one has no textures at
+  all. But... i guess the modern one has more appeal. So, be light on the textures, the
+  lines need to dominate absolutely. But... there can be subdued textures."
+  The knob is a **budget**, not a ban:
+  - **Luminance budget.** Surfaces live in a **2–10 %** luminance band (of white), with
+    local texture modulation no more than **±3 %** absolute. Neon lines run 60–100 % and
+    bloom pushes them to white. Line-to-surface contrast therefore never drops below
+    ~6:1 and normally sits above 10:1 — the eye reads lines first, always.
+  - **Frequency budget.** Detail is **low frequency**: no grain, no per-pixel noise; a
+    texture feature must be at least ~32 px at 1080p. High-frequency detail is what
+    competes with thin lines, so it is the thing actually forbidden.
+  - **Opaque fills.** World geometry is never see-through (owner: "still are not see
+    through"); only effects may blend.
+  - **Procedural first.** Gradients, panel seams and the rim come from the shader. An
+    image map is allowed only as a tileable greyscale detail map, ≤ 512², multiplied at
+    ≤ 15 % opacity, and listed in the asset manifest.
+  - **One material seam.** A single `NeonSurface` factory: dark fill, optional detail
+    map, faint fresnel rim, emissive edge lines — all scaled by ONE global
+    `SURFACE_DETAIL` scalar (default ~0.3). An unlit near-black fill otherwise vanishes
+    into the void; the rim is what keeps silhouettes readable.
+  - **Verifiable dominance.** `SURFACE_DETAIL` can be driven to 0 at runtime (a debug
+    key), and the A2 review includes screenshots at 0 and at default: if the two are
+    hard to tell apart, the texture is correctly subdued; if the textured one has more
+    *presence* than line definition, it is too strong.
+  - **Every visible edge needs a line, concave ones included** — in this style
+    silhouettes are authored, not lit. The floor is line geometry or a shader grid tied
+    to destructible cells, never a baked floor image.
+  - The **modern-Tron reference** lives at `.probe-assets/reference-tron-look.png`
+    (gitignored, third-party, never shipped; it informs composition, colour and mood,
+    never a wholesale surface treatment).
 - **Post pipeline.** ACES tone mapping, strong UnrealBloom (threshold/strength/radius
   tuned once and pinned in one config module), subtle vignette; DPR capped at 2. Bloom
   is part of the look, so it is part of the performance budget.
