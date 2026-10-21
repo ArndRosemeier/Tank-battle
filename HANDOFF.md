@@ -11,6 +11,7 @@
 
 ## Done
 
+- Design concept recorded: `docs/DESIGN.md` (ledger row 7).
 - Day-1 scaffold (`cos init`): AGENTS.md, HANDOFF.md, docs, scripts, `.claude/`,
   `.cos/` hooks.
 - Git repo on `main`, identity `Tank Battle Dev <dev@tankbattle.local>`, remote
@@ -28,14 +29,14 @@
 
 ## Next action (one)
 
-**Have the design discussion with the owner** (board open question 1, ledger row 6)
-and record each answer as a ledger row as it is given. Do NOT cut a gameplay brief
-before the discussion fixes the experience; the skeleton stays inert until then.
+**Record the owner's answers to `docs/DESIGN.md` §3** as they arrive (same commit as
+the design doc edit), then cut the first gameplay brief from `docs/BRIEF.md` against
+the provisional slice in §4. Do not design past the answers.
 
 ## Open questions for the owner
 
-- **The design itself:** undecided by design. The name is not a brief (ledger row 6);
-  the discussion comes before any slice.
+- **`docs/DESIGN.md` §3** — seven questions, each with options and a dispatcher lean.
+  The core concept is settled (ledger row 7).
 
 ## Read first
 
