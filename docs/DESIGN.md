@@ -299,6 +299,52 @@ browser requires).
 small, and never re-rolled for taste without a reason; anything shipped has already been
 approved by ear or eye.
 
+## 12 · Definition of Done for v1, and the autonomous run
+
+**Owner's mandate (2026-10-21, verbatim):** "Ok, i would like you to persue this game to
+completion. I expect you to actually watch some AI battles to judge whats missing or
+wrong, fix it and go on. I will be away. Can you do that?"
+
+**Done means all of this, and each is checkable:**
+
+1. **Playable loop.** Single-player: the player plus up to 3 AI squadmates against up to
+   3 AI teams on the authored arena (4×4 maximum). Last team standing wins; at the time
+   threshold the team with more HP wins.
+2. **Combat.** Drive, aim, fire. 3 HP, lethal damage clock while wounded, no friendly
+   fire, shells, impacts, two debris tiers, destruction and slow regeneration with
+   displacement. Every rule pinned.
+3. **World.** One authored arena of 3D cells (floor/wall/pillar) with height-aware cover,
+   3D line of sight and shot feasibility, holes, regeneration.
+4. **AI cast.** At least four character profiles as validated data over one core, each
+   **measurably** distinct in the batch rig — not merely labelled differently — all
+   pursuing the shared instrumental goals and coping with terrain that changes.
+5. **Modes.** Single-player; live all-AI spectator; headless batch with win rate,
+   accuracy, time-to-kill and cause of death, over seeded matches.
+6. **Presentation.** The hero bar: `NeonSurface` + bloom, the TRON HUD, 60 fps at 1080p
+   with 16 tanks and live debris, judged on screenshots against §9.
+7. **Quality.** `bash scripts/gate.sh` green (exit 0), the docs true, no known red, and
+   the build published to the static host so it can be clicked.
+
+**Not in v1:** network transport, campaign, level editor, extra verbs, fog of war.
+
+**How the autonomous run works** (the process, made explicit):
+
+- Work advances on **wake events** — a writer's landing or BLOCKED report, a batch run
+  finishing — so the session always leaves something in flight. If nothing can be in
+  flight, the run stops at a recorded next action rather than idling.
+- **Every landing is verified by the dispatcher's own gate and its own injections**, and
+  **watched**: headless batch traces for behaviour, rendered screenshots for the look.
+  "Watching" means reading the trace and the image, then naming what is wrong.
+- **Taste forks get a recorded default plus evidence.** The owner is away; a fork that
+  is genuinely his (feel, colour, tone) is decided toward §9 and the frozen decisions,
+  recorded in the ledger with the rejected option named, and shown as a screenshot on
+  his return. Nothing is silently chosen; nothing waits idle.
+- **Death insurance.** The board and handoff are true before any report; a partial
+  writer's work is committed on its branch; a silent writer is salvage-checked before
+  deletion.
+- **Limits that do not bend:** at most two writers in flight, one expensive check at a
+  time under the lock, no polling, every process (browser trees included) reaped.
+
 ## 11 · Non-goals for v1
 
 **Network transport and matchmaking** in v1 — the architecture is built for them

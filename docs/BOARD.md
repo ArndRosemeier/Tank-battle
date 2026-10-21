@@ -35,7 +35,7 @@ SESSION | id=goal-072ded4a-732a-401f-887e-b7618c07216a | model=deepseek/flash | 
 
 LANDED | row=26 | sha=e62865b53115d54db1e5e868595123d24459229c | verify=MY OWN: full gate GREEN · 26/26 vitest (world 14, rng 2, purity 2, timestep 8) · exit 0 · lock acquired · raw `.gate-logs/gate.log` | arms (mine, 4, none of them the writer's): cap-newest-first dec8e2ac RED on "shards are capped…"; mirror-off-by-one-step d0ef2ec8 RED on "a shard deflects a shell at its stored mirror angle"; height-boundary-inclusive 8b159335 RED on "a wall stops a shell at its own height…"; displacement-stacks-occupants 3e1d4c5c RED on "displacement is deterministic…"; src tree restored to 6ad2e950 after every arm | retired: worktree worktrees/a1-world, branch feat/a1-world-model, session c79ef7e7 | docs=ledger 26, ARCHITECTURE, TESTING | note=Slice A1, the pure world model (1,690 lines incl. tests); no renderer, no tanks, no AI. Finding: arm D red the determinism pin, not the "nearest free cell" pin — free-ness is pinned only indirectly.
 
-QUEUE | row=1 | owner: DESIGN COMPLETE — no open questions; fully 3D, breakable slow-regen world with displacement, drive/aim/fire, 3 HP + LETHAL wounded clock, no friendly fire, 4 teams × 4 tanks, player + 3 AI squadmates, profiles as mixes, one authored level, multiplayer preserved-not-built | src=docs/DESIGN.md, ledger rows 7–25
+QUEUE | row=1 | AUTONOMOUS RUN — owner is away; pursue v1 to the recorded Definition of Done (`docs/DESIGN.md` §12). Every taste fork: default + rejected option + screenshot for his return. Work advances on wake events, so a writer stays in flight.
 
 QUEUE | row=2 | publish the static build to the app host once there is something to play | src=docs/ARCHITECTURE.md §4
 
