@@ -1,13 +1,13 @@
 # Design — Tank Battle
 
-**Status:** discussion round 2. The concept and the round-1 answers are **decided**
-(§3). §4 carries the tensions and gaps that block the first gameplay brief; §5 is the
-package I would brief if the leans survive.
+**Status:** round 2 ruled. The concept, the round-1 answers and the round-2 rulings
+are **decided** (§3–§4). Three questions remain for the owner (§6); everything they do
+not settle is taken as a default (§7) and can be vetoed. §8 is the slice roadmap.
 
-The owner's words are quoted verbatim. Anything marked *dispatcher* is a position
-offered to be argued with, not a decision.
+The owner's words are quoted verbatim, including typos — the words are what stop a
+later slate from re-litigating a decision.
 
-## 1 · The core idea (owner, verbatim, 2026-10-21)
+## 1 · The core idea (owner, 2026-10-21)
 
 > This should be a tank simulation in a tron like world. Neon glowing lines, simple
 > geometry, you get the gist. Inside this design language, levels are allowed to be
@@ -18,151 +18,148 @@ offered to be argued with, not a decision.
 
 ## 2 · Round 1 answers (owner, verbatim)
 
-1. **Projection:** "Full 3d, a TS web app."
-2. **Destruction:** "I like your regeneration idea. Everything should be breakable,
-   including the floor. A broken floor of course does not mean that tanks fall through.
-   Debris blocks if big enough (needs to be destroyed then). Smaller debris gets shoved
-   out of the way but can still influence trajectory. Make this physically sound
-   (without investing too heavy in physics). AIs need to be smart enough to cope with
-   changing terrain."
-3. **Verbs:** "lets have just drive aim fire for now. At least for the first version.
-   Characters do NOT collapse into difficult settings. Some could be daring and hunt no
-   matter what, others can be snipers and others can be ambushers. And others can be
-   brutes who break all walls to get to you. Lots of possibilities."
-4. **Lethality:** "Lets have a bit more HPs and only 1 tank kind at the start (keep it
-   simple). 3 hits kill. Lets have some hide deterrant in it. When you are damaged,
-   damage worsens over time... slowly, but that makes stalling a bad option."
-5. **Match structure:** "For the first version just deathmatches to tune everything.
-   Later maybe a campaign."
-6. **AI cast:** "profiles over one core sounds better, but that core needs to be able
-   to pursue different instrumental goals then."
-7. **Levels:** "Lets start with just one well authored level before wasting resources
-   before we know what works."
+1. "Full 3d, a TS web app."
+2. "I like your regeneration idea. Everything should be breakable, including the floor.
+   A broken floor of course does not mean that tanks fall through. Debris blocks if big
+   enough (needs to be destroyed then). Smaller debris gets shoved out of the way but
+   can still influence trajectory. Make this physically sound (without investing too
+   heavy in physics). AIs need to be smart enough to cope with changing terrain."
+3. "lets have just drive aim fire for now. At least for the first version. Characters
+   do NOT collapse into difficult settings. Some could be daring and hunt no matter
+   what, others can be snipers and others can be ambushers. And others can be brutes who
+   break all walls to get to you. Lots of possibilities."
+4. "Lets have a bit more HPs and only 1 tank kind at the start (keep it simple). 3 hits
+   kill. Lets have some hide deterrant in it. When you are damaged, damage worsens over
+   time... slowly, but that makes stalling a bad option."
+5. "For the first version just deathmatches to tune everything. Later maybe a campaign."
+6. "profiles over one core sounds better, but that core needs to be able to pursue
+   different instrumental goals then."
+7. "Lets start with just one well authored level before wasting resources before we know
+   what works."
 
-## 3 · Decided, and what it forces
+## 3 · Round 2 rulings (owner, verbatim)
 
-**Decided:** 3D presentation in a TypeScript web app · a fully breakable world
-(including the floor) that **regenerates** · two debris tiers (big blocks, small shards
-that can be shoved and can influence trajectory) · physically plausible without a
-heavy physics engine · AI that copes with terrain changing under it · **drive / aim /
-fire only** for v1 · one tank kind, **3 HP** · damage worsens over time while damaged
-· deathmatch only · **one AI core with per-character profiles that pursue different
-instrumental goals** · **one authored level** before any more content.
+- **T1 damage clock:** "Not quiet. At the start that ambusher is healthy and wont bleed.
+  But yea, that strategy needs to change when damaged. Can still be more carefull than
+  others, but just hiding is not an option anymore. Don't take my example strategies as
+  work orders, they were examples. A real strategy should be a mix."
+  → The clock runs **only while damaged**. A healthy tank may wait as long as it likes.
+  → The four archetypes are **examples, not a spec**: a character is a *mix* of
+  behaviours (e.g. hunt 0.6 / ambush 0.3 / snipe 0.1), not one label.
+- **T2 regeneration:** "Yea, regen should be pretty slow in general. Its not satisfying
+  to break stuff only to see it rise again immediately" → slow enough that a breach is
+  worth making and visible for a while.
+- **T3 shard deflection:** "I take your version" → **deterministic mirror-angle**
+  deflection; no jitter, ever.
+- **G1 3D:** "Standard 3rd person camera, mousewheel can zoom into 1st person. This
+  should be FULLY 3D. Nothing here is 2D. You seem to regress that way."
+  → Full 3D world, geometry, camera and collision. The earlier "2.5D simulation" framing
+  is withdrawn; the correction is recorded in `docs/BOARD.md` traps.
+- **G2 floor holes:** "The bedrock below the floor is endlessly deep. So, breaking a
+  floor just carves a hole (that also self heals). The real question is what happens to
+  a tank in an area that self heals? I vote that it gets shoved away." → bedrock is
+  bottomless and not part of the model; a hole is a healed-able wound in the floor; **an
+  entity standing where a cell regenerates is displaced**.
+- **G3 teams:** "Team vs. Team vs. Team... up to 4 teams and each team can have up to 4
+  tanks. AI teams kill each other just like they kill the player team." → **≤4 teams ×
+  ≤4 tanks = 16 tanks**; every team is an enemy of every other; AI fights AI.
+- **G4 win condition:** "Last surviving team wins. Optional time threshold and yea most
+  HP wins then." → last team standing; if a time threshold is set, the team with most HP
+  wins at it.
 
-**Derived requirements** (dispatcher — consequences, not new ideas):
+## 4 · Consolidated decision list
 
-1. **The renderer is not the truth.** three.js (house version: `three@0.180.0`, as
-   pinned by VectorRunner) owns pixels; `src/core` owns state and must import nothing
-   from it. Otherwise the headless batch and the tests cannot exist.
-2. **Determinism.** Seeded RNG only in `src/core` (no `Math.random`), fixed tick, AI
-   decisions on fixed ticks. All-AI tuning is meaningless without it.
-3. **The world is state, not scenery.** Every breakable cell has material, HP, debris
-   output and a regen timer — one model, one seam, whether it is a wall or the floor.
-4. **Terrain change invalidates navigation.** Any panel change dirties the nav grid;
-   AIs re-path off that signal, never from a cached path.
-5. **Shot feasibility is not "line of sight".** Debris, big blocks and regenerating
-   cells all sit between the muzzle and the target; the AI must test the actual path.
-6. **Every match must terminate by construction** — a tick cap — because the batch
-   rig runs hundreds of unattended matches.
-7. **Characters are data.** One core; profiles are typed data validated at load
-   (AGENTS.md rule 3), so a new character cannot mean duplicated decision code.
+**The world.** Fully 3D. Flat ground plane over bottomless bedrock; everything above it
+is buildable and breakable — floor, walls, pillars. Every cell has a material, an HP
+value, a debris output and a **slow** regeneration timer. A hole in the floor is a hole,
+not a pit: nothing falls in, and it heals. A tank (or shard) in a cell that regenerates
+is **shoved out**.
 
-## 4 · Round 2 — three tensions and four gaps
+**Destruction.** A shell destroys a cell and produces debris: a **big block** (static,
+blocks movement and fire, has to be broken) or **shards** (shoved by tanks, deflect
+shells at a **fixed mirror angle**, shatter on the next hit). Physically plausible,
+no rigid-body engine.
 
-### T1 · The damage clock vs. the ambusher
+**The tanks.** One kind in v1. Drive (hull), aim (turret, mouse), fire. 3 HP, 3 hits
+kill. Damage clock while damaged: wears down over time so that hiding *while wounded* is
+a losing trade; a healthy tank may wait. No extra verbs.
 
-"Damage worsens over time" punishes hiding. But an ambusher's whole strategy is
-waiting. As stated, the two rules make the ambusher unplayable — the archetype you
-asked for would bleed out while doing its job.
+**The match.** Deathmatch, teams: ≤4 teams × ≤4 tanks, everyone hostile to everyone not
+on their team. Last team standing wins; optional time threshold, then most HP wins.
 
-| Option | Effect |
-| --- | --- |
-| (a) Bleed always ticks while damaged | Pure attrition; ambush and sniping are self-punishing |
-| (b) Bleed ticks, but **landing a hit suspends it** for a few seconds | Aggression is the antidote; ambush stays viable *if it strikes* |
-| (c) Bleed pauses while the enemy has line of sight to you | Rewards hiding — the opposite of the intent |
-| (d) No bleed, a match timer instead | Removes the pressure the owner asked for |
+**The AI.** One core; per-character **data profiles** that weight a shared set of
+**instrumental goals** (*gain line of sight · hold cover · close to weapon range ·
+flank · breach · hold an ambush point*). A character is a mix, not an archetype. AIs
+must cope with terrain that changes under them and with teams.
 
-*Lean:* **(b)**, bleed floor at 1 HP (never kills by itself). A clock that only stops
-while you are doing damage is legible to an AI ("close and hit") and keeps the stall
-deterrent.
+**The rig.** All-AI matches are a first-class mode, run both live and **headless** over
+the pure core: N seeded matches → win rate, accuracy, time-to-kill. Determinism is a
+requirement, not a convenience.
 
-### T2 · Breaching vs. regeneration (the brute's viability)
+**Content.** One authored level first. No generator, no campaign, until the world and
+the rig are trusted.
 
-A brute breaks walls to reach you. If walls regrow faster than a reload, the brute's
-whole strategy is futile by construction.
+## 5 · Derived requirements (dispatcher)
 
-| Option | Effect |
-| --- | --- |
-| (a) Regen slower than breach+passage; fixed numbers in one place | Brute viable; the arena visibly heals between engagements |
-| (b) Regen repairs a cell only partway | Holes shrink, routes stay open — muddy for pathing |
-| (c) Regen paused while any tank is within N metres | Fights "keep the route open" locally; odd globally |
+1. **three.js owns pixels; `src/core` owns truth.** The core imports nothing from the
+   renderer, so the same simulation runs headless in `node`. `three@0.180.0` is the
+   house pin (VectorRunner).
+2. **Determinism:** seeded RNG only in the core, fixed tick, AI decisions on fixed ticks,
+   and no renderer-dependent input inside a step.
+3. **Height-aware everything:** line of sight, shell paths and cover all use the 3D cell
+   volume — a low wall must not stop a high shot. The cell model carries height from the
+   first commit even if level one uses two heights.
+4. **Terrain change invalidates navigation:** any cell change dirties the nav grid; AI
+   paths are re-derived, never cached across a breach or a heal.
+5. **Regeneration displacement is a rule with one implementation:** a cell that heals
+   under an entity pushes it to the nearest free cell, deterministically; a big block
+   occupying a cell **blocks that cell's regeneration** until it is destroyed; shards in
+   a healing cell are absorbed.
+6. **16 tanks must hold 60 Hz headless.** Measured early, not at the end; the batch rig
+   runs hundreds of matches.
+7. **Matches terminate by construction** — tick cap — because batch runs are unattended.
+8. **Profiles are typed data, validated at load** (AGENTS.md rule 3), so a new character
+   cannot become duplicated decision code.
 
-*Lean:* **(a)**, with the regen delay/rate a **named constant** and a pin that "a
-breach stays open long enough to drive through". The AI must be told the rate as a rule
-of the world, not left to discover it.
+## 6 · Still open — owner's word needed
 
-### T3 · Debris that deflects vs. an AI that plans
+| # | Question | Options | Lean |
+| ---: | --- | --- | --- |
+| Q1 | When the damage clock runs, does it **kill** or **floor at 1 HP**? | kills · floors at 1 | floors at 1 — a wounded hider then loses on HP at the threshold instead of being deleted passively. With a floor, the time threshold should be **on by default** or two wounded tanks can stall. |
+| Q2 | **Friendly fire** inside a team? | no FF, and teammates physically block shots · no FF and shots pass through teammates · full friendly fire | block-but-harmless: positioning matters, no accidental team-wipes, no shots phasing through bodies. |
+| Q3 | Does the **player get AI squadmates** (up to 3), or is the player team always one tank? | solo vs up to 4×4 AI · player + AI squadmates | AI squadmates, using the same profiles — otherwise a 4-team world is a spectator sport. |
 
-"Smaller debris can still influence trajectory" is a lovely detail and a measurement
-problem: if a shard deflects a shell unpredictably, every AI measurement becomes noise
-and no character can be tuned.
+## 7 · Defaults (vetoable, recorded as decisions unless overruled)
 
-| Option | Effect |
-| --- | --- |
-| (a) Shards **absorb** the shell; no deflection | Honest and plan-able; loses the detail |
-| (b) Shards deflect at a **fixed, deterministic angle** (a mirror facet) | Shot geometry becomes learnable — and very Tron |
-| (c) Shards deflect with seeded jitter | Realistic, but turns aim into a coin flip |
+- **Shell:** fast straight-line, no gravity, no arc; deterministic mirror deflection on
+  shards; lifetime bounded by range.
+- **Wall heights:** level data gives height per material; level one uses one tall wall
+  height and one low barrier height, so 3D cover is proved rather than assumed.
+- **Regen timing:** one cell heals a single frame of damage every ~20 s (a named
+  constant, tuned); debris does not heal.
+- **Shard cap:** 64 live shards, oldest despawns; big blocks persist until destroyed.
+- **Time threshold:** on, 5 minutes; winner = total team HP; tie → most tanks alive;
+  still tied → draw.
+- **Visibility:** full — no fog of war in v1. Tron arenas glow.
+- **Tank stats:** identical for all teams in v1 (one kind).
+- **Camera:** 3rd person orbit-follow, mouse wheel to 1st person; turret aims at the
+  cursor/depth ray.
 
-*Lean:* **(b)** — deterministic and therefore teachable, with the angle part of the
-shard's definition. (c) is rejected outright: it would make the batch rig unable to
-answer "is this character better?".
+## 8 · Slice roadmap
 
-### G1 · Verticality — 3D means *how much* 3D?
+- **Slice A — the world fights back.** Level data → 3D cells; three.js scene; drive/aim/
+  fire; shells; destruction; debris tiers; slow regen + displacement; 3 HP and the
+  damage clock; one authored level. **No AI yet** (a static target drone may be used to
+  prove hits). Pins: cell damage/debris/regen, displacement rule, deterministic seeded
+  run, batch of one scripted duel.
+- **Slice B — one character, then the rig.** Nav grid with dirty-cell invalidation, 3D
+  line of sight and shot feasibility, one profile (a hunt-heavy mix), headless batch of
+  100 seeded matches with win rate and accuracy; live all-AI spectate.
+- **Slice C — the cast and the teams.** Profiles as data + registry; sniper/ambusher/
+  brute-*mixes*; teams ≤4×≤4 with target selection and no-FF blocking; team win
+  conditions and the time threshold.
 
-Flat plane (one floor, walls rise from it) · ramps and upper levels · true multi-floor.
-*Lean:* **flat plane** for v1, with a 3D camera, height, and glow selling the depth.
-Multi-level navigation multiplies pathfinding, line-of-sight and destruction work
-before a single character has been tuned.
+## 9 · Non-goals for v1
 
-### G2 · What does a broken floor actually do?
-
-Tanks do not fall through — so what changes? *Options:* purely visual scarring ·
-traction changes · holes swallow shards · a shell that hits a hole is wasted.
-*Lean:* **floor cells are damage state only in v1** (visual, and they collect shards),
-no traversal effect. "Everything breakable" is then honest without inventing a rule.
-
-### G3 · Deathmatch scale
-
-1v1 only · N tanks in one arena (3–4) · both. *Lean:* **the simulation supports N
-(2–4); v1 is tuned 1v1 and 4-way**. Character comparison needs free-for-alls, and
-target selection is a different problem at four.
-
-### G4 · How a match ends, and the debris budget
-
-Kill only · kill or tick cap · tick cap with a winner by HP. Plus: how many shards may
-exist at once, and do they persist? *Lean:* **kill, plus a tick cap with the win going
-to more HP**, and a **hard shard cap** (oldest despawn) declared as a rule of the
-world. Both are needed for the batch rig to produce comparable numbers.
-
-## 5 · The package I would brief (if the leans survive)
-
-- **World:** flat glowing grid, 2 m cells, three materials (floor / wall / pillar), every
-  cell breakable, HP and a regen timer per cell. Simulation state is 2.5D — position,
-  hull yaw, turret yaw, HP — so the AI never solves a 3D problem.
-- **Destruction:** a shell kills a cell and produces either one **big block** (static,
-  blocks movement and shots, must be broken) or a few **shards** (pushable, deterministic
-  deflection, one hit and they shatter). Hard cap on live shards.
-- **Tanks:** one kind, 3 HP, damage clock with a floor, per the T1 ruling.
-- **AI:** one core; shared instrumental goals (*gain line of sight · hold cover · close
-  to weapon range · flank · breach · hold an ambush point*); profiles weight and gate
-  those goals. Hunter / sniper / ambusher / brute are four profiles, not four engines.
-- **Rig:** headless batch over the pure core — N seeded matches, win rate, accuracy,
-  time-to-kill — plus the live all-AI view.
-- **First slice:** one authored level, the player, and **one** profile (the hunter: no
-  pathing subtleties), destruction on, batch green. Sniper, ambusher and brute follow as
-  profiles once the world and the rig are trustworthy.
-
-## 6 · Non-goals for v1
-
-Multiplayer/network · multiple tank kinds · campaign · level editor · audio ·
-progression · extra verbs (mines, barriers, ammo types).
+Multiplayer/network · multiple tank kinds · campaign · level generator/editor · audio ·
+progression · extra verbs (mines, barriers, ammo types) · fog of war.

@@ -11,8 +11,9 @@
 
 ## Done
 
-- Design concept recorded: `docs/DESIGN.md` (ledger row 7); round-1 answers 3D,
-  destruction, verbs, HP/clock, deathmatch, profiles, one level (rows 8–13).
+- Design ruled through round 2: concept and answers recorded in `docs/DESIGN.md`
+  (ledger rows 7–21): fully 3D, breakable slow-regen world with displacement, drive/aim/
+  fire, 3 HP + wounded clock, 4 teams × 4 tanks, profiles as behaviour mixes, one level.
 - Day-1 scaffold (`cos init`): AGENTS.md, HANDOFF.md, docs, scripts, `.claude/`,
   `.cos/` hooks.
 - Git repo on `main`, identity `Tank Battle Dev <dev@tankbattle.local>`, remote
@@ -30,15 +31,16 @@
 
 ## Next action (one)
 
-**Record the owner's round-2 rulings** (`docs/DESIGN.md` §4: T1–T3, G1–G4) as ledger rows
-in the same commit as the design-doc edit, then cut the first gameplay brief from
-`docs/BRIEF.md` against §5 — world + destruction + the hunter profile only. No second
-profile and no extra content before that slice is gated.
+**Get §6 Q1–Q3 answered, then cut the Slice A brief** from `docs/BRIEF.md` against
+`docs/DESIGN.md` §8 Slice A: level data → 3D cells, three.js scene, drive/aim/fire,
+shells, destruction, debris tiers, slow regen + displacement, 3 HP + wounded clock,
+one authored level, **no AI yet** (a static drone proves hits). §7 defaults stand
+unless the owner overrules them.
 
 ## Open questions for the owner
 
-- **`docs/DESIGN.md` §4** — three tensions and four gaps, each with options and a lean.
-  The concept and round-1 answers are settled (ledger rows 7–13); these are not.
+- **`docs/DESIGN.md` §6** — three questions left: does the wounded clock kill or floor,
+  friendly fire inside a team, AI squadmates for the player. §7 holds vetoable defaults.
 
 ## Read first
 

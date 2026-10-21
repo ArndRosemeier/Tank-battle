@@ -33,7 +33,7 @@ reconciled: fec3cfc · 2026-10-21T21:16:00Z
 
 SESSION | id=goal-072ded4a-732a-401f-887e-b7618c07216a | model=deepseek/flash | harness=DSH | state=idle — chief of staff, goal created and PAUSED by designation
 
-QUEUE | row=1 | owner: DESIGN round 2 — concept and round-1 answers decided (3D Tron world, breakable+regenerating world, drive/aim/fire, 3 HP + damage clock, deathmatch, profiles over one core, one authored level); 3 tensions + 4 gaps open, no gameplay brief until ruled | src=docs/DESIGN.md §4 + ledger rows 8–14
+QUEUE | row=1 | owner: DESIGN RULED — concept, round-1 answers and round-2 rulings are decided (fully 3D, breakable+slow-regen world with displacement, drive/aim/fire, 3 HP + wounded clock, 4 teams x 4 tanks, profiles as mixes, one authored level); 3 questions + defaults in §6–§7 | src=docs/DESIGN.md §6, ledger rows 7–21
 
 QUEUE | row=2 | publish the static build to the app host once there is something to play | src=docs/ARCHITECTURE.md §4
 
@@ -65,11 +65,10 @@ RECOVERY | repo=/home/administrator/projects/Tank battle | remote=https://github
 
 ## Open questions for the owner
 
-1. **Rule on `docs/DESIGN.md` §4** — the three tensions (damage clock vs. ambusher;
-   breaching vs. regeneration; shard deflection vs. a plan-able AI) and the four gaps
-   (verticality, floor holes, deathmatch scale, match end + debris budget). The concept
-   is settled (ledger row 7) and the round-1 answers are recorded (rows 8–13); none of
-   the round-2 leans is decided yet (row 14).
+1. **Three questions in `docs/DESIGN.md` §6** — does the wounded clock floor at 1 HP,
+   friendly fire inside a team, and does the player get AI squadmates. Everything else
+   the owner has ruled or the defaults in §7 will stand. Slice A can be briefed once
+   these three are answered (they gate tank, team and match-end code).
 
 ## Traps (each with the rule that prevents it)
 
@@ -92,3 +91,7 @@ RECOVERY | repo=/home/administrator/projects/Tank battle | remote=https://github
   uncovered (the stop hook caught `44b514f` this way; the run had recorded
   `926d25f`). Rule: **commit first, gate second, push third** — the push is still
   blocked because nothing is pushed until the run is green.
+- `TRAP` — **a dispatcher must not hedge the world model to save implementation cost.**
+  The "2.5D simulation" framing was withdrawn by the owner: *"This should be FULLY 3D.
+  Nothing here is 2D. You seem to regress that way."* Rule: the owner sets the fidelity;
+  the dispatcher's job is to keep the core renderer-free so the fidelity stays affordable.
