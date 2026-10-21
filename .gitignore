@@ -13,3 +13,6 @@ dist/
 coverage/
 .DS_Store
 *.log
+
+# generated-asset probes (promoted into assets/ only after review)
+.probe-assets/

@@ -233,7 +233,44 @@ against it, and it outranks "it renders".
   only — no duplicated game state. Each presentation slice is reviewed as screenshots
   by the owner before it is called done; my report carries the images, not adjectives.
 
-## 10 · Non-goals for v1
+## 10 · Assets, sound and provenance
+
+**Owner (2026-10-21):** "You got access to openrouter. You may use this to create
+graphics, a soundtrack or even game sounds." The capability is the host `openrouter`
+skill: the `or` CLI on the **creative** key (never printed, never copied into the repo).
+
+**What we generate** — the things procedural geometry cannot give us:
+
+- **Music.** One or two loopable themes (Google Lyria). The game's tension bed, not a
+  licensed track.
+- **SFX.** Cannon fire, shell impact, panel destruction, regeneration, engine hover, UI
+  blips (ByteDance Seed Audio; prompts must start with `The sound of...` for an effect
+  rather than speech).
+- **2D art where a texture beats a shader:** glow sprites, menu backdrops, the wordmark.
+
+**What we do NOT generate:** the arena's look (edge-lit procedural geometry, §9), the
+HUD layout (drawn by our own UI module), and anything with readable text baked in — an
+image model's lettering is not a UI.
+
+**Provenance is mandatory.** Every generated asset is committed with an entry in
+`assets/manifest.json`: file path, sha256, model id, prompt, and date. The manifest is
+how an asset is regenerated or replaced later, and **a pin fails the suite when a file
+in `assets/` is missing from the manifest or a manifest entry is missing its file**.
+No orphan binaries, no undocumented magic.
+
+**Style contract.** An asset that fights the edge-lit look is rejected however good it
+is in isolation. The renderer stays truth-free; sound never gates simulation.
+
+**Integration.** One audio seam (a small mixer module in the presentation layer) owns
+playback, volume and ducking; assets are preloaded, bundled, and served locally — no
+runtime CDN, no autoplay surprises (the audio context starts on first input, as every
+browser requires).
+
+**Cost discipline.** The creative key is metered. Probes are generated in batches, kept
+small, and never re-rolled for taste without a reason; anything shipped has already been
+approved by ear or eye.
+
+## 11 · Non-goals for v1
 
 **Network transport and matchmaking** in v1 — the architecture is built for them
 (§5.9–12), but nothing is wired over a socket yet · multiple tank kinds · campaign ·
