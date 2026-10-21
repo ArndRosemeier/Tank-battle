@@ -1,0 +1,15 @@
+.gate-logs/
+.gate-lock/
+worktrees/
+.cos/journal.jsonl
+.cos/worktrees
+.cos/root-session
+.cos/.stop-guard
+
+# app
+node_modules/
+dist/
+.vite/
+coverage/
+.DS_Store
+*.log
