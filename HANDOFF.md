@@ -28,15 +28,14 @@
 
 ## Next action (one)
 
-**Wait for the owner's answer to board open question 1** (the first playable slice).
-When it arrives: cut a writer brief from `docs/BRIEF.md`, assign ledger row 6, create
-`worktrees/<slice>`, and name `src/core/timestep.ts` + `src/main.ts` as the seams it
-extends. Do not design the game before that answer.
+**Have the design discussion with the owner** (board open question 1, ledger row 6)
+and record each answer as a ledger row as it is given. Do NOT cut a gameplay brief
+before the discussion fixes the experience; the skeleton stays inert until then.
 
 ## Open questions for the owner
 
-- **The first playable slice:** recommended 1-vs-1 duel, one arena, first to 3.
-  Alternatives and the rejection reasoning: ledger row 2.
+- **The design itself:** undecided by design. The name is not a brief (ledger row 6);
+  the discussion comes before any slice.
 
 ## Read first
 

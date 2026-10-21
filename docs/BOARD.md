@@ -33,7 +33,7 @@ reconciled: fec3cfc · 2026-10-21T21:16:00Z
 
 SESSION | id=goal-072ded4a-732a-401f-887e-b7618c07216a | model=deepseek/flash | harness=DSH | state=idle — chief of staff, goal created and PAUSED by designation
 
-QUEUE | row=1 | owner: the direction of the FIRST PLAYABLE SLICE (the game's core loop) — awaiting the owner's choice | src=this board, "Open questions for the owner"
+QUEUE | row=1 | owner: DESIGN DISCUSSION first — the game is not designed yet and must not be inferred from its name; no gameplay brief until it is | src=this board, "Open questions for the owner" + ledger row 6
 
 QUEUE | row=2 | publish the static build to the app host once there is something to play | src=docs/ARCHITECTURE.md §4
 
@@ -65,10 +65,10 @@ RECOVERY | repo=/home/administrator/projects/Tank battle | remote=https://github
 
 ## Open questions for the owner
 
-1. **What is the first playable slice?** There is no gameplay yet, by design (ledger
-   row 2). The one decision needed: *what does the player do in the first round?*
-   Recommended: a 1-vs-1 tank duel on one arena — drive, aim, fire, one-hit death,
-   first to 3. See the alternatives in ledger row 2.
+1. **The game's design is NOT decided, and will not be inferred from the name.** Open
+   until a design discussion with the owner has fixed: who is in the room, where the
+   tension comes from, how a tank feels, the session shape, the tone (ledger row 6).
+   No gameplay brief may be cut before that. The earlier four-mode menu is withdrawn.
 
 ## Traps (each with the rule that prevents it)
 
@@ -82,3 +82,7 @@ RECOVERY | repo=/home/administrator/projects/Tank battle | remote=https://github
 - `TRAP` — **float drift in a fixed-step accumulator**: 25 owed slices of 10 ms came
   out as 24. Rule: compare with a documented tolerance (`STEP_TOLERANCE`) and pin the
   exact count.
+- `TRAP` — **a project name is not a design brief.** The first proposal inferred a game
+  mode from "Tank battle" alone and offered four of them as if they were the choice.
+  Rule: before the first gameplay brief, the design discussion fixes the experience
+  (ledger row 6).
