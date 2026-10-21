@@ -173,7 +173,7 @@ export function cameraPose(request: CameraPoseRequest): CameraPose {
       const span = Math.max(width, depth);
       const center: Vec3 = {
         x: (arena.minX + arena.maxX) / 2,
-        y: floorY + 1,
+        y: floorY + CAMERA.wideTargetHeightMetres,
         z: (arena.minZ + arena.maxZ) / 2,
       };
       const fractions = CAMERA.wideOffsetFractions;

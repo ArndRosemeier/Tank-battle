@@ -19,7 +19,7 @@
 
 import { BoxGeometry, Group, Vector3 } from 'three';
 import { cellAt, cellState, isSolidAt, type World } from '../core/world.ts';
-import { GRID, PALETTE } from './config.ts';
+import { GRID, HOLE_RIM, NEON, PALETTE } from './config.ts';
 import { createGridFloor, type GridFloor } from './gridFloor.ts';
 import {
   createNeonSurface,
@@ -60,7 +60,9 @@ export function createWorldMesh(world: World): WorldMesh {
     clear();
 
     const parts: SurfacePart[] = [];
-    const rimSegments: number[] = [];
+    const outerRimSegments: number[] = [];
+    const innerRimSegments: number[] = [];
+    const verticalAccentSegments: number[] = [];
     const holes = new Set<string>();
     const cellSize = GRID.cellMetres;
     const holeRimHeight = world.floorSurfaceHeightMetres + 0.012;
@@ -90,11 +92,26 @@ export function createWorldMesh(world: World): WorldMesh {
           continue;
         }
         const geometry = new BoxGeometry(cellSize, topMetres, cellSize);
-        geometry.translate((x + 0.5) * cellSize, topMetres / 2, (z + 0.5) * cellSize);
+        const centreX = (x + 0.5) * cellSize;
+        const centreZ = (z + 0.5) * cellSize;
+        geometry.translate(centreX, topMetres / 2, centreZ);
         parts.push({
           geometry,
           color: cell.material === 'wall' ? PALETTE.wallEdge : PALETTE.pillarEdge,
         });
+
+        // Brighter vertical corner accents (D2): a duplicated, hotter line at each
+        // box corner makes a wall read as a stack of panels, not a flat cut-out.
+        const x0 = x * cellSize;
+        const x1 = x0 + cellSize;
+        const z0 = z * cellSize;
+        const z1 = z0 + cellSize;
+        verticalAccentSegments.push(
+          x0, 0, z0, x0, topMetres, z0,
+          x1, 0, z0, x1, topMetres, z0,
+          x0, 0, z1, x0, topMetres, z1,
+          x1, 0, z1, x1, topMetres, z1,
+        );
       }
     }
 
@@ -114,28 +131,60 @@ export function createWorldMesh(world: World): WorldMesh {
         { neighbour: `${x - 1},${z}`, from: [x0, z0], to: [x0, z1] },
         { neighbour: `${x + 1},${z}`, from: [x1, z0], to: [x1, z1] },
       ] as const;
+      const centreX = (x + 0.5) * cellSize;
+      const centreZ = (z + 0.5) * cellSize;
       for (const side of sides) {
         // A side is a boundary when the neighbour is outside the arena (its key is
         // not in the set) or is not itself a hole. Neighbouring holes share no line.
         if (holes.has(side.neighbour)) {
           continue;
         }
-        rimSegments.push(
-          side.from[0],
+        const fromX = side.from[0];
+        const fromZ = side.from[1];
+        const toX = side.to[0];
+        const toZ = side.to[1];
+        outerRimSegments.push(fromX, holeRimHeight, fromZ, toX, holeRimHeight, toZ);
+
+        // A second loop inset into the hole widens the rim without a line-width
+        // shader. The direction is from the side midpoint toward the cell centre.
+        const midX = (fromX + toX) / 2;
+        const midZ = (fromZ + toZ) / 2;
+        const inwardX = centreX - midX;
+        const inwardZ = centreZ - midZ;
+        const inwardLength = Math.hypot(inwardX, inwardZ) || 1;
+        const offsetX = (inwardX / inwardLength) * HOLE_RIM.insetMetres;
+        const offsetZ = (inwardZ / inwardLength) * HOLE_RIM.insetMetres;
+        innerRimSegments.push(
+          fromX + offsetX,
           holeRimHeight,
-          side.from[1],
-          side.to[0],
+          fromZ + offsetZ,
+          toX + offsetX,
           holeRimHeight,
-          side.to[1],
+          toZ + offsetZ,
         );
       }
     }
 
     const extraLineSegments: LineSegmentBatch[] = [];
-    if (rimSegments.length > 0) {
+    if (outerRimSegments.length > 0) {
       extraLineSegments.push({
-        positions: new Float32Array(rimSegments),
+        positions: new Float32Array(outerRimSegments),
         color: PALETTE.holeRim,
+        gain: NEON.holeRimGain,
+      });
+    }
+    if (innerRimSegments.length > 0) {
+      extraLineSegments.push({
+        positions: new Float32Array(innerRimSegments),
+        color: PALETTE.holeRim,
+        gain: NEON.holeRimInnerGain,
+      });
+    }
+    if (verticalAccentSegments.length > 0) {
+      extraLineSegments.push({
+        positions: new Float32Array(verticalAccentSegments),
+        color: PALETTE.verticalEdge,
+        gain: NEON.verticalEdgeGain,
       });
     }
 

@@ -11,7 +11,7 @@
  */
 
 import { BoxGeometry, CylinderGeometry, Group, type BufferGeometry } from 'three';
-import { NEON, PALETTE, TANK, teamColor } from './config.ts';
+import { NEON, PALETTE, TANK, teamColor, teamEdgeGainFor } from './config.ts';
 import { createNeonSurface, type NeonSurface, type SurfacePart } from './neonSurface.ts';
 
 export interface PlaceholderTank {
@@ -48,7 +48,8 @@ export function createPlaceholderTank(teamIndex: number, phase: number): Placeho
     throw new Error(`placeholderTank: phase must be finite, got ${phase}`);
   }
   const color = teamColor(teamIndex);
-  const gain = NEON.teamEdgeGain;
+  // D5: the hue is the owner's, the BRIGHTNESS is normalised across teams.
+  const gain = teamEdgeGainFor(teamIndex);
   const core = { color: PALETTE.iceWhite, gain: NEON.coreGain };
 
   const hullParts: SurfacePart[] = [
@@ -74,31 +75,57 @@ export function createPlaceholderTank(teamIndex: number, phase: number): Placeho
     { geometry: box(0.3, 0.08, 0.2, -0.8, 0.6, 1.79), ...core },
   ];
 
+  // A distinct, taller hexagonal turret so the silhouette is a tank, not a slab.
   const turretGeometry = new CylinderGeometry(
-    TANK.turretWidthMetres * 0.42,
-    TANK.turretWidthMetres * 0.56,
+    TANK.turretWidthMetres * 0.4,
+    TANK.turretWidthMetres * 0.52,
     TANK.turretHeightMetres,
     6,
     1,
     false,
   );
   turretGeometry.rotateY(Math.PI / 6);
-  turretGeometry.translate(0, 0.29, 0.02);
+  turretGeometry.translate(0, 0.32, 0.02);
+
+  const barrelStart = -0.62;
+  const barrelCentre = barrelStart - TANK.barrelLengthMetres / 2;
+  const barrelEnd = barrelStart - TANK.barrelLengthMetres;
+  const muzzleCentre = barrelEnd - TANK.muzzleLengthMetres / 2;
 
   const turretParts: SurfacePart[] = [
     { geometry: turretGeometry, color, gain },
     // Rear turret bustle: weight at the back, and a second turret line.
-    { geometry: box(1.0, 0.3, 0.55, 0, 0.3, 0.75), color, gain },
-    // Mantlet, barrel and an ice-white muzzle brake.
-    { geometry: box(0.52, 0.36, 0.44, 0, 0.3, -0.55), color, gain },
+    { geometry: box(1.15, 0.34, 0.62, 0, 0.32, 0.82), color, gain },
+    // Mantlet, then the gun: a long square barrel with collars and a hot muzzle.
+    { geometry: box(0.82, 0.46, 0.5, 0, 0.32, -0.58), color, gain },
     {
-      geometry: box(0.2, 0.2, TANK.barrelLengthMetres, 0, 0.3, -1.2),
+      geometry: box(
+        TANK.barrelDiameterMetres,
+        TANK.barrelDiameterMetres,
+        TANK.barrelLengthMetres,
+        0,
+        0.34,
+        barrelCentre,
+      ),
       color,
       gain,
     },
-    { geometry: box(0.36, 0.36, 0.3, 0, 0.3, -2.15), ...core },
-    // Sensor mast: a thin vertical line above the turret.
-    { geometry: box(0.09, 0.34, 0.09, 0.38, 0.62, 0.05), ...core },
+    { geometry: box(0.38, 0.38, 0.22, 0, 0.34, -1.05), color, gain },
+    { geometry: box(0.38, 0.38, 0.22, 0, 0.34, -2.35), color, gain },
+    {
+      geometry: box(
+        TANK.muzzleDiameterMetres,
+        TANK.muzzleDiameterMetres,
+        TANK.muzzleLengthMetres,
+        0,
+        0.34,
+        muzzleCentre,
+      ),
+      ...core,
+    },
+    // Cupola and sensor mast above the turret: the second silhouette step.
+    { geometry: box(0.55, 0.22, 0.55, 0, 0.73, 0.1), color, gain },
+    { geometry: box(0.09, 0.34, 0.09, 0.34, 0.9, 0.05), ...core },
   ];
 
   const group = new Group();
@@ -121,7 +148,10 @@ export function createPlaceholderTank(teamIndex: number, phase: number): Placeho
     group,
     turret,
     sweep(elapsedSeconds: number): void {
-      turret.rotation.y = Math.sin(elapsedSeconds * sweepAngularSpeed + phase) * TANK.sweepRadians;
+      // A small rest yaw keeps the gun visible from the 3/4 follow pose; the sweep
+      // only wiggles it, so a screenshot never catches a barrel hidden dead ahead.
+      turret.rotation.y =
+        TANK.turretRestYawRadians + Math.sin(elapsedSeconds * sweepAngularSpeed + phase) * TANK.sweepRadians;
     },
     dispose(): void {
       for (const surface of surfaces) {

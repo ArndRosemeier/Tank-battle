@@ -10,10 +10,11 @@ Dependencies point **downward only**; nothing below a layer may import from abov
 | **entry · DOM** | `src/entry/dom.ts` | The one way to obtain a DOM node the app cannot run without, with the narrowed type. |
 | **core** | `src/core/*.ts` | Pure simulation: no DOM, no time source, no globals. Takes numbers in, returns numbers out, so it tests in `node`. |
 | **core · world** | `src/core/world/*.ts`, entrance `src/core/world.ts` | The world model: cells with height, destruction, two debris tiers, slow regeneration with displacement, and the state hash. Pure data and functions — it has **no tank, shell or AI concept**; tanks arrive as occupant positions and shells as damage calls. |
-| **render · tuning** | `src/render/config.ts` | The ONE tuning module: palette, HDR gains, bloom, post, camera distances, grid size, `SURFACE_DETAIL`. Every render constant lives here; a source scan fails on a hex colour anywhere else. |
-| **render · surface** | `src/render/neonSurface.ts` | The ONE material seam: dark fill + emissive edge lines + faint fresnel rim + an (unused in A2) detail-map slot, merged so a whole world is one fill/rim/line buffer. One global `setSurfaceDetail`. |
-| **render · world** | `src/render/worldMesh.ts`, `gridFloor.ts`, `demoWorld.ts` | Meshes the REAL A1 cells, owns the one rebuild path for destruction, and draws the shader grid floor. The placeholder arena is A2's; A4 owns the authored level. Big blocks and shards are A3 VFX. |
-| **render · camera** | `src/render/cameraMath.ts` (pure), `cameraRig.ts` (three), `placeholderTank.ts` | Camera poses, zoom clamp and first-person boundary as pure node-tested maths; the `three` spring and camera object; the A2-only tank placeholder. |
+| **render · tuning** | `src/render/config.ts` | The ONE tuning module: palette, team-luma gains, HDR gains, albedo band, bloom, post, fog, camera distances, grid size, surface seams, scene budget, `SURFACE_DETAIL`. Every render constant lives here; a source scan fails on a hex colour anywhere else. |
+| **render · surface** | `src/render/neonSurface.ts` | The ONE material seam: dark fill + emissive edge lines + fresnel/wall-sheen/top-band rim + procedural panel seams + an (unused) detail-map slot, merged so a whole world is one fill/rim/line buffer. The fill is polygon-offset; one global `setSurfaceDetail`. |
+| **render · world** | `src/render/worldMesh.ts`, `gridFloor.ts`, `demoWorld.ts` | Meshes the REAL A1 cells, owns the one rebuild path for destruction, and draws the shader grid floor with black void quads for holes. The placeholder arena/perimeter is A2's; A4 owns the authored level. Big blocks and shards are A3 VFX. |
+| **render · assembly** | `src/render/sceneAssembly.ts`, `sceneStats.ts`, `gateways.ts` | Builds the EXACT showcase the app renders (world + 16 tanks + merged gateway arches), exposes its scene-build stats, and keeps the presentation-only gateways out of the world model. |
+| **render · camera** | `src/render/cameraMath.ts` (pure), `cameraRig.ts` (three), `placeholderTank.ts` | Camera poses, zoom clamp and first-person boundary as pure node-tested maths; the `three` spring and camera object; the A2-only tank placeholder with a real gun/turret silhouette. |
 | **app shell** | `index.html`, `vite.config.ts`, `tsconfig.json` | The mount point, the build, the base path. |
 
 A file in `src/core/` that imports `main.ts`, touches `document`, or reads
@@ -28,21 +29,26 @@ running headless in `node`.
 | --- | --- | --- | --- |
 | frame time → simulation steps | `FixedStep.advance(frameSeconds, onStep)` | `src/core/timestep.ts:58` | The only place a frame delta becomes steps. Never step by the raw delta, and never keep a second accumulator. The `maxFrame` clamp is the anti-spiral rule; `STEP_TOLERANCE` (`src/core/timestep.ts:34`) is the float-drift rule. |
 | a required DOM node, typed | `requireElement(id, kind, label)` | `src/entry/dom.ts:20` | Returns the narrowed type, so callers need no guard. Every use of `document.getElementById` goes through it. |
-| reporting a failure to the player | `reportError(cause)` | `src/main.ts:42` | The app's ONE error surface: visible banner + console. New failure paths call this; they never log alone and never swallow. |
-| the renderer, canvas and composer size | `resize()` | `src/main.ts:197` | Owns the DPR cap, renderer size, camera aspect and composer/bloom sizing. Nothing else may set `canvas.width`/`height` or the camera aspect. |
-| the frame loop | `frame()` → `requestAnimationFrame` | `src/main.ts:234` | One `requestAnimationFrame` chain in the app (`src/main.ts:275` continues it, `src/main.ts:321` starts it). A second chain is a bug, not an optimisation. |
-| a render colour, bloom number, camera distance or grid size | `PALETTE` · `NEON` · `BLOOM` · `POST` · `CAMERA` · `GRID` · `SURFACE_DETAIL` | `src/render/config.ts:20` | The ONE tuning module. A source scan (`src/render/purity.test.ts`) fails on a hex colour outside it — nothing else hardcodes a colour or a bloom number. |
-| a neon surface | `createNeonSurface(parts, options)` | `src/render/neonSurface.ts:257` | Takes ownership of the part geometries, merges all fills into ONE `BufferGeometry` (shared by the fill and the rim) and all edges into ONE `LineSegments`; hole rims ride the same line buffer. |
-| moving the global surface detail | `setSurfaceDetail(0…1)` · `getSurfaceDetail()` | `src/render/neonSurface.ts:178` | The ONLY knob for `SURFACE_DETAIL`; it scales the rim and the detail-map slot, never the edges. `L` toggles 0 ↔ the configured default. |
+| reporting a failure to the player | `reportError(cause)` | `src/main.ts:41` | The app's ONE error surface: visible banner + console. New failure paths call this; they never log alone and never swallow. |
+| the renderer, canvas and composer size | `resize()` | `src/main.ts:189` | Owns the DPR cap, renderer size, camera aspect and composer/bloom sizing. Nothing else may set `canvas.width`/`height` or the camera aspect. |
+| the frame loop | `frame()` → `requestAnimationFrame` | `src/main.ts:227` | One `requestAnimationFrame` chain in the app (`src/main.ts:269` continues it, `src/main.ts:316` starts it). A second chain is a bug, not an optimisation. |
+| a render colour, albedo, bloom number, fog or camera distance | `PALETTE` · `NEON` · `TEAM_LUMA_GAIN` · `SURFACE_LUMA_BAND` · `BLOOM` · `POST` · `FOG` · `CAMERA` · `GRID` · `SURFACE_DETAIL` | `src/render/config.ts:20` | The ONE tuning module. A source scan (`src/render/purity.test.ts`) fails on a hex colour outside it — nothing else hardcodes a colour or a bloom number. |
+| a neon surface | `createNeonSurface(parts, options)` | `src/render/neonSurface.ts:313` | Takes ownership of the part geometries, merges all fills into ONE `BufferGeometry` (shared by the fill and the rim) and all edges into ONE `LineSegments`; hole rims ride the same line buffer. |
+| moving the global surface detail | `setSurfaceDetail(0…1)` · `getSurfaceDetail()` | `src/render/neonSurface.ts:234` | The ONLY knob for `SURFACE_DETAIL`; it scales the rim, wall sheen, top band, panel seams and detail-map slot, never the edges. `L` toggles 0 ↔ the configured default. |
 | the world's mesh | `createWorldMesh(world)` · `rebuild()` | `src/render/worldMesh.ts:44` | Reads cells through `cellAt`/`cellState`/`isSolidAt`; `rebuild()` is the ONE path A3 calls after destruction or regeneration. Never patch the merged buffers in place. |
-| the floor grid | `createGridFloor(world)` · `update(cameraPosition)` | `src/render/gridFloor.ts:91` | One shader mesh over the intact floor cells; holes are omitted quads (the void shows) and their rims come from `worldMesh`. Two distance-falloff ranges, fine lines then major lanes. |
+| the floor grid and its voids | `createGridFloor(world)` · `update(cameraPosition)` | `src/render/gridFloor.ts:109` | One shader mesh over EVERY cell; an `aVoid` vertex flag makes a hole quad pure black and skips the grid (D6), while the rim comes from `worldMesh`. Two distance-falloff ranges; fog in the shader. |
 | a deterministic camera pose | `cameraPose(request)` | `src/render/cameraMath.ts:161` | The three screenshot poses (`wide`, `tank`, `first`); the same request reproduces the same position and target (pinned). |
 | orbit → camera pose | `orbitPose(input)` | `src/render/cameraMath.ts:97` | Behind-a-forward-vector orbit; as the arm collapses into first person the target slides forward, with zero look-ahead at the boundary. |
 | the zoom clamp and the first-person boundary | `zoomDistance` · `clampDistance` · `isFirstPerson` | `src/render/cameraMath.ts:58` | One clamp (0.55…16 m) and an exclusive 2 m first-person boundary (below it the hull hides); malformed numbers throw. |
 | the camera object and spring | `new CameraRig(...)` · `.update(dt)` | `src/render/cameraRig.ts:50` | The only place a `PerspectiveCamera` is posed. A selected screenshot pose freezes the rig. |
 | a placeholder tank | `createPlaceholderTank(teamIndex, phase)` | `src/render/placeholderTank.ts:46` | A2-only, not a game entity: two `NeonSurface` calls (hull, turret+barrel) = six draw calls per tank. |
-| the placeholder arena | `createShowcaseScene()` | `src/render/demoWorld.ts:52` | Real `createWorld` + `damageCell` data; A4 replaces it with the authored level. |
-| the post pipeline | `new EffectComposer` … `OutputPass` | `src/main.ts:176` | RenderPass → UnrealBloom → vignette → OutputPass; ACES Filmic + sRGB. `renderer.info.autoReset = false` so the readout counts the whole composed frame. |
+| the showcase world (perimeter, gates, holes, spawns) | `createShowcaseScene()` | `src/render/demoWorld.ts:72` | Real `createWorld` + `damageCell` data; the perimeter/gates are A2b presentation scaffolding, A4 replaces all of it. |
+| building and measuring the rendered scene | `buildArenaScene()` · `measureScene(root)` | `src/render/sceneAssembly.ts:37` · `src/render/sceneStats.ts:25` | ONE assembly shared by the app and the GPU-independent budget pin; measures draw objects, triangles and vertices in `node`. |
+| the four team hues' rendered luminance | `rec709Luminance(hex)` · `teamEdgeGainFor(index)` | `src/render/config.ts:97` · `src/render/config.ts:115` | The hue stays the owner's; the HDR gain is normalised so all four edges sit at the same Rec.709 luma (D5). Never apply a raw team colour to an edge. |
+| the GPU-independent scene budget | `SCENE_BUDGET` | `src/render/config.ts:281` | 20 % headroom over the measured showcase (103 objects / 13,344 tri / 39,232 verts): 124 / 16,100 / 47,100, with an absolute 200 draw-object ceiling. |
+| the gateway arches | `createGatewayArches(gates)` | `src/render/gateways.ts:45` | Presentation-only merged surface for the four entries; the world owns the floor gap, A4 will own collision. |
+| the post pipeline | `new EffectComposer` … `OutputPass` | `src/main.ts:168` | RenderPass → UnrealBloom → vignette → OutputPass; ACES Filmic + sRGB. `renderer.info.autoReset = false` so the readout counts the whole composed frame. |
+| distance fog on every renderer | `scene.fog` plus the ShaderMaterials' `uFogNear/uFogFar` | `src/main.ts:142` · `src/render/config.ts:184` | Standard fill/edge materials take scene fog automatically; the rim and grid ShaderMaterials carry the same range in their uniforms. A new ShaderMaterial must do the same or it will visibly not fade. |
 | the screenshot | `scripts/shot.sh` | `scripts/shot.sh:1` | Build, serve `dist`, headless Chrome, then kill the server AND the Chrome process group in a `trap`; a SwiftShader retry only when the first frame is not a rendered image. |
 | seeded randomness in the simulation | `createRng(seed)` | `src/core/rng.ts:35` | The ONLY draw source under `src/core`: integer-only mulberry32, so a seed reproduces its sequence on every engine. A source scan (`src/core/purity.test.ts`) fails the build on `Math.random`. |
 | building the world | `createWorld(spec)` | `src/core/world/state.ts:97` | Validates the spec loudly (integer dimensions, a height above the floor plane, no double placement) and builds the row-major grid. Level data fills the same shape. |
@@ -85,11 +91,35 @@ running headless in `node`.
   spec permits only 1 px lines and ANGLE follows it, so the look is 1 px lines plus
   `UnrealBloomPass` for the glow. Do not "fix" this with a screen-space line-width
   shader in A2 — that is a different material system, not a tuning change.
+- **Coincident edge lines lose a depth test against their fill: that was D1.** The
+  `EdgesGeometry` lines sit exactly on the fill's triangle boundaries, so the line's
+  rasterized depth differs from the triangle's by a few ULPs and `LessEqualDepth`
+  rejects it in a periodic DOT pattern. It is not `LineDashedMaterial`, not missing
+  edge segments, and not the bloom threshold. The ONE fix is `polygonOffset` on the
+  fill (positive factor/units, pushing it AWAY), set in `neonSurface.ts` and pinned in
+  `neonSurface.test.ts`. Do not turn depth-test off, offset line vertices, or draw a
+  second line to "fill" the dots.
 - **Merged buffers are a snapshot, not live geometry.** `WorldMesh.rebuild()` re-reads
-  every cell and rebuilds the fill, rim and ONE edge buffer (hole rims included); the
-  fill and rim share one uploaded `BufferGeometry`. A3 must call `rebuild()` after a
-  breach or a regeneration instead of mutating merged geometry in place. Disposing a
-  surface frees its merged geometries, never the shared materials.
+  every cell and rebuilds the fill, rim and ONE edge buffer (hole rims, vertical
+  accents, panel/hole line batches included); the fill and rim share one uploaded
+  `BufferGeometry`. A3 must call `rebuild()` after a breach or a regeneration instead
+  of mutating merged geometry in place. Disposing a surface frees its merged
+  geometries, never the shared materials.
+- **The fill albedo is a §9 BUDGET and the rim is the volume cue.** A2b raised the
+  fill into the 2–10 % linear band (`surfaceFill` 2.07 %, `surfaceFillTop` 4.07 %)
+  because below it a wall side read as a cut-out; the wall now gets its volume from a
+  vertical sheen, a top-face band and procedural panel seams, all scaled by
+  `SURFACE_DETAIL`. Do not brighten the albedo to make a wall read — raise the rim.
+  The albedo band is pinned in `config.test.ts`.
+- **D5 normalises the GAIN, not the owner's hues.** `teamEdgeGainFor(teamIndex)` is the
+  only correct way to turn a team into an edge identity: it applies the per-team
+  correction that equalises Rec.709 luminance (pinned). Using `NEON.teamEdgeGain`
+  directly, or a raw `PALETTE.team` colour, re-introduces the lime advantage.
+- **A hole is a black void quad, not an omitted quad.** `gridFloor` now carries an
+  `aVoid` vertex attribute per cell; the shader returns `PALETTE.void` (pure black) and
+  skips the grid. `worldMesh` adds a bright outer rim and a second inset loop. If a
+  hole shows grid lines, the void flag or the cell query is wrong — do not hide it
+  behind a brighter rim. The data is pinned in `gridFloor.test.ts`.
 - **`renderer.info.render.calls` counts the whole frame only with `autoReset = false`.**
   `EffectComposer` calls `renderer.render` once per pass, so with the default auto-reset
   the readout would show only the last pass. `src/main.ts` resets the info once per
@@ -100,18 +130,29 @@ running headless in `node`.
   quote a screenshot's counter as a performance measurement.
 - **This host has no reachable hardware GPU.** Chrome reports ANGLE/SwiftShader,
   `/dev/dri/renderD128` is `root:render` and the user is not in that group, `eglinfo`
-  reports `swrast`, and Vulkan exposes only `llvmpipe`. The measured 3.7–3.8 fps at
-  1920×1080 is a software-rasterizer floor, not a code regression; 60 fps cannot be
-  claimed or disproved here.
+  reports `swrast`, and Vulkan exposes only `llvmpipe`. The measured A2b 3.58–3.75 fps
+  at 1920×1080 is a software-rasterizer floor, not a code regression; the DoD's 60 fps
+  is pending an owner GPU measurement, and the budget pin is the gate here.
 - **The floor grid and the hole rims are derived from the same cell query.** The grid
-  omits a quad when `isSolidAt` says the slab is gone, and `worldMesh` draws that cell's
-  boundary as a hole rim merged into the world's ONE edge buffer. If they disagree, the
-  world query is the authority: rebuild, never patch.
-- **`SURFACE_DETAIL` is one module-global scalar.** It scales the fresnel rim and the
-  reserved detail-map slot on the shared material; it never touches the edge lines or
-  bloom. The detail slot is deliberately empty in A2 — a future texture must come through
-  §9's image-map budget (tileable greyscale, ≤ 512², ≤ 15 %), not be loaded in a scene
-  module.
+  marks a cell void when `isSolidAt` says the slab is gone, and `worldMesh` draws that
+  cell's boundary as a double rim merged into the world's ONE edge buffer. If they
+  disagree, the world query is the authority: rebuild, never patch.
+- **The gateway arches are PRESENTATION-ONLY.** `demoWorld` leaves floor in the four
+  gate gaps; `gateways.ts` adds the arch geometry outside the world model. A4 owns the
+  final level and must decide the collision/threshold story; do not read gameplay
+  bounds from the arches.
+- **The scene budget is the performance gate on this host.** `buildArenaScene()` is the
+  one assembly the app and `sceneBudget.test.ts` share, so the budget cannot measure a
+  scene different from the rendered one. The pin is 20 % over measured
+  (103 objects / 13,344 triangles / 39,232 vertices) with an absolute 200 draw-object
+  ceiling; the SwiftShader fps floor (≥ 3.0) is a regression signal, not the target.
+  Adding a tank or unmerging a surface must raise the budget deliberately, not drift.
+- **`SURFACE_DETAIL` is one module-global scalar.** It scales the fresnel rim, wall
+  sheen, top band, procedural seams and the reserved detail-map slot on the shared
+  material; it never touches the edge lines or bloom. The detail slot is deliberately
+  empty — a future texture must come through §9's image-map budget (tileable greyscale,
+  ≤ 512², ≤ 15 %), not be loaded in a scene module. The 0-vs-default pair is the
+  control: zero leaves albedo + edge lines; the default adds richness, never dominance.
 - **The interactive camera and the screenshot poses are two different things.** The
   follow arm stays dead astern; `cameraPose('tank')` is a frozen over-the-shoulder 3/4
   framing for review. Do not use the pose offset as gameplay camera behaviour.
@@ -140,15 +181,16 @@ running headless in `node`.
 
 ## 4 · Known debt
 
-- **No playable game yet.** Slice A2 now draws the A1 world, 16 placeholder tanks and
-  the follow camera over a real bloom pipeline, but there is no drive/aim/fire, no
-  shells, no debris VFX, no damage clock and no HUD. A3 owns that, and A4 owns the
-  authored level that replaces `src/render/demoWorld.ts` (`docs/DESIGN.md` §8; ledger
-  row 30).
-- **The 60 fps target is unverified on this host.** The only WebGL backend is
-  SwiftShader (no accessible DRM device; see the gotcha above). The measured 3.7–3.8
-  fps at 1920×1080 with 16 tanks is a lower bound from software rasterisation. A
-  hardware measurement needs a machine with a reachable GPU.
+- **No playable game yet.** Slices A2/A2b draw the A1 world, 16 placeholder tanks and
+  the follow camera over a real bloom pipeline with the A2b look pass, but there is no
+  drive/aim/fire, no shells, no debris VFX, no damage clock and no HUD. A3 owns that,
+  and A4 owns the authored level that replaces `src/render/demoWorld.ts` and the
+  presentation-only gateways (`docs/DESIGN.md` §8; ledger row 33).
+- **The 60 fps target is pending an owner GPU measurement.** The only WebGL backend on
+  this host is SwiftShader (no accessible DRM device; see above). The measured
+  3.58–3.75 fps at 1920×1080 with 16 tanks is a lower bound from software
+  rasterisation; the budget pin (draw objects / triangles / vertices) is the
+  GPU-independent gate in the meantime.
 - **No publish script.** Publishing is deliberate once there is something to play
   (board row 2); `TANK_BATTLE_BASE` already carries the subpath for it.
 - **No real-browser pin.** The suite runs in `node` against pure modules; the merged
@@ -156,6 +198,6 @@ running headless in `node`.
   is verified by the committed `scripts/shot.sh` plus human/agent inspection of the
   PNGs. A browser *test* would mean owning a headless-browser process tree and
   asserting pixels; that is still not worth its cost (see [`TESTING.md`](TESTING.md)).
-- **The debug readout and the showcase arena are placeholders.** They are review
-  affordances for A2, not product surfaces; A5 replaces the readout with the real HUD
-  and A4 replaces the arena.
+- **The debug readout, the showcase arena and the gateway arches are placeholders.**
+  They are review affordances for A2/A2b, not product surfaces; A5 replaces the readout
+  with the real HUD and A4 replaces the arena and owns the final architecture.

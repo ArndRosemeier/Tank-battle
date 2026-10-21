@@ -49,11 +49,16 @@ import {
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {
   DETAIL_MAP_MAX_STRENGTH,
+  FOG,
   NEON,
   PALETTE,
   RIM_FRESNEL_POWER,
   RIM_OPACITY_AT_FULL_DETAIL,
+  RIM_TOP_BAND,
+  RIM_WALL_SHEEN,
+  RIM_WALL_SHEEN_POWER,
   SURFACE_DETAIL,
+  SURFACE_SEAMS,
 } from './config.ts';
 
 /** One box/part of a surface: the geometry (already transformed) and its identity. */
@@ -97,7 +102,15 @@ export interface NeonSurface {
 }
 
 /** Shared dark fill: one material for every surface in the scene. */
-const fillMaterial = new MeshBasicMaterial({ vertexColors: true });
+const fillMaterial = new MeshBasicMaterial({
+  vertexColors: true,
+  // The edge lines sit exactly on the fill's triangle boundaries. Without this the
+  // two depth values differ by a few ULPs and the line is depth-rejected in a dotted
+  // pattern (the A2 defect). Push the fill back so the line always wins.
+  polygonOffset: true,
+  polygonOffsetFactor: 1,
+  polygonOffsetUnits: 1,
+});
 
 /**
  * Shared edge material. Identity rides in the per-vertex colour attribute, so every
@@ -113,42 +126,81 @@ const rimMaterial = new ShaderMaterial({
   uniforms: {
     uOpacity: { value: RIM_OPACITY_AT_FULL_DETAIL * SURFACE_DETAIL },
     uFresnelPower: { value: RIM_FRESNEL_POWER },
+    uWallSheen: { value: RIM_WALL_SHEEN },
+    uWallSheenPower: { value: RIM_WALL_SHEEN_POWER },
+    uTopBand: { value: RIM_TOP_BAND },
+    uSeamSpacing: { value: SURFACE_SEAMS.spacingMetres },
+    uSeamOffset: { value: SURFACE_SEAMS.offsetMetres },
+    uSeamHalfWidth: { value: SURFACE_SEAMS.halfWidthMetres },
+    uSeamStrength: { value: SURFACE_SEAMS.strength },
     uDetailMap: { value: null as Texture | null },
     uDetailStrength: { value: DETAIL_MAP_MAX_STRENGTH * SURFACE_DETAIL },
     uHasDetail: { value: 0 },
+    uFogNear: { value: FOG.nearMetres },
+    uFogFar: { value: FOG.farMetres },
   },
   vertexShader: /* glsl */ `
     attribute vec3 aIdentity;
     varying vec3 vIdentity;
-    varying vec3 vViewNormal;
+    varying vec3 vWorldNormal;
+    varying vec3 vWorldPosition;
     varying vec3 vViewPosition;
     varying vec2 vUv;
 
     void main() {
       vIdentity = aIdentity;
       vUv = uv;
-      vec4 viewPosition = modelViewMatrix * vec4(position, 1.0);
+      vec4 world = modelMatrix * vec4(position, 1.0);
+      vWorldPosition = world.xyz;
+      vWorldNormal = normalize(mat3(modelMatrix) * normal);
+      vec4 viewPosition = viewMatrix * world;
       vViewPosition = viewPosition.xyz;
-      vViewNormal = normalize(normalMatrix * normal);
       gl_Position = projectionMatrix * viewPosition;
     }
   `,
   fragmentShader: /* glsl */ `
     uniform float uOpacity;
     uniform float uFresnelPower;
+    uniform float uWallSheen;
+    uniform float uWallSheenPower;
+    uniform float uTopBand;
+    uniform float uSeamSpacing;
+    uniform float uSeamOffset;
+    uniform float uSeamHalfWidth;
+    uniform float uSeamStrength;
     uniform sampler2D uDetailMap;
     uniform float uDetailStrength;
     uniform float uHasDetail;
+    uniform float uFogNear;
+    uniform float uFogFar;
 
     varying vec3 vIdentity;
-    varying vec3 vViewNormal;
+    varying vec3 vWorldNormal;
+    varying vec3 vWorldPosition;
     varying vec3 vViewPosition;
     varying vec2 vUv;
 
     void main() {
-      vec3 normal = normalize(vViewNormal);
-      vec3 viewDirection = normalize(-vViewPosition);
-      float fresnel = pow(1.0 - clamp(abs(dot(normal, viewDirection)), 0.0, 1.0), uFresnelPower);
+      vec3 normal = normalize(vWorldNormal);
+      vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
+      float facing = clamp(abs(dot(normal, viewDirection)), 0.0, 1.0);
+      float grazing = 1.0 - facing;
+
+      // A tight silhouette rim plus a broader sheen on vertical faces: the sheen is
+      // what makes a tall wall side read as a volume instead of a cut-out (D2).
+      float fresnel = pow(grazing, uFresnelPower);
+      float vertical = 1.0 - abs(normal.y);
+      float wallSheen = vertical * pow(grazing, uWallSheenPower) * uWallSheen;
+
+      // A faint additive band on upward-facing surfaces (wall tops, tank decks).
+      float topBand = smoothstep(0.35, 0.9, normal.y) * uTopBand;
+
+      // Low-frequency procedural panel seams on vertical faces, scaled by
+      // SURFACE_DETAIL. No texture: a seam is a distance-to-height line.
+      float seamPhase = abs(fract((vWorldPosition.y - uSeamOffset) / uSeamSpacing + 0.5) - 0.5);
+      float seamDistance = seamPhase * uSeamSpacing;
+      float seam = (1.0 - smoothstep(0.0, uSeamHalfWidth, seamDistance)) * uSeamStrength;
+      seam *= step(0.5, vertical);
 
       vec3 tint = vIdentity;
       if (uHasDetail > 0.5) {
@@ -157,8 +209,12 @@ const rimMaterial = new ShaderMaterial({
         tint *= mix(1.0, detail, uDetailStrength);
       }
 
-      float rim = fresnel * uOpacity;
-      // Additive, depth-tested, depth-write-off: a silhouette brightener, no fill.
+      float rim = (fresnel + wallSheen + topBand + seam) * uOpacity;
+      // The fog fades the additive rim exactly as the standard materials fade.
+      float fogFactor = smoothstep(uFogNear, uFogFar, length(vViewPosition));
+      tint *= (1.0 - fogFactor);
+
+      // Additive, depth-tested, depth-write-off: a surface brightener, no fill.
       gl_FragColor = vec4(tint * rim, 1.0);
     }
   `,

@@ -24,20 +24,32 @@ export const PALETTE = {
   iceWhite: '#eaffff',
   /** Four team identities, in team order: cyan, orange, magenta, lime. */
   team: ['#00e5ff', '#ff7a00', '#ff2fd6', '#b6ff00'] as const,
-  /** The unlit near-black fill every `NeonSurface` starts from. Textures modulate it. */
-  surfaceFill: '#060e13',
-  /** The fill's top edge of the vertical gradient: still inside §9's 2–10 % band. */
-  surfaceFillTop: '#0b1d26',
-  /** The floor's surface tint (the grid lines are drawn on top by a shader). */
-  gridSurface: '#070f14',
+  /**
+   * The unlit fill every `NeonSurface` starts from. It is deliberately IN §9's
+   * 2–10 % linear-luminance band (2.07 % here), because the A2b verdict was that
+   * wall volumes read flat: below the band, a side face is a silhouette, not a box.
+   */
+  surfaceFill: '#1d2931',
+  /** The fill's top edge of the vertical gradient: still inside the band (4.07 %). */
+  surfaceFillTop: '#2b3b45',
+  /** The floor's surface tint; the grid lines are drawn on top by a shader. */
+  gridSurface: '#1d2931',
+  /** A hole is a black void, not a floor tint — it must read darker than the grid. */
+  void: '#000000',
   /** The luminous floor grid: minor cell lines, then every fifth cell. */
   gridMinor: '#0b6f8a',
   gridMajor: '#2ae4ff',
   /** Structural trim. Walls and pillars carry their identity in these edge colours. */
   wallEdge: '#18c4ff',
-  pillarEdge: '#dcfbff',
+  pillarEdge: '#8eeeff',
   /** A destroyed floor cell's rim; the hole itself is missing floor, not a fill. */
   holeRim: '#eaffff',
+  /** The vertical corner accent on perimeter architecture (and tall pillars). */
+  verticalEdge: '#45d8ef',
+  /** Faint horizontal panel seams on wall volumes. */
+  panelSeam: '#2b8aa3',
+  /** Gateway arch trim: architecture, not team identity. */
+  gatewayEdge: '#40cfe8',
   /** Debug readout — legible, on-palette, and not an interface control. */
   debugText: '#8ff4ff',
   /** The one error surface. Still the palette's home, so no other file names a colour. */
@@ -51,13 +63,62 @@ export const PALETTE = {
  * gain is the brightness of the line, and bloom pushes the cores towards white.
  */
 export const NEON = {
-  structureEdgeGain: 1.6,
+  structureEdgeGain: 1.25,
   teamEdgeGain: 1.8,
   coreGain: 1.9,
-  holeRimGain: 2.0,
+  /** Hole rims are deliberately the hottest structural line: a mechanic must read. */
+  holeRimGain: 2.2,
+  holeRimInnerGain: 1.0,
+  verticalEdgeGain: 1.3,
+  panelSeamGain: 0.45,
+  gatewayEdgeGain: 1.2,
   gridMinorGain: 0.65,
   gridMajorGain: 1.35,
 } as const;
+
+/**
+ * Team edge luminance normalisation (D5). The four owner hues are not equal in
+ * Rec.709 luminance — lime is the brightest and magenta the darkest — so a raw
+ * colour would visually advantage a team. The hue stays exactly as configured; only
+ * the HDR gain is normalised, and the pin in `src/render/config.test.ts` holds all
+ * four rendered edges inside ±10 % of the same luma.
+ */
+export const TEAM_LUMA_TARGET = 0.4;
+
+/** §9's surface band, in linear Rec.709 luminance. Fills and the grid surface obey it. */
+export const SURFACE_LUMA_BAND = { min: 0.02, max: 0.1 } as const;
+
+/** sRGB channel → linear. Kept local so the config never needs three.js. */
+function srgbToLinear(channel: number): number {
+  return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+}
+
+/** Rec.709 relative luminance of a hex colour, in linear light. */
+export function rec709Luminance(hex: string): number {
+  const match = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!match) {
+    throw new Error(`config: rec709Luminance expects a six-digit hex colour, got "${hex}"`);
+  }
+  const value = Number.parseInt(match[1]!, 16);
+  const red = srgbToLinear(((value >> 16) & 0xff) / 255);
+  const green = srgbToLinear(((value >> 8) & 0xff) / 255);
+  const blue = srgbToLinear((value & 0xff) / 255);
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+}
+
+/** One gain per team that pulls its raw hue to `TEAM_LUMA_TARGET` (within rounding). */
+export const TEAM_LUMA_GAIN: readonly number[] = PALETTE.team.map(
+  (hex) => TEAM_LUMA_TARGET / rec709Luminance(hex),
+);
+
+/** The HDR gain a team's edge/rim identity receives: base gain × its luma correction. */
+export function teamEdgeGainFor(index: number): number {
+  const correction = TEAM_LUMA_GAIN[index];
+  if (correction === undefined) {
+    throw new Error(`config: team index ${index} is outside the team palette`);
+  }
+  return NEON.teamEdgeGain * correction;
+}
 
 /**
  * UnrealBloom, tuned once. Threshold is in tone-mapped linear luminance: the dark
@@ -73,7 +134,7 @@ export const BLOOM = {
 
 /** The post pipeline's global look. ACES and a vignette are §9 requirements. */
 export const POST = {
-  exposure: 1.0,
+  exposure: 0.95,
   vignetteStrength: 0.34,
   vignetteRadius: 0.82,
 } as const;
@@ -90,10 +151,40 @@ export const SURFACE_DETAIL = 0.3;
 export const DETAIL_MAP_MAX_STRENGTH = 0.15;
 
 /** The rim's opacity at `SURFACE_DETAIL = 1`; the running value is scaled by detail. */
-export const RIM_OPACITY_AT_FULL_DETAIL = 0.35;
+export const RIM_OPACITY_AT_FULL_DETAIL = 0.4;
 
 /** The fresnel exponent: higher is a tighter rim, lower wraps further around. */
-export const RIM_FRESNEL_POWER = 5.0;
+export const RIM_FRESNEL_POWER = 4.2;
+
+/** A broader sheen on vertical faces, so a wall side reads as a volume (D2). */
+export const RIM_WALL_SHEEN = 0.22;
+/** The vertical sheen's own exponent: lower than the rim's, so it spreads inward. */
+export const RIM_WALL_SHEEN_POWER = 1.9;
+/** A faint additive band on upward-facing surfaces (wall tops, hull decks). */
+export const RIM_TOP_BAND = 0.07;
+
+/**
+ * Procedural horizontal panel seams on vertical faces, scaled by `SURFACE_DETAIL`.
+ * Low frequency, no texture; the default state should add richness, and zero should
+ * leave only the edge lines and the albedo.
+ */
+export const SURFACE_SEAMS = {
+  spacingMetres: 1.8,
+  offsetMetres: 0.45,
+  halfWidthMetres: 0.012,
+  strength: 0.12,
+} as const;
+
+/** A hole's rim is a band: the boundary plus an inner loop offset into the void. */
+export const HOLE_RIM = {
+  insetMetres: 0.16,
+} as const;
+
+/** Linear distance fog: the arena fades into the void instead of floating (D4). */
+export const FOG = {
+  nearMetres: 30,
+  farMetres: 100,
+} as const;
 
 /** Device-pixel-ratio cap. A 2× retina display renders 4× the pixels; 2 is the cap. */
 export const DPR_CAP = 2;
@@ -144,14 +235,22 @@ export const CAMERA = {
   firstPersonLookAheadMetres: 8,
   /** The fixed `first` screenshot pose's eye height above the floor. */
   eyeHeightMetres: 1.6,
+  /** The wide pose frames a little higher: the perimeter architecture now has a top. */
+  wideTargetHeightMetres: 1.4,
   /** The `first` pose aims slightly down so the arena, not the void, fills the frame. */
   firstPersonPitchDegrees: -7,
   /** Spring-arm focus smoothing, in half-lives per second. */
   followHalfLifeSeconds: 0.07,
   /** How fast the arm itself follows a zoom, in half-lives per second. */
   zoomHalfLifeSeconds: 0.12,
-  /** The `wide` screenshot pose: camera offset as a fraction of the arena's span. */
-  wideOffsetFractions: { x: 0.4, y: 0.37, z: 0.55 },
+  /**
+   * The `wide` screenshot pose: camera offset as a fraction of the arena's span.
+   * A2b moved it INSIDE the south-east perimeter (z 0.35, x 0.35) at a high angle:
+   * an outside camera left the near walls in front and the arena read as a board on
+   * a table. The inside arm frames the gates and both holes and keeps all teams in
+   * view except the nearest lime edge.
+   */
+  wideOffsetFractions: { x: 0.35, y: 0.48, z: 0.35 },
 } as const;
 
 /** The placeholder tanks: dimensions in metres, and the sweep of the debug animation. */
@@ -162,10 +261,30 @@ export const TANK = {
   turretWidthMetres: 2.0,
   turretHeightMetres: 0.56,
   turretLengthMetres: 1.7,
-  barrelLengthMetres: 1.9,
+  barrelLengthMetres: 2.0,
+  /** The barrel tube and its muzzle brake. */
+  barrelDiameterMetres: 0.32,
+  muzzleDiameterMetres: 0.55,
+  muzzleLengthMetres: 0.46,
+  /** A small rest yaw so the gun reads from the follow pose. */
+  turretRestYawRadians: -0.8,
   /** The trivial animation: turret yaw sweep amplitude, in radians. */
-  sweepRadians: 0.65,
+  sweepRadians: 0.12,
   sweepPeriodSeconds: 11,
+} as const;
+
+/**
+ * The GPU-independent scene budget (ledger row 31/33). The headroom is 20 % over the
+ * measured showcase and the pin in `src/render/sceneBudget.test.ts` is the performance
+ * gate on a host without a GPU. Draw calls also have the DoD's absolute ceiling of 200.
+ */
+export const SCENE_BUDGET = {
+  // Measured A2b showcase: 103 draw objects, 13,344 triangles, 39,232 vertices.
+  // These are ceil(measured × 1.2): ~20 % headroom, not a resting target.
+  maxDrawObjects: 124,
+  maxTriangles: 16100,
+  maxVertices: 47100,
+  absoluteMaxDrawObjects: 200,
 } as const;
 
 /** Validates a team index and returns its identity colour. */

@@ -42,8 +42,9 @@ describe('worldMesh', () => {
 
     worldMesh.rebuild();
 
-    // The new hole contributes a four-sided rim: 4 segments × 2 vertices.
-    expect(lineVertexCount(worldMesh.group)).toBe(before + 8);
+    // The new hole contributes TWO four-sided rims (outer boundary + inset loop):
+    // 2 loops × 4 segments × 2 vertices.
+    expect(lineVertexCount(worldMesh.group)).toBe(before + 16);
     expect(countDrawables(worldMesh.group, Mesh)).toBe(3);
     expect(countDrawables(worldMesh.group, LineSegments)).toBe(1);
 

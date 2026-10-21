@@ -1,5 +1,5 @@
 import { Vector2 } from 'three';
-import { WebGLRenderer, Scene, Color, ACESFilmicToneMapping, SRGBColorSpace } from 'three';
+import { WebGLRenderer, Scene, Color, Fog, ACESFilmicToneMapping, SRGBColorSpace } from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
@@ -12,14 +12,13 @@ import { isCameraPoseName, type CameraPoseName } from './render/cameraMath.ts';
 import {
   BLOOM,
   DPR_CAP,
+  FOG,
   PALETTE,
   POST,
   SURFACE_DETAIL,
 } from './render/config.ts';
-import { createShowcaseScene } from './render/demoWorld.ts';
 import { getSurfaceDetail, setSurfaceDetail } from './render/neonSurface.ts';
-import { createPlaceholderTank, type PlaceholderTank } from './render/placeholderTank.ts';
-import { createWorldMesh } from './render/worldMesh.ts';
+import { buildArenaScene } from './render/sceneAssembly.ts';
 
 /**
  * Slice A2's wiring: the three.js renderer, the post pipeline, the real A1 world, the
@@ -138,30 +137,23 @@ function boot(): (nowMilliseconds: number) => void {
 
   const scene = new Scene();
   scene.background = new Color(PALETTE.background);
+  // D4's horizon falloff. Standard materials take the fog from the scene; the two
+  // custom ShaderMaterials (grid floor, rim) carry the same range in their uniforms.
+  scene.fog = new Fog(PALETTE.background, FOG.nearMetres, FOG.farMetres);
 
-  const showcase = createShowcaseScene();
-  const worldMesh = createWorldMesh(showcase.world);
-  scene.add(worldMesh.group);
+  // The ONE scene assembly: the same call the budget pin measures in node.
+  const arena = buildArenaScene();
+  scene.add(arena.group);
+  const { showcase, worldMesh, tanks, focusTank, stats } = arena;
 
   const focusSpawn = showcase.spawns[showcase.focusSpawnIndex];
   if (!focusSpawn) {
     throw new Error(`main: focus spawn ${showcase.focusSpawnIndex} is missing`);
   }
-
-  const tanks: PlaceholderTank[] = showcase.spawns.map((spawn, index) => {
-    const tank = createPlaceholderTank(spawn.teamIndex, index * 0.63);
-    tank.group.position.set(spawn.xMetres, spawn.yMetres, spawn.zMetres);
-    tank.group.rotation.y = (spawn.yawDegrees * Math.PI) / 180;
-    scene.add(tank.group);
-    return tank;
-  });
-  const focusTankCandidate = tanks[showcase.focusSpawnIndex];
-  if (!focusTankCandidate) {
-    throw new Error(`main: focus tank ${showcase.focusSpawnIndex} is missing`);
-  }
-  // A const assignment narrows the value for the nested frame function, where
-  // control-flow narrowing does not survive (docs/ARCHITECTURE.md §3).
-  const focusTank: PlaceholderTank = focusTankCandidate;
+  console.log(
+    `[tank-battle] scene: ${stats.drawObjects} draw objects · ${stats.triangles} triangles · ` +
+      `${stats.vertices} vertices · budget pinned in sceneBudget.test.ts`,
+  );
 
   const rig = new CameraRig({
     arena: showcase.bounds,
@@ -220,6 +212,7 @@ function boot(): (nowMilliseconds: number) => void {
     debugBox.textContent =
       `${pixelWidth}×${pixelHeight} · ${lastFps.toFixed(0)} fps · ` +
       `detail ${getSurfaceDetail().toFixed(2)} · ${renderer.info.render.calls} calls · ` +
+      `${stats.drawObjects} obj · ${Math.round(stats.triangles)} tri · ` +
       `pose ${launch.pose ?? 'follow'} · L detail`;
     debugBox.style.color = PALETTE.debugText;
   }
@@ -262,8 +255,9 @@ function boot(): (nowMilliseconds: number) => void {
         windowStartMilliseconds = nowMilliseconds;
         console.log(
           `[tank-battle] ${lastFps.toFixed(1)} fps · ${renderer.domElement.width}×${renderer.domElement.height} · ` +
-            `${renderer.info.render.calls} draw calls · detail ${getSurfaceDetail().toFixed(2)} · ` +
-            `pose ${launch.pose ?? 'follow'} · tick ${sim.ticks}`,
+            `${renderer.info.render.calls} draw calls · ${stats.drawObjects} draw objects · ` +
+            `${stats.triangles} triangles · ${stats.vertices} vertices · ` +
+            `detail ${getSurfaceDetail().toFixed(2)} · pose ${launch.pose ?? 'follow'} · tick ${sim.ticks}`,
         );
         readoutDirty = true;
       }
@@ -306,6 +300,7 @@ function boot(): (nowMilliseconds: number) => void {
     pixels: () => ({ width: renderer.domElement.width, height: renderer.domElement.height }),
     ticks: () => sim.ticks,
     pose: () => launch.pose ?? 'follow',
+    sceneStats: () => stats,
   };
   (window as Window & { __TANK_BATTLE__?: typeof debugApi }).__TANK_BATTLE__ = debugApi;
 

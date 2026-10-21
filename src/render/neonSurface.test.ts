@@ -1,4 +1,4 @@
-import { BoxGeometry, LineSegments, Mesh, ShaderMaterial } from 'three';
+import { BoxGeometry, LineSegments, Mesh, MeshBasicMaterial, ShaderMaterial } from 'three';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   PALETTE,
@@ -40,6 +40,22 @@ describe('neonSurface', () => {
     expect(() => setSurfaceDetail(1.001)).toThrow(/0…1/);
     expect(() => setSurfaceDetail(Number.NaN)).toThrow(/0…1/);
 
+    surface.dispose();
+  });
+
+  it('the fill is polygon-offset so a coincident edge line cannot be depth-rejected (D1)', () => {
+    const surface = createNeonSurface([
+      { geometry: new BoxGeometry(1, 1, 1), color: PALETTE.team[0] },
+    ]);
+    const fill = surface.fill?.material;
+    expect(fill).toBeInstanceOf(MeshBasicMaterial);
+    const material = fill as MeshBasicMaterial;
+    // Without this the line fragments and the fill triangles have equal depth and the
+    // line loses in a dotted pattern (the A2 defect D1). Positive units push the fill
+    // AWAY from the camera, so the line always wins.
+    expect(material.polygonOffset).toBe(true);
+    expect(material.polygonOffsetFactor).toBeGreaterThan(0);
+    expect(material.polygonOffsetUnits).toBeGreaterThan(0);
     surface.dispose();
   });
 

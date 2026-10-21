@@ -21,11 +21,28 @@ import {
 } from '../core/world.ts';
 import type { ArenaBounds } from './cameraMath.ts';
 import { GRID } from './config.ts';
+import type { GatewaySpec } from './gateways.ts';
 
 /** The arena in cells. One cell is `GRID.cellMetres` square. */
 const ARENA = { columns: 32, rows: 24, floorSurfaceHeightMetres: 0.2 } as const;
 
 const HOLE_SEED = 0x5e_ed_11;
+
+/** The perimeter is architecture now (D4): taller than the interior cover. */
+const WALL_HEIGHT_METRES = 6.2;
+const PYLON_HEIGHT_METRES = 9.2;
+
+/** The four gate openings, in cells. The arches are render-only dressing. */
+const GATE_GAP_X = new Set([14, 15, 16, 17]);
+const GATE_GAP_Z = new Set([10, 11, 12, 13]);
+
+/** Ring cells that become a taller pylon, so the perimeter has vertical rhythm. */
+const RING_PYLONS = new Set([
+  ...['5,0', '10,0', '13,0', '18,0', '21,0', '26,0'],
+  ...['5,23', '10,23', '13,23', '18,23', '21,23', '26,23'],
+  ...['0,5', '0,8', '0,9', '0,14', '0,15', '0,18'],
+  ...['31,5', '31,8', '31,9', '31,14', '31,15', '31,18'],
+]);
 
 /** One team-coloured placeholder tank's spawn. */
 export interface TankSpawn {
@@ -43,11 +60,14 @@ export interface ShowcaseScene {
   /** The tank the third-person arm follows, and the `tank`/`first` poses frame. */
   readonly focusSpawnIndex: number;
   readonly bounds: ArenaBounds;
+  /** The four gateways; presentation-only arches frame the world's floor openings. */
+  readonly gates: readonly GatewaySpec[];
 }
 
 /**
- * Builds the showcase: a walled arena with a couple of barriers, pillars, six floor
- * holes carved through the real destruction path, and 16 tanks (4 teams × 4).
+ * Builds the showcase: a tall perimeter with four gate openings, a couple of interior
+ * barriers, pillars, eight floor holes (two 2×2 breaches) carved through the real
+ * destruction path, and 16 tanks (4 teams × 4).
  */
 export function createShowcaseScene(): ShowcaseScene {
   const placements: CellPlacement[] = [];
@@ -70,24 +90,39 @@ export function createShowcaseScene(): ShowcaseScene {
     placements.push({ x, z, material, heightMetres });
   };
 
-  // The outer wall ring. It gives the arena a silhouette to read against the void.
+  // The PERIMETER (D4): 6.2 m walls with 9.2 m pylons and four open gates. It reads
+  // as enclosure and horizon architecture instead of a board on a table.
+  const placeRingCell = (x: number, z: number): void => {
+    const isPylon = RING_PYLONS.has(`${x},${z}`);
+    place(
+      x,
+      z,
+      isPylon ? 'pillar' : 'wall',
+      isPylon ? PYLON_HEIGHT_METRES : WALL_HEIGHT_METRES,
+    );
+  };
+
   for (let x = 0; x < ARENA.columns; x += 1) {
-    place(x, 0, 'wall', 2.8);
-    place(x, ARENA.rows - 1, 'wall', 2.8);
+    if (!GATE_GAP_X.has(x)) {
+      placeRingCell(x, 0);
+      placeRingCell(x, ARENA.rows - 1);
+    }
   }
   for (let z = 1; z < ARENA.rows - 1; z += 1) {
-    place(0, z, 'wall', 2.8);
-    place(ARENA.columns - 1, z, 'wall', 2.8);
+    if (!GATE_GAP_Z.has(z)) {
+      placeRingCell(0, z);
+      placeRingCell(ARENA.columns - 1, z);
+    }
   }
 
-  // Corner pillars, taller than the ring: vertical accents for the wide shot.
+  // Corner pylons, taller than the ring: vertical accents for the wide shot.
   for (const [x, z] of [
     [2, 2],
     [29, 2],
     [2, 21],
     [29, 21],
   ] as const) {
-    place(x, z, 'pillar', 5.2);
+    place(x, z, 'pillar', PYLON_HEIGHT_METRES);
   }
 
   // Two low barrier walls, broken into segments so the arena reads as routes. The
@@ -132,15 +167,18 @@ export function createShowcaseScene(): ShowcaseScene {
   });
 
   // Carve the holes through the REAL destruction path, so the screenshot proves the
-  // renderer reads a destroyed world rather than a decorative dark patch.
+  // renderer reads a destroyed world rather than a decorative dark patch. Two 2×2
+  // breaches read at a glance; a single cell did not (D6).
   const rng = createRng(HOLE_SEED);
   for (const [x, z] of [
     [10, 10],
     [11, 10],
+    [10, 11],
     [11, 11],
+    [21, 13],
+    [22, 13],
     [21, 14],
     [22, 14],
-    [22, 13],
   ] as const) {
     const cell = cellAt(world, x, z);
     if (cell.material !== 'floor') {
@@ -164,8 +202,8 @@ export function createShowcaseScene(): ShowcaseScene {
       cells: [
         [10, 18],
         [8, 17],
-        [12, 17],
-        [14, 19],
+        [14, 17],
+        [13, 20],
       ],
       yawDegrees: 0,
     },
@@ -223,6 +261,43 @@ export function createShowcaseScene(): ShowcaseScene {
     throw new Error(`showcase: expected 16 tanks (4 teams x 4), got ${spawns.length}`);
   }
 
+  // Render-only gateway arches sit on the four floor openings. The world owns the
+  // gap (the cells are floor); A4 will own the collision story for the final level.
+  const gates: readonly GatewaySpec[] = [
+    {
+      centerXMetres: 32,
+      centerZMetres: 1,
+      spanMetres: 8,
+      heightMetres: 7.2,
+      depthMetres: 1.8,
+      axis: 'x',
+    },
+    {
+      centerXMetres: 32,
+      centerZMetres: 47,
+      spanMetres: 8,
+      heightMetres: 7.2,
+      depthMetres: 1.8,
+      axis: 'x',
+    },
+    {
+      centerXMetres: 1,
+      centerZMetres: 24,
+      spanMetres: 8,
+      heightMetres: 7.2,
+      depthMetres: 1.8,
+      axis: 'z',
+    },
+    {
+      centerXMetres: 63,
+      centerZMetres: 24,
+      spanMetres: 8,
+      heightMetres: 7.2,
+      depthMetres: 1.8,
+      axis: 'z',
+    },
+  ];
+
   return {
     world,
     spawns,
@@ -233,5 +308,6 @@ export function createShowcaseScene(): ShowcaseScene {
       minZ: 0,
       maxZ: ARENA.rows * cellSize,
     },
+    gates,
   };
 }

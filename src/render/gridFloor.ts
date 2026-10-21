@@ -5,9 +5,9 @@
  *
  * It is not a texture and not a baked image (`docs/DESIGN.md` §9): the lines come from
  * the fragment shader's world position, so a rebuild after a breach simply omits the
- * destroyed cells and the grid follows the world model. Holes are MISSING quads — the
- * void shows through — and `worldMesh` draws their glowing rims on the shared edge
- * buffer.
+ * destroyed cells and the grid follows the world model. Holes are BLACK VOID quads —
+ * deliberately darker than the floor's 2–10 % albedo so a breach reads at a glance
+ * (D6) — and `worldMesh` draws their glowing rims on the shared edge buffer.
  *
  * The quad winding is irrelevant (the material is double-sided) but the surface is
  * deliberately opaque: world geometry is never see-through in this style.
@@ -25,7 +25,7 @@ import {
   type Vector3,
 } from 'three';
 import { isSolidAt, type World } from '../core/world.ts';
-import { GRID, NEON, PALETTE } from './config.ts';
+import { FOG, GRID, NEON, PALETTE } from './config.ts';
 
 export interface GridFloor {
   readonly group: Group;
@@ -36,11 +36,14 @@ export interface GridFloor {
 }
 
 const GRID_VERTEX_SHADER = /* glsl */ `
+  attribute float aVoid;
   varying vec2 vWorldXZ;
+  varying float vVoid;
 
   void main() {
     vec4 world = modelMatrix * vec4(position, 1.0);
     vWorldXZ = world.xz;
+    vVoid = aVoid;
     gl_Position = projectionMatrix * viewMatrix * world;
   }
 `;
@@ -56,8 +59,13 @@ const GRID_FRAGMENT_SHADER = /* glsl */ `
   uniform float uMinorFadeEnd;
   uniform float uMajorFadeStart;
   uniform float uMajorFadeEnd;
+  uniform vec3 uVoidColor;
+  uniform vec3 uFogColor;
+  uniform float uFogNear;
+  uniform float uFogFar;
 
   varying vec2 vWorldXZ;
+  varying float vVoid;
 
   // One-pixel-ish anti-aliased line mask in a repeating grid, using screen-space
   // derivatives so it neither aliases on the horizon nor turns into a solid band.
@@ -70,6 +78,14 @@ const GRID_FRAGMENT_SHADER = /* glsl */ `
 
   void main() {
     float distanceToCamera = distance(vWorldXZ, uCameraXZ);
+
+    // A hole is a pure-black void quad, never a grid surface: the mechanic must read.
+    if (vVoid > 0.5) {
+      float voidFog = smoothstep(uFogNear, uFogFar, distanceToCamera);
+      gl_FragColor = vec4(mix(uVoidColor, uFogColor, voidFog), 1.0);
+      return;
+    }
+
     float minorFade = 1.0 - smoothstep(uMinorFadeStart, uMinorFadeEnd, distanceToCamera);
     float majorFade = 1.0 - smoothstep(uMajorFadeStart, uMajorFadeEnd, distanceToCamera);
 
@@ -80,6 +96,8 @@ const GRID_FRAGMENT_SHADER = /* glsl */ `
     color += uMinor * (minor * minorFade);
     color += uMajor * (major * majorFade);
 
+    // Horizon falloff (D4): the grid dissolves into the same fog as the architecture.
+    color = mix(color, uFogColor, smoothstep(uFogNear, uFogFar, distanceToCamera));
     gl_FragColor = vec4(color, 1.0);
   }
 `;
@@ -96,34 +114,32 @@ export function createGridFloor(world: World): GridFloor {
   const probeHeight = Math.max(y * 0.5, 1e-3);
 
   const positions: number[] = [];
+  const voidFlags: number[] = [];
   const indices: number[] = [];
   let vertices = 0;
 
   for (let z = 0; z < world.rows; z += 1) {
     for (let x = 0; x < world.columns; x += 1) {
-      if (!isSolidAt(world, x, z, probeHeight)) {
-        continue; // a hole: no quad, so the void shows through
-      }
       const x0 = x * cell;
       const z0 = z * cell;
       const x1 = x0 + cell;
       const z1 = z0 + cell;
+      const isVoid = isSolidAt(world, x, z, probeHeight) ? 0 : 1;
       positions.push(
         x0, y, z0,
         x0, y, z1,
         x1, y, z1,
         x1, y, z0,
       );
+      voidFlags.push(isVoid, isVoid, isVoid, isVoid);
       indices.push(vertices, vertices + 1, vertices + 2, vertices, vertices + 2, vertices + 3);
       vertices += 4;
     }
   }
 
-  // A fully destroyed floor is a legal world state (A3 can rebuild into it): the
-  // grid then has nothing to draw. This is not an error to swallow — there is simply
-  // no surface left, and `worldMesh.rebuild` still succeeds.
   const geometry = new BufferGeometry();
   geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3));
+  geometry.setAttribute('aVoid', new BufferAttribute(new Float32Array(voidFlags), 1));
   geometry.setIndex(indices);
 
   const material = new ShaderMaterial({
@@ -142,6 +158,10 @@ export function createGridFloor(world: World): GridFloor {
       uMinorFadeEnd: { value: GRID.minorFadeEndMetres },
       uMajorFadeStart: { value: GRID.majorFadeStartMetres },
       uMajorFadeEnd: { value: GRID.majorFadeEndMetres },
+      uVoidColor: { value: new Color(PALETTE.void) },
+      uFogColor: { value: new Color(PALETTE.background) },
+      uFogNear: { value: FOG.nearMetres },
+      uFogFar: { value: FOG.farMetres },
     },
     vertexShader: GRID_VERTEX_SHADER,
     fragmentShader: GRID_FRAGMENT_SHADER,

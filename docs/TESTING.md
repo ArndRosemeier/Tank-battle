@@ -40,7 +40,12 @@ never "it passed".
 | A surface merges its parts into one fill and one edge buffer | `a surface merges its parts into one fill geometry and one edge buffer` | `src/render/neonSurface.test.ts` | build one `Mesh` per part (don't merge), or make a new rim geometry instead of sharing the fill → red |
 | The palette is the only home of a hex colour | `the palette carries four distinct team colours and no module outside src/render/config.ts hardcodes a hex colour` | `src/render/purity.test.ts` | add `const c = '#00e5ff'` to `src/main.ts` → the hit list is non-empty |
 | three.js cannot leak into the simulation core | `no file outside src/render/, src/main.ts and src/entry/ imports three` | `src/render/purity.test.ts` | add `import { Color } from 'three'` to `src/core/timestep.ts` → the hit list names it |
-| The world collapses to one fill and one edge buffer, and a rebuild follows destruction | `the world's cells collapse into ONE fill mesh and ONE edge buffer, and a rebuild re-derives them from the world` | `src/render/worldMesh.test.ts` | one mesh per cell → the fill count reds; skip `rebuild()` (patch nothing) → the rim vertex count does not grow by the new hole's 8 vertices |
+| The world collapses to one fill and one edge buffer, and a rebuild follows destruction | `the world's cells collapse into ONE fill mesh and ONE edge buffer, and a rebuild re-derives them from the world` | `src/render/worldMesh.test.ts` | one mesh per cell → the fill count reds; skip `rebuild()` (patch nothing) → the rim vertex count does not grow by the new hole's 16 vertices |
+| Team hues render at equal perceptual luminance (±10%) | `the four team hues render at equal Rec.709 luminance within ±10 %` | `src/render/config.test.ts` | drop `teamEdgeGainFor` (use the raw hue) → lime/magenta ratio 2.8 → red |
+| Surface albedo stays inside §9's 2–10% band | `surface albedos sit inside §9’s 2–10 % linear-luminance band` | `src/render/config.test.ts` | restore the A2 fill (`#060e13`, 0.4%) or brighten above 10% → red |
+| A fill cannot depth-reject its coincident edge lines | `the fill is polygon-offset so a coincident edge line cannot be depth-rejected (D1)` | `src/render/neonSurface.test.ts` | remove `polygonOffset` from the fill material → the pin reds (and the old dotted screenshots return) |
+| Every hole is a black void quad, not a grid quad | `every hole cell is a void quad, and every intact cell is a grid quad` | `src/render/gridFloor.test.ts` | drop the `aVoid` attribute (or write 0) → the void-vertex count reds |
+| The showcase stays inside the GPU-independent budget | `the showcase scene stays inside the pinned draw-object, triangle and vertex budget` | `src/render/sceneBudget.test.ts` | add one tank/one extra surface, or unmerge a world surface → objects/triangles/vertices exceed the 20% headroom |
 
 The differential harness is a local artifact at `.gate-logs/differential.py` (row 26)
 and `.gate-logs/differential.sh` (row 0) — both gitignored; the mutations are described
@@ -183,6 +188,64 @@ the pipeline's last status.
   is the weakest part of the look (a dark angular slab with neon trim, not a finished
   vehicle), and the wide shot's upper-left is empty void because the arena is a
   rectangle seen from a corner. Both are recorded, not polished away.
+
+
+### row 33 — Slice A2b (the look pass: D1–D6 + the budget pin)
+
+- **Full gate:** `bash scripts/gate.sh` → exit **0**, lock acquired. Raw
+  `.gate-logs/gate.log`.
+- **Suite:** `pnpm exec vitest run` → **39/39** tests in 11 files (the A2 34 plus
+  team-luma, albedo-band, D1 polygon-offset, D6 void-data and scene-budget), vitest
+  5.0.5, ~0.5 s.
+- **The D1 cause (diagnosed, not guessed):** the fill triangles and the `EdgesGeometry`
+  line segments are geometrically coincident. Their rasterised depths differ by a few
+  ULPs, and the default `LessEqualDepth` rejects the line wherever the triangle wins —
+  producing a periodic DOTTED silhouette. It was not a dashed material (none is used),
+  not missing edge segments (`EdgesGeometry` emits every pair), and not the bloom
+  threshold. The fix is `polygonOffset: true, factor 1, units 1` on the shared fill
+  material, pushing the fill away so the line always wins. The pin asserts the material
+  state; the old `.gate-logs/shots/zoom-tank.png` (A2) versus the A2b shots show the
+  dotted/continuous difference.
+- **Performance:** **3.58–3.75 fps** at 1920×1080 with 16 tanks + world + composer in
+  ANGLE SwiftShader (A2 baseline 3.75; the DoD's software floor is 3.0). Draw calls
+  **112** in the fps harness and **122** on the `wide` screenshot readout (budget
+  ≤ 200). Scene-build stats measured in `node` from the SAME `buildArenaScene()`:
+  **103 draw objects · 13,344 triangles · 39,232 vertices**; the pinned 20 % headroom
+  is **124 / 16,100 / 47,100** (`SCENE_BUDGET`). The readout and debug API expose
+  `103 obj · 13344 tri`; the stats are a GPU-independent regression gate, not a claim
+  about hardware frame rate.
+- **Screenshots (all read with the image tool):**
+  - `.gate-logs/shots/wide.png` — high 3/4 from INSIDE the south-east perimeter: 6.2 m
+    walls and 9.2 m pylons, two gate arches, fog-darkened far side, all four team
+    clusters (the nearest lime tank is partly cropped), and two black hole voids with
+    bright rims. Not black/empty.
+  - `.gate-logs/shots/tank.png` — over-the-shoulder 3/4: the focused cyan tank with a
+    distinct hex turret, cupola, long gun and ice-white muzzle, plus a wingman; the
+    wall volumes read as dark panels with bright verticals and a top band.
+  - `.gate-logs/shots/first.png` — the first-person corridor: the black hole void and
+    its white rim ahead, orange team at the far end, the north gate arch framing the
+    wall; the hull is hidden.
+  - `.gate-logs/shots/wide-detail0.png` — the same wide pose at `?detail=0`: the wall
+    sheen, top band, seams and rim are gone, surfaces are darker but still in the
+    albedo band, and the edge lines dominate MORE. The pair is distinguishable but the
+    textured state never out-reads the lines.
+- **What changed after looking:** the first A2b render had D1 dotted lines (the depth
+  bug above); the first passing build then had walls and gate arches that were washed
+  to white, so the structure/vertical/gateway gains, rim/sheen/top-band opacity and
+  exposure were reduced and the albedo gradient lowered to 2.07–4.07 %; the `wide`
+  camera was moved inside the perimeter because the outside view still read as a board;
+  the tank's gun was moved to a visible rest yaw and the wingman cleared from its muzzle;
+  a red void-colour debug confirmed the hole quads are opaque black before the final
+  rim/void shots.
+- **First runs were RED, recorded not hidden:** after the inner hole rim loop was
+  added, `worldMesh.test` still expected +8 rim vertices and received +16 — the
+  expectation was stale, not the code; updated to +16 (outer + inset loops). The first
+  `sceneBudget.test` run failed against a placeholder 9,000-triangle budget because the
+  measured scene is 13,344 triangles; the budget was then measured and set to 20 %
+  headroom. No other suite run was red.
+- **Not run:** any GPU frame-rate claim (this host has no reachable GPU), a browser
+  pixel assertion (the PNGs are reviewed by image), a mutation differential for the
+  look pins (their mutations are named in the matrix), and publish.
 
 ## Honest records
 
