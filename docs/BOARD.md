@@ -31,7 +31,9 @@ parsed as a retirement claim).
 ```
 reconciled: 0b4e39c · 2026-10-22T00:12Z
 
-SESSION | id=goal-072ded4a-732a-401f-887e-b7618c07216a | model=deepseek/flash | harness=DSH | state=idle — chief of staff, goal created and PAUSED by designation
+SESSION | id=goal-072ded4a-732a-401f-887e-b7618c07216a | model=deepseek/flash | harness=DSH | state=dispatching — autonomous run, goal created and PAUSED by designation
+
+IN-FLIGHT | row=30 | session=6de5b402-9d77-4deb-a24d-517234341470 | worktree=/home/administrator/projects/Tank battle/worktrees/a2-render | branch=feat/a2-render | base=22f841d | state=running | scope=Slice A2: render foundation and THE LOOK — three.js bootstrap (ACES + bloom), one NeonSurface seam with SURFACE_DETAIL, merged/instanced world mesh from the A1 cells, luminous grid floor, third-person camera with first-person zoom, placeholder tank, debug poses, and scripts/shot.sh (trapped headless-Chrome screenshots). NO gameplay, NO AI, NO HUD.
 
 LANDED | row=26 | sha=e62865b53115d54db1e5e868595123d24459229c | verify=MY OWN: full gate GREEN · 26/26 vitest (world 14, rng 2, purity 2, timestep 8) · exit 0 · lock acquired · raw `.gate-logs/gate.log` | arms (mine, 4, none of them the writer's): cap-newest-first dec8e2ac RED on "shards are capped…"; mirror-off-by-one-step d0ef2ec8 RED on "a shard deflects a shell at its stored mirror angle"; height-boundary-inclusive 8b159335 RED on "a wall stops a shell at its own height…"; displacement-stacks-occupants 3e1d4c5c RED on "displacement is deterministic…"; src tree restored to 6ad2e950 after every arm | retired: worktree worktrees/a1-world, branch feat/a1-world-model, session c79ef7e7 | docs=ledger 26, ARCHITECTURE, TESTING | note=Slice A1, the pure world model (1,690 lines incl. tests); no renderer, no tanks, no AI. Finding: arm D red the determinism pin, not the "nearest free cell" pin — free-ness is pinned only indirectly.
 
