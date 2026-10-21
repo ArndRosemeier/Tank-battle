@@ -33,6 +33,14 @@ never "it passed".
 | The bounded draw stays in range, and bad bounds/seeds throw | `int(maxExclusive) stays inside its bound, and a bound or seed that cannot be drawn from is rejected loudly` | `src/core/rng.test.ts` | arm 15: drop the `<= 0` guard → red |
 | The core imports no renderer and touches no DOM, window or clock | `no module under src/core/ imports three.js, or touches document, window, performance.now or any other host clock` | `src/core/purity.test.ts` | arm 16: add a `window` reference to a core module → red |
 | The core never draws unseeded randomness | `no module under src/core/ calls Math.random` | `src/core/purity.test.ts` | arm 17: add a `Math.random` reference to a core module → red |
+| The camera zoom is clamped, and the first-person boundary is the documented 2 m | `the camera zoom is clamped and first person is entered at the documented distance` | `src/render/cameraMath.test.ts` | return the unclamped distance from `clampDistance`, or make the boundary inclusive (`<=`) → red at 0.55/16 m resp. exactly 2 m |
+| A camera pose is deterministic for the same inputs | `a camera pose reproduces the same position and target for the same inputs` | `src/render/cameraMath.test.ts` | add a module-level counter to `cameraPose`/`orbitPose` → the two calls differ |
+| The arm's look-ahead is continuous at the first-person boundary | `collapsing the arm turns the target forward and hides the hull boundary` | `src/render/cameraMath.test.ts` | aim the target at the focus inside first person, or add look-ahead at exactly 2 m → red |
+| `SURFACE_DETAIL` defaults to 0.3 and one function moves it to 0 and back | `SURFACE_DETAIL defaults to 0.3 and can be set to 0 and back by one function` | `src/render/neonSurface.test.ts` | make `setSurfaceDetail` a no-op, or leave the rim uniform at full opacity → red |
+| A surface merges its parts into one fill and one edge buffer | `a surface merges its parts into one fill geometry and one edge buffer` | `src/render/neonSurface.test.ts` | build one `Mesh` per part (don't merge), or make a new rim geometry instead of sharing the fill → red |
+| The palette is the only home of a hex colour | `the palette carries four distinct team colours and no module outside src/render/config.ts hardcodes a hex colour` | `src/render/purity.test.ts` | add `const c = '#00e5ff'` to `src/main.ts` → the hit list is non-empty |
+| three.js cannot leak into the simulation core | `no file outside src/render/, src/main.ts and src/entry/ imports three` | `src/render/purity.test.ts` | add `import { Color } from 'three'` to `src/core/timestep.ts` → the hit list names it |
+| The world collapses to one fill and one edge buffer, and a rebuild follows destruction | `the world's cells collapse into ONE fill mesh and ONE edge buffer, and a rebuild re-derives them from the world` | `src/render/worldMesh.test.ts` | one mesh per cell → the fill count reds; skip `rebuild()` (patch nothing) → the rim vertex count does not grow by the new hole's 8 vertices |
 
 The differential harness is a local artifact at `.gate-logs/differential.py` (row 26)
 and `.gate-logs/differential.sh` (row 0) — both gitignored; the mutations are described
@@ -105,6 +113,72 @@ the pipeline's last status.
   only if a third property lands on one of them.
 - **VOID probes:** none. **Not run:** the full gate (the dispatcher's), any browser pin,
   publish.
+
+### row 30 — Slice A2 (the render foundation and the look)
+
+- **Full gate:** `bash scripts/gate.sh` → exit `0`, lock acquired. Raw
+  `.gate-logs/gate.log`. The cheap tier is `pnpm run build` (= `tsc --noEmit && vite
+  build`); the full tier is the suite.
+- **Suite:** `pnpm exec vitest run` → **34/34** tests in 8 files (timestep 8, world 14,
+  rng 2, core purity 2, camera maths 3, surface 2, render purity 2, merged world 1),
+  vitest 5.0.5, ~0.4 s. The eight new pins are in the matrix above.
+- **Screenshots (read with the image tool, not assumed):**
+  - `.gate-logs/shots/wide.png` — the arena from a high 3/4 angle: dark navy wall
+    faces with cyan top edges, a luminous 2 m floor grid with brighter 10 m lanes,
+    four team colours readable (cyan, orange, magenta, lime), six missing-floor cells
+    showing glowing hole rims, 16 tanks, and the debug readout `detail 0.30 · 115 calls`.
+    Not black, not empty.
+  - `.gate-logs/shots/tank.png` — close over-the-shoulder 3/4: the cyan focus tank
+    with ice-white rear thruster slits and muzzle, its two cyan wingmen, a barrier wall
+    and the orange team beyond, the camera arm clearly behind and above. Surfaces are
+    dark; the lines carry the silhouette.
+  - `.gate-logs/shots/first.png` — the first-person eye at 1.6 m through the central
+    barrier gap: the floor breach's white rim ahead of the corridor, orange tanks at the
+    far end, near walls framed left and right. The hull is hidden.
+  - `.gate-logs/shots/wide-detail0.png` — the same wide pose with `?detail=0`: the
+    fresnel rim is gone, the wall and tank surfaces are darker, and the edge lines are
+    MORE dominant, not less. The two images are distinguishable, so the `SURFACE_DETAIL`
+    knob is live; the default's surfaces never out-read the lines.
+  - The readout's `4–5 fps` in these PNGs is Chrome's **virtual** clock
+    (`--virtual-time-budget`), not a measurement. The real number is below.
+- **Performance measurement:** Chrome headless at 1920×1080, the app's own rolling
+  counter read over CDP for four seconds: **3.81 / 3.69 fps** (a third run 3.8) with
+  **115 `renderer.info.render.calls`** (16 tanks, world, bloom, vignette, output). The
+  renderer string is `ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)`.
+  This host has **no reachable hardware GPU**: `/dev/dri/renderD128` is `root:render`
+  and user `administrator` is not in the `render` group, `eglinfo`'s surfaceless driver
+  is `swrast`, and `vulkaninfo` lists only `llvmpipe (LLVM, CPU)`. **60 fps is therefore
+  neither met nor verifiable here**; the number is a software-rasteriser floor.
+- **Reduction probes (before choosing a final setting):**
+  | probe | fps | what it says |
+  | --- | --- | --- |
+  | final build, 1920×1080 | 3.7–3.8 | software ceiling |
+  | bloom pass skipped | 7.3–8.1 | bloom is ~50 % of the software cost |
+  | 960×540 | 12.6–13.1 | scales with pixels → raster-bound, not a frame-rate cap |
+  | `BLOOM.resolutionScale = 0.5` | 3.8 | no measurable gain, so reverted to 1 (quality kept) |
+  Geometry was already merged (four world draw calls, one edge buffer) and no shadows
+  are used, so the only remaining lever would be rendering below 1080p — rejected: it
+  breaks the pixel contract rather than tuning within it.
+- **Screenshot harness:** `bash scripts/shot.sh <pose> <detail> <out>` — four runs
+  (wide, tank, first, wide detail 0), each with `pnpm build`, a local `dist` server on
+  127.0.0.1, the listed `--headless=new --disable-gpu …` flags, and a `trap` that kills
+  the server and the Chrome **process group**; each run printed
+  `chrome processes after cleanup: 0 (expected 0)`. The base flags produced WebGL via
+  SwiftShader, so the `--enable-unsafe-swiftshader --use-angle=swiftshader` fallback was
+  NOT exercised this landing. Raw logs `.gate-logs/shot-server.log`,
+  `.gate-logs/shot-chrome.log`; the fps harness is the gitignored
+  `.gate-logs/measure.mjs` + `.gate-logs/measure.sh`.
+- **First run:** the suite was green on its first run (34/34); two TypeScript errors
+  (a `TankSpawn`/`Vec3` mismatch and a lost narrowing in `frame`) and one shader
+  template-literal typo (a backtick inside the GLSL comment) were caught by `tsc` and
+  fixed before the first suite run. No suite red is hidden because none occurred.
+- **Not run:** a mutation differential for the render pins (they are geometry and
+  config, not gameplay; the screenshot comparison is the look's evidence), a
+  browser/pixel assertion (the PNGs are reviewed by image, not asserted), and publish.
+- **Honest observations:** the hero bar is judged by these images; the placeholder tank
+  is the weakest part of the look (a dark angular slab with neon trim, not a finished
+  vehicle), and the wide shot's upper-left is empty void because the arena is a
+  rectangle seen from a corner. Both are recorded, not polished away.
 
 ## Honest records
 

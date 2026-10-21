@@ -11,8 +11,7 @@
         margin: 0;
         height: 100%;
         overflow: hidden;
-        background: #0d1117;
-        color: #e6edf3;
+        background: black;
         font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       }
       #app {
@@ -25,16 +24,30 @@
         inset-inline: 0;
         top: 0;
         padding: 0.75rem 1rem;
-        background: #b62324;
-        color: #fff;
+        background: crimson;
+        color: white;
         font-size: 0.875rem;
         white-space: pre-wrap;
         display: none;
+        z-index: 2;
+      }
+      #debug {
+        position: fixed;
+        left: 14px;
+        bottom: 12px;
+        font-size: 11px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        white-space: pre;
+        pointer-events: none;
+        display: none;
+        z-index: 1;
       }
     </style>
   </head>
   <body>
     <canvas id="app" aria-label="Tank Battle game field"></canvas>
+    <div id="debug" aria-live="off"></div>
     <div id="error" role="alert"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

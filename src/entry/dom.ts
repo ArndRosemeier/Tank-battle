@@ -28,12 +28,3 @@ export function requireElement<T extends Element>(
   }
   return element;
 }
-
-/** Returns a 2D context for `canvas`, else throws. */
-export function requireContext2d(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
-  const context = canvas.getContext('2d');
-  if (!context) {
-    throw new Error('dom: 2D canvas context is unavailable');
-  }
-  return context;
-}

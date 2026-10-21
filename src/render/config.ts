@@ -1,0 +1,180 @@
+/**
+ * The ONE render tuning module.
+ *
+ * Every colour, bloom number, camera distance, grid size and post number lives here,
+ * and NOTHING under `src/render/` (or anywhere else) hardcodes one. A source-scanning
+ * pin in `src/render/purity.test.ts` fails the suite on a hex colour outside this
+ * file, so the palette cannot fork the way an unowned render config does.
+ *
+ * The values express the presentation contract in `docs/DESIGN.md` §9: a near-black
+ * field, four emissive team identities, an ice-white for the hottest cores, lines
+ * that dominate the surfaces, and a bloom that is part of the budget rather than a
+ * coat of paint. The colour budget is a contract, not a mood: surfaces sit in the
+ * 2–10 % luminance band, neon lines run bright, and the fresnel rim keeps dark
+ * silhouettes readable against the void.
+ *
+ * `docs/DESIGN.md` §7 makes these vetoable defaults. Tuning happens HERE, once.
+ */
+
+/** The arena palette: black field, emissive hues, nothing in between. */
+export const PALETTE = {
+  /** The void behind and beneath everything. */
+  background: '#010306',
+  /** The hottest cores only — hole rims, pillar highlights, never a fill. */
+  iceWhite: '#eaffff',
+  /** Four team identities, in team order: cyan, orange, magenta, lime. */
+  team: ['#00e5ff', '#ff7a00', '#ff2fd6', '#b6ff00'] as const,
+  /** The unlit near-black fill every `NeonSurface` starts from. Textures modulate it. */
+  surfaceFill: '#060e13',
+  /** The fill's top edge of the vertical gradient: still inside §9's 2–10 % band. */
+  surfaceFillTop: '#0b1d26',
+  /** The floor's surface tint (the grid lines are drawn on top by a shader). */
+  gridSurface: '#070f14',
+  /** The luminous floor grid: minor cell lines, then every fifth cell. */
+  gridMinor: '#0b6f8a',
+  gridMajor: '#2ae4ff',
+  /** Structural trim. Walls and pillars carry their identity in these edge colours. */
+  wallEdge: '#18c4ff',
+  pillarEdge: '#dcfbff',
+  /** A destroyed floor cell's rim; the hole itself is missing floor, not a fill. */
+  holeRim: '#eaffff',
+  /** Debug readout — legible, on-palette, and not an interface control. */
+  debugText: '#8ff4ff',
+  /** The one error surface. Still the palette's home, so no other file names a colour. */
+  error: '#ff2f4a',
+} as const;
+
+/**
+ * HDR gains applied when an edge colour becomes a vertex-colour attribute. The scene
+ * renders into a half-float composer target, so values above 1 are legal and are what
+ * makes UnrealBloom bloom instead of merely brighten. Team identity is the hue; the
+ * gain is the brightness of the line, and bloom pushes the cores towards white.
+ */
+export const NEON = {
+  structureEdgeGain: 1.6,
+  teamEdgeGain: 1.8,
+  coreGain: 1.9,
+  holeRimGain: 2.0,
+  gridMinorGain: 0.65,
+  gridMajorGain: 1.35,
+} as const;
+
+/**
+ * UnrealBloom, tuned once. Threshold is in tone-mapped linear luminance: the dark
+ * fills (2–10 %) sit far below it, so only the edges bloom. `resolutionScale` is the
+ * quality knob the performance budget is allowed to move — never correctness.
+ */
+export const BLOOM = {
+  threshold: 0.6,
+  strength: 0.62,
+  radius: 0.4,
+  resolutionScale: 1,
+} as const;
+
+/** The post pipeline's global look. ACES and a vignette are §9 requirements. */
+export const POST = {
+  exposure: 1.0,
+  vignetteStrength: 0.34,
+  vignetteRadius: 0.82,
+} as const;
+
+/**
+ * The global surface-detail scalar's default (0…1). The RUNNING value lives in
+ * `neonSurface.ts` and is changed by `setSurfaceDetail`; this is the documented
+ * starting point the L key toggles back to. It scales the fresnel rim and the
+ * (unused-this-slice) detail map, never the edges.
+ */
+export const SURFACE_DETAIL = 0.3;
+
+/** Detail-map budget (§9: tileable greyscale, multiplied at ≤ 15 %). Unused in A2. */
+export const DETAIL_MAP_MAX_STRENGTH = 0.15;
+
+/** The rim's opacity at `SURFACE_DETAIL = 1`; the running value is scaled by detail. */
+export const RIM_OPACITY_AT_FULL_DETAIL = 0.35;
+
+/** The fresnel exponent: higher is a tighter rim, lower wraps further around. */
+export const RIM_FRESNEL_POWER = 5.0;
+
+/** Device-pixel-ratio cap. A 2× retina display renders 4× the pixels; 2 is the cap. */
+export const DPR_CAP = 2;
+
+/** The floor grid's cell size and the interval of its brighter major lines. */
+export const GRID = {
+  /** One cell is 2 m square — the same unit the world model uses. */
+  cellMetres: 2,
+  /** Every fifth cell line is a major line. */
+  majorEvery: 5,
+  /**
+   * Distance falloff is TWO ranges: the fine cell lines fade early (they are detail
+   * for the near floor), while the major lanes carry the arena's shape to the far
+   * edge. A single range made the wide shot a wash of fine lines.
+   */
+  minorFadeStartMetres: 10,
+  minorFadeEndMetres: 58,
+  majorFadeStartMetres: 30,
+  majorFadeEndMetres: 140,
+} as const;
+
+/**
+ * Camera numbers. The default follow is the documented third-person arm: ~8 m back
+ * and ~3.5 m up from a turret-height focus, which this pitch/distance/focus height
+ * produces exactly (8.2·cos 14° ≈ 7.96 back, 1.55 + 8.2·sin 14° ≈ 3.53 up).
+ *
+ * First person is entered CONTINUOUSLY as the wheel brings the arm inside
+ * `firstPersonDistanceMetres`; from there the hull is hidden and the camera looks
+ * ahead instead of at its own focus point.
+ */
+export const CAMERA = {
+  fovDegrees: 50,
+  nearMetres: 0.1,
+  farMetres: 400,
+  /** The focus point the arm orbits: turret/eye height above the hull's base. */
+  focusHeightMetres: 1.55,
+  defaultDistanceMetres: 8.2,
+  defaultPitchDegrees: 14,
+  /** The `tank` screenshot pose is an over-the-shoulder 3/4 view, not straight behind. */
+  tankPoseYawOffsetDegrees: 22,
+  /** One wheel notch is `exp(zoomSensitivity × deltaY)` of arm length. */
+  zoomSensitivity: 0.0016,
+  minDistanceMetres: 0.55,
+  maxDistanceMetres: 16,
+  /** Inside this arm length the camera is first person and the hull is hidden. */
+  firstPersonDistanceMetres: 2,
+  /** How far ahead the first-person camera looks as the arm collapses (in metres). */
+  firstPersonLookAheadMetres: 8,
+  /** The fixed `first` screenshot pose's eye height above the floor. */
+  eyeHeightMetres: 1.6,
+  /** The `first` pose aims slightly down so the arena, not the void, fills the frame. */
+  firstPersonPitchDegrees: -7,
+  /** Spring-arm focus smoothing, in half-lives per second. */
+  followHalfLifeSeconds: 0.07,
+  /** How fast the arm itself follows a zoom, in half-lives per second. */
+  zoomHalfLifeSeconds: 0.12,
+  /** The `wide` screenshot pose: camera offset as a fraction of the arena's span. */
+  wideOffsetFractions: { x: 0.4, y: 0.37, z: 0.55 },
+} as const;
+
+/** The placeholder tanks: dimensions in metres, and the sweep of the debug animation. */
+export const TANK = {
+  hullWidthMetres: 2.5,
+  hullHeightMetres: 0.5,
+  hullLengthMetres: 3.4,
+  turretWidthMetres: 2.0,
+  turretHeightMetres: 0.56,
+  turretLengthMetres: 1.7,
+  barrelLengthMetres: 1.9,
+  /** The trivial animation: turret yaw sweep amplitude, in radians. */
+  sweepRadians: 0.65,
+  sweepPeriodSeconds: 11,
+} as const;
+
+/** Validates a team index and returns its identity colour. */
+export function teamColor(index: number): string {
+  const color = PALETTE.team[index];
+  if (color === undefined) {
+    throw new Error(
+      `config: team index ${index} is outside the four-team palette (0…${PALETTE.team.length - 1})`,
+    );
+  }
+  return color;
+}
