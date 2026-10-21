@@ -33,7 +33,7 @@ reconciled: fec3cfc · 2026-10-21T21:16:00Z
 
 SESSION | id=goal-072ded4a-732a-401f-887e-b7618c07216a | model=deepseek/flash | harness=DSH | state=idle — chief of staff, goal created and PAUSED by designation
 
-QUEUE | row=1 | owner: DESIGN RULED — concept, round-1 answers and round-2 rulings are decided (fully 3D, breakable+slow-regen world with displacement, drive/aim/fire, 3 HP + wounded clock, 4 teams x 4 tanks, profiles as mixes, one authored level); 3 questions + defaults in §6–§7 | src=docs/DESIGN.md §6, ledger rows 7–21
+QUEUE | row=1 | owner: DESIGN COMPLETE — no open questions; fully 3D, breakable slow-regen world with displacement, drive/aim/fire, 3 HP + LETHAL wounded clock, no friendly fire, 4 teams × 4 tanks, player + 3 AI squadmates, profiles as mixes, one authored level, multiplayer preserved-not-built | src=docs/DESIGN.md, ledger rows 7–25
 
 QUEUE | row=2 | publish the static build to the app host once there is something to play | src=docs/ARCHITECTURE.md §4
 
@@ -65,10 +65,9 @@ RECOVERY | repo=/home/administrator/projects/Tank battle | remote=https://github
 
 ## Open questions for the owner
 
-1. **Three questions in `docs/DESIGN.md` §6** — does the wounded clock floor at 1 HP,
-   friendly fire inside a team, and does the player get AI squadmates. Everything else
-   the owner has ruled or the defaults in §7 will stand. Slice A can be briefed once
-   these three are answered (they gate tank, team and match-end code).
+1. **None.** The design is ruled (ledger rows 7–25).
+   The queue is now execution: Slice A1 (the world model) is dispatched — see the
+   IN-FLIGHT record.
 
 ## Traps (each with the rule that prevents it)
 

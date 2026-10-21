@@ -67,6 +67,18 @@ later slate from re-litigating a decision.
   HP wins then." → last team standing; if a time threshold is set, the team with most HP
   wins at it.
 
+- **Q1 damage clock outcome:** "Kill it. No mercy if you are just trying to hide."
+  → the clock is **lethal**. Hiding while wounded loses the tank, not merely tempo; a
+  healthy tank may still wait as long as it likes.
+- **Q2 friendly fire:** "Yea... no friendly fire. Immunity to own team."
+  → a team's tanks cannot damage each other.
+- **Q3 player squadmates:** "Yea, player can have 3 squad mates."
+  → the player's team is the player plus up to 3 AI tanks using the same profiles.
+- **Multiplayer is a planned destination (standing requirement):** "This will start
+  single player, but if its good i would love to expand this to multiplayer, so plan
+  accordingly please." → not built in v1, but the architecture must not have to be
+  rebuilt for it: see §5 items 9–12.
+
 ## 4 · Consolidated decision list
 
 **The world.** Fully 3D. Flat ground plane over bottomless bedrock; everything above it
@@ -81,11 +93,14 @@ shells at a **fixed mirror angle**, shatter on the next hit). Physically plausib
 no rigid-body engine.
 
 **The tanks.** One kind in v1. Drive (hull), aim (turret, mouse), fire. 3 HP, 3 hits
-kill. Damage clock while damaged: wears down over time so that hiding *while wounded* is
-a losing trade; a healthy tank may wait. No extra verbs.
+kill. Damage clock while damaged: it wears down over time and **kills**. Hiding while
+wounded is a losing trade with no mercy; a tank at full health may wait as long as it
+likes. No extra verbs.
 
 **The match.** Deathmatch, teams: ≤4 teams × ≤4 tanks, everyone hostile to everyone not
 on their team. Last team standing wins; optional time threshold, then most HP wins.
+**No friendly fire** — teammates are immune to each other — and the player's team is the
+player plus up to 3 AI squadmates.
 
 **The AI.** One core; per-character **data profiles** that weight a shared set of
 **instrumental goals** (*gain line of sight · hold cover · close to weapon range ·
@@ -120,14 +135,24 @@ the rig are trusted.
 7. **Matches terminate by construction** — tick cap — because batch runs are unattended.
 8. **Profiles are typed data, validated at load** (AGENTS.md rule 3), so a new character
    cannot become duplicated decision code.
+9. **The simulation is tick-based and input-driven, never clock-driven.** Time is ticks;
+   a step consumes a *command* per tank (drive vector, turret angle, fire) and returns
+   state deltas. No `performance.now()`, no `Date`, no `requestAnimationFrame` inside the
+   core — the browser frame only decides how many ticks are owed.
+10. **Controllers are pluggable, and the core has no `isPlayer` branch.** A tank's
+   control arrives from a *controller*: local human, AI, or (later) remote. The all-AI
+   mode and the future multiplayer client are the same seam.
+11. **The headless runner is the future authoritative server.** It already runs the whole
+   simulation with no renderer and seeded RNG; multiplayer is then a transport around
+   commands and state, not a second simulation. This is why the renderer may never own
+   truth (item 1) and why determinism (item 2) is non-negotiable.
+12. **Nothing in the core may depend on a single local input device, a window, or a
+   pause.** Pausing is a controller policy, not a property of the world.
 
-## 6 · Still open — owner's word needed
+## 6 · Open questions
 
-| # | Question | Options | Lean |
-| ---: | --- | --- | --- |
-| Q1 | When the damage clock runs, does it **kill** or **floor at 1 HP**? | kills · floors at 1 | floors at 1 — a wounded hider then loses on HP at the threshold instead of being deleted passively. With a floor, the time threshold should be **on by default** or two wounded tanks can stall. |
-| Q2 | **Friendly fire** inside a team? | no FF, and teammates physically block shots · no FF and shots pass through teammates · full friendly fire | block-but-harmless: positioning matters, no accidental team-wipes, no shots phasing through bodies. |
-| Q3 | Does the **player get AI squadmates** (up to 3), or is the player team always one tank? | solo vs up to 4×4 AI · player + AI squadmates | AI squadmates, using the same profiles — otherwise a 4-team world is a spectator sport. |
+**None.** Q1–Q3 were ruled on 2026-10-21 (ledger rows 22–24). The remaining numbers are
+tuning, not design, and live in §7 as vetoable defaults.
 
 ## 7 · Defaults (vetoable, recorded as decisions unless overruled)
 
@@ -139,7 +164,10 @@ the rig are trusted.
   constant, tuned); debris does not heal.
 - **Shard cap:** 64 live shards, oldest despawns; big blocks persist until destroyed.
 - **Time threshold:** on, 5 minutes; winner = total team HP; tie → most tanks alive;
-  still tied → draw.
+  still tied → draw. With the clock lethal, the threshold now exists for *healthy*
+  stalemates only.
+- **Teammate blocking:** a shell stops at a teammate without damaging it. Q2 immunity is
+  about damage; this is about bodies, so a squadmate can body-block a line of fire.
 - **Visibility:** full — no fog of war in v1. Tron arenas glow.
 - **Tank stats:** identical for all teams in v1 (one kind).
 - **Camera:** 3rd person orbit-follow, mouse wheel to 1st person; turret aims at the
@@ -152,6 +180,8 @@ the rig are trusted.
   damage clock; one authored level. **No AI yet** (a static target drone may be used to
   prove hits). Pins: cell damage/debris/regen, displacement rule, deterministic seeded
   run, batch of one scripted duel.
+- The headless runner built in B is the **future game server** (§5.11): a multiplayer
+  transport wraps commands and state, it does not re-implement the world.
 - **Slice B — one character, then the rig.** Nav grid with dirty-cell invalidation, 3D
   line of sight and shot feasibility, one profile (a hunt-heavy mix), headless batch of
   100 seeded matches with win rate and accuracy; live all-AI spectate.
@@ -161,5 +191,7 @@ the rig are trusted.
 
 ## 9 · Non-goals for v1
 
-Multiplayer/network · multiple tank kinds · campaign · level generator/editor · audio ·
-progression · extra verbs (mines, barriers, ammo types) · fog of war.
+**Network transport and matchmaking** in v1 — the architecture is built for them
+(§5.9–12), but nothing is wired over a socket yet · multiple tank kinds · campaign ·
+level generator/editor · audio · progression · extra verbs (mines, barriers, ammo types) ·
+fog of war.

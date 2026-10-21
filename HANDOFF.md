@@ -31,16 +31,14 @@
 
 ## Next action (one)
 
-**Get §6 Q1–Q3 answered, then cut the Slice A brief** from `docs/BRIEF.md` against
-`docs/DESIGN.md` §8 Slice A: level data → 3D cells, three.js scene, drive/aim/fire,
-shells, destruction, debris tiers, slow regen + displacement, 3 HP + wounded clock,
-one authored level, **no AI yet** (a static drone proves hits). §7 defaults stand
-unless the owner overrules them.
+**Verify the A1 landing when the writer reports** — its sha on the remote, my own full
+gate, my own differential. Then dispatch A2 (three.js scene, drive/aim/fire) against
+`docs/DESIGN.md` §8. A1 is the world model only, with no renderer.
 
 ## Open questions for the owner
 
-- **`docs/DESIGN.md` §6** — three questions left: does the wounded clock kill or floor,
-  friendly fire inside a team, AI squadmates for the player. §7 holds vetoable defaults.
+- **None.** Design ruled through Q1–Q3 (ledger rows 22–24) and the multiplayer-forward
+  constraints (§5.9–12, row 25). Remaining numbers are vetoable defaults (§7).
 
 ## Read first
 
