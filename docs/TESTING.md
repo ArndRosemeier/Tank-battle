@@ -15,9 +15,28 @@ never "it passed".
 | A negative or non-finite frame delta throws | `rejects a frame time that is negative or not finite` | `src/core/timestep.test.ts` | drop the `< 0` half of the guard (arm D) |
 | A non-positive step, or `maxFrame < step`, throws | `rejects a step that is not positive, or a maxFrame below the step` | `src/core/timestep.test.ts` | drop either constructor guard |
 | The defaults are 60 Hz with a 0.25 s clamp | `defaults to a 60 Hz slice with a quarter-second clamp` | `src/core/timestep.test.ts` | change either default constant |
+| A destroyed wall yields exactly one big block | `a shell's damage destroys a wall cell and yields exactly one big block` | `src/core/world.test.ts` | arm 01: spawn zero blocks → red |
+| A destroyed floor is a drivable hole, and the floor-surface contract survives it | `a destroyed floor cell becomes a drivable hole, not an obstacle` | `src/core/world.test.ts` | arm 02: drop the hole early-return in `isSolidAt` → red |
+| Solidity is height-aware: a low wall cannot stop a high shot | `a wall stops a shell at its own height and never above it` | `src/core/world.test.ts` | arm 03: report every intact cell solid at any height → red |
+| A big block freezes its cell's regeneration until it is destroyed | `a large block occupying a cell blocks that cell's regeneration until the block is destroyed` | `src/core/world.test.ts` | arm 04: skip the block check in the tick loop → red |
+| Regeneration waits out its whole delay, never less | `a cell regenerates only after its delay has elapsed, never before` | `src/core/world.test.ts` | arm 05: heal one tick early (`> 1`) → red |
+| A healing cell absorbs the shards lying in it | `a healing cell absorbs the shards lying in it` | `src/core/world.test.ts` | arm 06: drop the absorb call → red |
+| A regenerating cell displaces its occupant to the nearest free cell, without damage | `a tank standing in a cell that regenerates is displaced to the nearest free cell and takes no damage` | `src/core/world.test.ts` | arm 07: never displace (`hp === -1`) → red |
+| Displacement is deterministic | `displacement is deterministic: the same world state and the same occupants produce the same result` | `src/core/world.test.ts` | arm 08: a hidden module salt reverses the occupant order on alternate calls, so two identical runs disagree → red |
+| Shards are capped oldest-first; big blocks are not capped | `shards are capped; when the cap is exceeded the oldest despawns first` | `src/core/world.test.ts` | arm 09: never enforce the cap → red |
+| A shard deflects at its stored mirror angle | `a shard deflects a shell at its stored mirror angle` | `src/core/world.test.ts` | arm 10: halve the reflection term → red |
+| A shell hit shatters the shard, and a stale id fails loudly | `a shell hit shatters the shard, so it is gone and a stale id fails loudly` | `src/core/world.test.ts` | arm 18: return the shard without removing it → red |
+| A shove moves one cell and never through material | `shoving a shard moves it one cell, and slides it to a free side when the way is blocked` | `src/core/world.test.ts` | arm 11: drop the passability check → red |
+| Identical runs hash identically, and the hash tracks the state | `the same seed and the same operations produce an identical state hash` | `src/core/world.test.ts` | arm 12: drop the mirror angle from the hash text → the different-seed assertion reds |
+| A bad cell address or occupant is rejected loudly, never clamped | `an out-of-bounds cell or an occupant outside the grid is rejected loudly` | `src/core/world.test.ts` | arm 13: drop the bounds check → red |
+| A seed reproduces its sequence exactly | `the same seed produces the identical sequence, every time` | `src/core/rng.test.ts` | arm 14: change the mulberry increment constant → the golden vector reds |
+| The bounded draw stays in range, and bad bounds/seeds throw | `int(maxExclusive) stays inside its bound, and a bound or seed that cannot be drawn from is rejected loudly` | `src/core/rng.test.ts` | arm 15: drop the `<= 0` guard → red |
+| The core imports no renderer and touches no DOM, window or clock | `no module under src/core/ imports three.js, or touches document, window, performance.now or any other host clock` | `src/core/purity.test.ts` | arm 16: add a `window` reference to a core module → red |
+| The core never draws unseeded randomness | `no module under src/core/ calls Math.random` | `src/core/purity.test.ts` | arm 17: add a `Math.random` reference to a core module → red |
 
-The differential harness is a local artifact at `.gate-logs/differential.sh`
-(gitignored; the mutations are described in the table below, so it can be rebuilt).
+The differential harness is a local artifact at `.gate-logs/differential.py` (row 26)
+and `.gate-logs/differential.sh` (row 0) — both gitignored; the mutations are described
+in the tables, so either can be rebuilt.
 
 `src/entry/dom.ts` is deliberately unpinned: it is thin DOM glue whose failure mode is
 a throw on a missing node, and proving it needs a browser. The seam index records it
@@ -57,6 +76,35 @@ the pipeline's last status.
   stronger statement, and worth splitting if a third property lands on it.
 - **VOID probes:** none.
 - **Not run:** no real-browser pin, no publish. Both are deliberate (board rows 1–2).
+
+### row 26 — Slice A1 (the world model: rng, cells, destruction, debris, regeneration)
+
+- **Cheap tier:** `GATE_TESTS=0 bash scripts/gate.sh` → exit `2`. That means the cheap tier
+  (`pnpm run build` = `tsc --noEmit && vite build`) passed and the suite did **not** run — it
+  is **not** "the gate passed". The full tier was **not run by the writer**; the dispatcher
+  owns it once per landing ([`GATE.md`](GATE.md)).
+- **Suite:** `pnpm exec vitest run` → **26/26** tests in 4 files (timestep 8, world 14, rng 2,
+  purity 2), vitest 5.0.5, 242 ms.
+- **Differential** (`.gate-logs/differential.py`, gitignored; each arm backs up `src/`, applies
+  ONE mutation, runs the suite, restores in a `finally`, then verifies every restored file by
+  sha256): **18 arms, 18/18 red, each reddening its named pin** in the matrix above. Raw logs
+  `.gate-logs/arm-*.log`.
+- **First run was RED** — recorded, not hidden:
+  - the purity pin matched its own explanatory comment in `rng.ts` (`Math.random` in the doc
+    prose). Fixed by making the scan skip documentation-only lines: a comment cannot import a
+    renderer or draw a number, and a violation on a line carrying **any** code still fails. The
+    scan also asserts it found ≥ 8 modules, so an empty glob cannot pass as clean.
+  - the determinism pin expected the second tank at `(3, 1)`; the model put it at `(0, 1)`.
+    The **model was right** (distance 1 beats distance 2) and the expectation was wrong;
+    corrected.
+- **Honest observation:** four arms red more than their own pin — arm 01 (no big blocks) also
+  reds the block-regen and shard-cap pins; arm 02 (hole still solid) also reds the big-block pin,
+  which asks `isSolidAt` over the rubble; arm 05 (early heal) also reds the block-regen and
+  displacement pins; arm 07 (no displacement) also reds the determinism pin. That is dependency,
+  not a duplicate pin: each pin still has an arm where it is the direct target. Worth splitting
+  only if a third property lands on one of them.
+- **VOID probes:** none. **Not run:** the full gate (the dispatcher's), any browser pin,
+  publish.
 
 ## Honest records
 
