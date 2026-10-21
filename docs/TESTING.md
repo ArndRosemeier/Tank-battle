@@ -163,15 +163,19 @@ the pipeline's last status.
   (wide, tank, first, wide detail 0), each with `pnpm build`, a local `dist` server on
   127.0.0.1, the listed `--headless=new --disable-gpu …` flags, and a `trap` that kills
   the server and the Chrome **process group**; each run printed
-  `chrome processes after cleanup: 0 (expected 0)`. The base flags produced WebGL via
-  SwiftShader, so the `--enable-unsafe-swiftshader --use-angle=swiftshader` fallback was
-  NOT exercised this landing. Raw logs `.gate-logs/shot-server.log`,
+  `chrome processes after cleanup: 0 (expected 0)`. The base flags produced a rendered
+  frame (this host's only WebGL backend is SwiftShader, measured in the fps harness), so
+  the `--enable-unsafe-swiftshader --use-angle=swiftshader` fallback was NOT exercised
+  this landing. Raw logs `.gate-logs/shot-server.log`,
   `.gate-logs/shot-chrome.log`; the fps harness is the gitignored
   `.gate-logs/measure.mjs` + `.gate-logs/measure.sh`.
-- **First run:** the suite was green on its first run (34/34); two TypeScript errors
-  (a `TankSpawn`/`Vec3` mismatch and a lost narrowing in `frame`) and one shader
-  template-literal typo (a backtick inside the GLSL comment) were caught by `tsc` and
-  fixed before the first suite run. No suite red is hidden because none occurred.
+- **First run was RED at transform time** — recorded, not hidden: a backtick inside a
+  GLSL template literal in `gridFloor.ts` closed the string (TS1005), and the first
+  `pnpm exec vitest run` reported 1 failed file / 7 passed before any test executed.
+  Fixed (the comment no longer contains a backtick); two TypeScript errors (a
+  `TankSpawn`/`Vec3` mismatch and a narrowing lost inside the nested `frame` function)
+  were fixed at the same time. The next suite run was 34/34 green. No test ASSERTION was
+  red.
 - **Not run:** a mutation differential for the render pins (they are geometry and
   config, not gameplay; the screenshot comparison is the look's evidence), a
   browser/pixel assertion (the PNGs are reviewed by image, not asserted), and publish.
