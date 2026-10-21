@@ -208,3 +208,25 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
   moving tanks around.
 - **Raw logs:** `.gate-logs/arm-<name>.log`; harness `.gate-logs/differential-a1.sh`.
 - **Gate:** my own full tier on the integrated tree — 26/26, exit 0, `lock=acquired`.
+
+### row 30 — the dispatcher's own verification (7b1785f / 5d6b9cf)
+
+- **First gate run was on a STALE tree** (26/26, missing A2's 8 new tests) because the
+  writer had pushed and I had not pulled. Caught by comparing the count with the landing
+  report, then integrated and re-run. Recorded as a board trap.
+- **Integrated gate:** 34/34, exit 0, lock acquired.
+- **My arms** (none the writer's), lock held, tree restored from HEAD in a `trap`:
+
+| arm | src tree sha256 (mutated) | result |
+| --- | --- | --- |
+| zoom-unclamped (`clampDistance` → identity) | `762b6958…` | RED on `the camera zoom is clamped and first person is entered at the documented distance` |
+| surface-detail-default-full (`0.3` → `1.0`) | `de383dc6…` | RED on `SURFACE_DETAIL defaults to 0.3 and can be set to 0 and back by one function` |
+| core-imports-three (a `three` import added to `src/core/timestep.ts`) | `c4c1c08e…` | RED on both the core purity pin and `no file outside src/render/… imports three` |
+
+- **Harness verified by the dispatcher:** `bash scripts/shot.sh wide 0.3 …` → exit 0,
+  rendered with the listed flags, `chrome processes after cleanup: 0 (expected 0)`, a
+  836 KB PNG at 1920×1080. Before and after the run, `ps -eo comm= | grep -cx '^chrome$'`
+  was `0`.
+- **Performance limit:** no reachable GPU on this host — SwiftShader at 3.7–3.8 fps for
+  16 tanks at 1080p, 115 draw calls. The DoD clause is amended (ledger row 31); the
+  number is a regression baseline, never a "60 fps" claim.

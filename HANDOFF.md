@@ -17,6 +17,9 @@
 - **A1 landed** `e62865b`: pure world model (rng, cells by height, destruction, two
   debris tiers, slow regen with deterministic displacement, state hash). Verified by my
   own full gate (26/26) and four of my own injections; worktree, branch and session retired.
+- **A2 landed** `7b1785f`: three.js + bloom, `NeonSurface`, merged world mesh, luminous
+  grid, third-person camera with first-person zoom, screenshot harness. Verified by my own
+  gate (34/34) and three of my own arms; look judged as **not yet hero** — A2b underway.
 - Day-1 scaffold (`cos init`): AGENTS.md, HANDOFF.md, docs, scripts, `.claude/`,
   `.cos/` hooks.
 - Git repo on `main`, identity `Tank Battle Dev <dev@tankbattle.local>`, remote
@@ -34,11 +37,10 @@
 
 ## Next action (one)
 
-**Cut the A2 brief** — the render foundation and the look (`docs/DESIGN.md` §8 A2, §9):
-three.js scene over the A1 world, the one `NeonSurface` seam with `SURFACE_DETAIL`,
-bloom/post pipeline pinned in one config module, luminous grid floor, 3rd/4th-person
-camera, placeholder tank. Name `.probe-assets/reference-tron-look.png` and the
-0-vs-default screenshot test. A2 is where the hero bar is first judged.
+**A2b is in flight** with the same writer: fix the six named look defects (dotted
+silhouettes, flat wall volumes, no tank barrel, board-on-a-table composition, team
+luminance mismatch, weak floor holes) and pin the GPU-independent budget. Then A3
+(drive/aim/fire) — see `docs/DESIGN.md` §8.
 
 ## Open questions for the owner
 
