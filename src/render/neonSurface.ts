@@ -128,6 +128,7 @@ const rimMaterial = new ShaderMaterial({
     uFresnelPower: { value: RIM_FRESNEL_POWER },
     uWallSheen: { value: RIM_WALL_SHEEN },
     uWallSheenPower: { value: RIM_WALL_SHEEN_POWER },
+    uRimTint: { value: new Color(PALETTE.rimTint) },
     uTopBand: { value: RIM_TOP_BAND },
     uSeamSpacing: { value: SURFACE_SEAMS.spacingMetres },
     uSeamOffset: { value: SURFACE_SEAMS.offsetMetres },
@@ -140,15 +141,12 @@ const rimMaterial = new ShaderMaterial({
     uFogFar: { value: FOG.farMetres },
   },
   vertexShader: /* glsl */ `
-    attribute vec3 aIdentity;
-    varying vec3 vIdentity;
     varying vec3 vWorldNormal;
     varying vec3 vWorldPosition;
     varying vec3 vViewPosition;
     varying vec2 vUv;
 
     void main() {
-      vIdentity = aIdentity;
       vUv = uv;
       vec4 world = modelMatrix * vec4(position, 1.0);
       vWorldPosition = world.xyz;
@@ -168,13 +166,13 @@ const rimMaterial = new ShaderMaterial({
     uniform float uSeamOffset;
     uniform float uSeamHalfWidth;
     uniform float uSeamStrength;
+    uniform vec3 uRimTint;
     uniform sampler2D uDetailMap;
     uniform float uDetailStrength;
     uniform float uHasDetail;
     uniform float uFogNear;
     uniform float uFogFar;
 
-    varying vec3 vIdentity;
     varying vec3 vWorldNormal;
     varying vec3 vWorldPosition;
     varying vec3 vViewPosition;
@@ -202,7 +200,7 @@ const rimMaterial = new ShaderMaterial({
       float seam = (1.0 - smoothstep(0.0, uSeamHalfWidth, seamDistance)) * uSeamStrength;
       seam *= step(0.5, vertical);
 
-      vec3 tint = vIdentity;
+      vec3 tint = uRimTint;
       if (uHasDetail > 0.5) {
         // Greyscale, low frequency, multiplied at a budgeted strength (§9).
         float detail = texture2D(uDetailMap, vUv).r;
@@ -326,15 +324,6 @@ export function createNeonSurface(
     // The fill carries a dark gradient in `color`; the rim and edges carry the
     // identity in `aIdentity`/`color` respectively, so all three can share one buffer.
     const body = applyFillGradient(part.geometry);
-    const identity = new Float32Array(body.getAttribute('position').count * 3);
-    const linear = new Color(part.color).multiplyScalar(gain);
-    for (let index = 0; index < identity.length; index += 3) {
-      identity[index] = linear.r;
-      identity[index + 1] = linear.g;
-      identity[index + 2] = linear.b;
-    }
-    body.setAttribute('aIdentity', new BufferAttribute(identity, 3));
-
     const edge = colorize(new EdgesGeometry(body, EDGE_THRESHOLD_DEGREES), part.color, gain);
     bodyParts.push(body);
     edgeParts.push(edge);

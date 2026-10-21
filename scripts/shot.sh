@@ -151,8 +151,8 @@ BASE_ARGS=(
 )
 
 # A rendered frame at 1920×1080 is hundreds of KB; a black page is a few KB. This is
-# a smoke test for "WebGL produced pixels", not a judgement of the look — the look is
-# judged by reading the image (and by the owner).
+# a smoke test for "WebGL produced pixels", not a judgement of the look: the measured
+# look budget below is the gate, and a FAIL makes this command exit non-zero.
 screenshot_usable() {
   [ -f "$OUT_ABS" ] && [ "$(wc -c < "$OUT_ABS")" -ge 30000 ]
 }
@@ -191,6 +191,13 @@ fi
 if ! screenshot_usable; then
   echo "shot: ERROR — no usable WebGL screenshot was produced." >&2
   echo "shot: The app reports its failure in the #error banner; read $CHROME_LOG and the PNG." >&2
+  FAILED=1
+  exit 1
+fi
+
+echo "shot: measuring the look budget"
+if ! python3 "$ROOT/scripts/look-budget.py" "$OUT_ABS"; then
+  echo "shot: look-budget FAILED — this frame is not a deliverable." >&2
   FAILED=1
   exit 1
 fi

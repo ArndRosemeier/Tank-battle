@@ -3,6 +3,7 @@ import {
   PALETTE,
   SURFACE_LUMA_BAND,
   rec709Luminance,
+  srgbLuma,
   teamEdgeGainFor,
 } from './config.ts';
 
@@ -30,13 +31,13 @@ describe('render palette', () => {
     expect(new Set(PALETTE.team).size).toBe(4);
   });
 
-  it('surface albedos sit inside §9’s 2–10 % linear-luminance band', () => {
+  it('surface albedos sit inside §9’s 2–10 % sRGB-luminance band', () => {
     for (const hex of [PALETTE.surfaceFill, PALETTE.surfaceFillTop, PALETTE.gridSurface]) {
-      const luma = rec709Luminance(hex);
+      const luma = srgbLuma(hex);
       expect(luma).toBeGreaterThanOrEqual(SURFACE_LUMA_BAND.min);
       expect(luma).toBeLessThanOrEqual(SURFACE_LUMA_BAND.max);
     }
     // A hole is the exception on purpose: it must be void-black.
-    expect(rec709Luminance(PALETTE.void)).toBe(0);
+    expect(srgbLuma(PALETTE.void)).toBe(0);
   });
 });

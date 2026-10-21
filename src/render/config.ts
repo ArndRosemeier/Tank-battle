@@ -29,11 +29,11 @@ export const PALETTE = {
    * 2–10 % linear-luminance band (2.07 % here), because the A2b verdict was that
    * wall volumes read flat: below the band, a side face is a silhouette, not a box.
    */
-  surfaceFill: '#1d2931',
-  /** The fill's top edge of the vertical gradient: still inside the band (4.07 %). */
-  surfaceFillTop: '#2b3b45',
+  surfaceFill: '#0c1011',
+  /** The fill's top edge of the vertical gradient: still inside the band (8.4 %). */
+  surfaceFillTop: '#121819',
   /** The floor's surface tint; the grid lines are drawn on top by a shader. */
-  gridSurface: '#1d2931',
+  gridSurface: '#0c1112',
   /** A hole is a black void, not a floor tint — it must read darker than the grid. */
   void: '#000000',
   /** The luminous floor grid: minor cell lines, then every fifth cell. */
@@ -50,6 +50,8 @@ export const PALETTE = {
   panelSeam: '#2b8aa3',
   /** Gateway arch trim: architecture, not team identity. */
   gatewayEdge: '#40cfe8',
+  /** The rim is NEUTRAL on purpose: hue lives in the lines and small lights only. */
+  rimTint: '#8d9a9c',
   /** Debug readout — legible, on-palette, and not an interface control. */
   debugText: '#8ff4ff',
   /** The one error surface. Still the palette's home, so no other file names a colour. */
@@ -71,7 +73,7 @@ export const NEON = {
   holeRimInnerGain: 1.0,
   verticalEdgeGain: 1.3,
   panelSeamGain: 0.45,
-  gatewayEdgeGain: 1.2,
+  gatewayEdgeGain: 0.9,
   gridMinorGain: 0.65,
   gridMajorGain: 1.35,
 } as const;
@@ -85,7 +87,11 @@ export const NEON = {
  */
 export const TEAM_LUMA_TARGET = 0.4;
 
-/** §9's surface band, in linear Rec.709 luminance. Fills and the grid surface obey it. */
+/**
+ * §9's surface band as the A2c look-budget measures it: ITU-R 601 luma of the
+ * sRGB hex, 0…1 of white. This is NOT the linear-light Rec.709 measure used for
+ * team luma; the dispatcher's table (15.7 % wall, 31.7 % lime) is this measure.
+ */
 export const SURFACE_LUMA_BAND = { min: 0.02, max: 0.1 } as const;
 
 /** sRGB channel → linear. Kept local so the config never needs three.js. */
@@ -93,7 +99,7 @@ function srgbToLinear(channel: number): number {
   return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
 }
 
-/** Rec.709 relative luminance of a hex colour, in linear light. */
+/** Rec.709 relative luminance of a hex colour, in linear light (D5 team luma). */
 export function rec709Luminance(hex: string): number {
   const match = /^#([0-9a-f]{6})$/i.exec(hex);
   if (!match) {
@@ -106,9 +112,31 @@ export function rec709Luminance(hex: string): number {
   return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
 }
 
+/** ITU-R 601 luma of an sRGB hex, 0…1 of white — the A2c look-budget's L. */
+export function srgbLuma(hex: string): number {
+  const match = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!match) {
+    throw new Error(`config: srgbLuma expects a six-digit hex colour, got "${hex}"`);
+  }
+  const value = Number.parseInt(match[1]!, 16);
+  const red = (value >> 16) & 0xff;
+  const green = (value >> 8) & 0xff;
+  const blue = value & 0xff;
+  return (0.299 * red + 0.587 * green + 0.114 * blue) / 255;
+}
+
+/**
+ * A small render correction inside D5's ±10 % allowance. ACES tone mapping and the
+ * clipping of the saturated orange/magenta HDR edges lift lime's green relative to
+ * the others, so a 9 % lime reduction keeps the MEASURED trim within A2c's ±25 %
+ * band while the linear Rec.709 check stays inside its own ±10 % tolerance.
+ */
+export const TEAM_RENDER_CORRECTION: readonly number[] = [1, 1, 1, 0.91] as const;
+
 /** One gain per team that pulls its raw hue to `TEAM_LUMA_TARGET` (within rounding). */
 export const TEAM_LUMA_GAIN: readonly number[] = PALETTE.team.map(
-  (hex) => TEAM_LUMA_TARGET / rec709Luminance(hex),
+  (hex, index) =>
+    (TEAM_LUMA_TARGET / rec709Luminance(hex)) * (TEAM_RENDER_CORRECTION[index] ?? 1),
 );
 
 /** The HDR gain a team's edge/rim identity receives: base gain × its luma correction. */
@@ -151,17 +179,17 @@ export const SURFACE_DETAIL = 0.3;
 export const DETAIL_MAP_MAX_STRENGTH = 0.15;
 
 /** The rim's opacity at `SURFACE_DETAIL = 1`; the running value is scaled by detail. */
-export const RIM_OPACITY_AT_FULL_DETAIL = 0.4;
+export const RIM_OPACITY_AT_FULL_DETAIL = 0.75;
 
 /** The fresnel exponent: higher is a tighter rim, lower wraps further around. */
 export const RIM_FRESNEL_POWER = 4.2;
 
 /** A broader sheen on vertical faces, so a wall side reads as a volume (D2). */
-export const RIM_WALL_SHEEN = 0.22;
+export const RIM_WALL_SHEEN = 0.45;
 /** The vertical sheen's own exponent: lower than the rim's, so it spreads inward. */
-export const RIM_WALL_SHEEN_POWER = 1.9;
+export const RIM_WALL_SHEEN_POWER = 2.0;
 /** A faint additive band on upward-facing surfaces (wall tops, hull decks). */
-export const RIM_TOP_BAND = 0.07;
+export const RIM_TOP_BAND = 0.04;
 
 /**
  * Procedural horizontal panel seams on vertical faces, scaled by `SURFACE_DETAIL`.
@@ -172,7 +200,7 @@ export const SURFACE_SEAMS = {
   spacingMetres: 1.8,
   offsetMetres: 0.45,
   halfWidthMetres: 0.012,
-  strength: 0.12,
+  strength: 0.9,
 } as const;
 
 /** A hole's rim is a band: the boundary plus an inner loop offset into the void. */
@@ -245,12 +273,12 @@ export const CAMERA = {
   zoomHalfLifeSeconds: 0.12,
   /**
    * The `wide` screenshot pose: camera offset as a fraction of the arena's span.
-   * A2b moved it INSIDE the south-east perimeter (z 0.35, x 0.35) at a high angle:
-   * an outside camera left the near walls in front and the arena read as a board on
-   * a table. The inside arm frames the gates and both holes and keeps all teams in
-   * view except the nearest lime edge.
+   * A2c pulls it back/up from the A2b inside arm so all four team clusters and both
+   * visible gate arches fit without cropping the nearest lime tank. The arena is
+   * smaller, but the perimeter architecture and the deep black void now do the
+   * composition work instead of a cropped foreground tank.
    */
-  wideOffsetFractions: { x: 0.35, y: 0.48, z: 0.35 },
+  wideOffsetFractions: { x: 0.36, y: 0.56, z: 0.55 },
 } as const;
 
 /** The placeholder tanks: dimensions in metres, and the sweep of the debug animation. */

@@ -47,9 +47,9 @@ export function createGatewayArches(gates: readonly GatewaySpec[]): NeonSurface 
     throw new Error('gateways: at least one gateway is required');
   }
 
-  const postWidth = 0.9;
-  const beamHeight = 0.9;
-  const capHeight = 0.3;
+  const postWidth = 0.55;
+  const beamHeight = 0.5;
+  const capHeight = 0.12;
   const parts: SurfacePart[] = [];
 
   for (const gate of gates) {
@@ -93,8 +93,8 @@ export function createGatewayArches(gates: readonly GatewaySpec[]): NeonSurface 
           0,
           gate.heightMetres + beamHeight / 2,
         ),
-        color: PALETTE.verticalEdge,
-        gain: NEON.verticalEdgeGain,
+        color: PALETTE.gatewayEdge,
+        gain: NEON.gatewayEdgeGain,
       },
       {
         geometry: place(
@@ -104,8 +104,8 @@ export function createGatewayArches(gates: readonly GatewaySpec[]): NeonSurface 
           0,
           gate.heightMetres + beamHeight + capHeight / 2,
         ),
-        color: PALETTE.iceWhite,
-        gain: NEON.coreGain,
+        color: PALETTE.gatewayEdge,
+        gain: NEON.gatewayEdgeGain,
       },
     );
   }
