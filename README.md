@@ -22,7 +22,7 @@ Run `pnpm build` and `pnpm test`. The project's full verification gate is `bash 
 - `src/render` contains Three.js visuals.
 - `src/entry` provides audio, UI, and the title screen.
 
-Read `AGENTS.md`, `docs/CROSS-TOOL.md` and `docs/ARCHITECTURE.md` before editing. Use focused regression tests and feature branches.
+Read `AGENTS.md`, `docs/CROSS-TOOL.md`, `docs/ARCHITECTURE.md` and the [development quality process](docs/DEVELOPMENT-QUALITY-PROCESS.md) before editing. Use focused regression tests and feature branches.
 
 ## License
 

@@ -28,7 +28,7 @@ parsed as a retirement claim).
 
 ## Board
 
-**Open audit PR (2026-10-22):** [#1](https://github.com/ArndRosemeier/Tank-battle/pull/1), `improve/code-quality-audit-20261022`; MIT, code-quality fixes, shared renderer, tick combat events, and added CI/browser checks. Feature branch only; no merge or deployment. Initial CI: Linux + browser PASS; Windows FAIL (source-scan path separator and title test timeout); fixes committed; latest head still awaits verification. Full local gate not executed in this session. Read `docs/AUDIT-REMEDIATION.md` for remaining risks.
+**Open audit PR (2026-10-22):** [#1](https://github.com/ArndRosemeier/Tank-battle/pull/1), `improve/code-quality-audit-20261022`; MIT, code-quality fixes, shared renderer, tick combat events and new development-quality playbook. Feature branch only: no merge/deploy. Initial CI Windows failures were fixed. Verified independent GitHub Actions green on `9b2c794` (Ubuntu/Windows tests and Chromium smoke), but local full gate, human visual check and this docs commit remain unverified. Source of quality rules: `docs/DEVELOPMENT-QUALITY-PROCESS.md`.
 
 ```
 reconciled: 0b4e39c · 2026-10-22T00:12Z

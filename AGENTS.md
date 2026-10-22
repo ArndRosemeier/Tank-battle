@@ -13,6 +13,10 @@ The full process — roles, the board, verification doctrine, the brief template
 in the shared doc `WAY-OF-WORKING.md` (from the Toolbox repo). Read it when you are
 new to this workflow. This file holds only what is **binding here**.
 
+## Authoring-model quality protocol
+
+For any behavior-changing code work, read [`docs/DEVELOPMENT-QUALITY-PROCESS.md`](docs/DEVELOPMENT-QUALITY-PROCESS.md) after the relevant architecture seam. It records the shortcomings found in the October 2026 audit, the fixes, and the required anti-regression brief/checks. Its six-line brief, data-identity checks, actual-app proof and `COPIES` report are binding **quality supplements**; `AGENTS.md` and `docs/CROSS-TOOL.md` remain the process authorities. Do not claim verified work without evidence from the exact commit.
+
 ## Cross-tool contract (DSH and Claude Code)
 
 This project is worked from **two harnesses**. The contract is

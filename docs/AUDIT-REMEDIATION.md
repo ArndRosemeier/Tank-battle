@@ -11,7 +11,7 @@ This is an audit change, not a redesign. The owner explicitly approved the MIT l
 - Browser-input preventDefault only when game canvas is focused; remove context-menu listener on disposal.
 - Test the real scene alongside the older showcase budget.
 - Add cross-platform GitHub Actions and browser smoke workflows.
-- README explains how to run and test the project. Licensing still requires the owner's explicit selection.
+- README explains how to run and test the project. The owner selected the MIT license, committed in `LICENSE`.
 
 ## Remaining tasks, deliberately not disguised as complete
 
@@ -23,6 +23,6 @@ This is an audit change, not a redesign. The owner explicitly approved the MIT l
 
 ## Verification truth
 
-Repository was edited through GitHub connector. The owner-specified Windows folder is not accessible from this ChatGPT environment. No `pnpm` install, build, full gate, or interactive browser run was performed here. CI workflows were added as an independent check, **not** proof they passed.
+Repository was edited through GitHub connector. The owner-specified Windows folder is not accessible from this ChatGPT environment. No **local** `pnpm` install, full gate, or browser run was performed in ChatGPT. GitHub Actions on SHA `9b2c794` subsequently passed Ubuntu and Windows build/tests and Chromium smoke. This is independent CI evidence on that SHA, not local-gate, visual, or deployment evidence. See `docs/DEVELOPMENT-QUALITY-PROCESS.md` for the preventive contracts.
 
 COPIES: 3→1 — team match setup and controller seeding in `src/core/ai/teamBatch.ts`; 4→1 — order collection in `src/core/sim/controller.ts`.
