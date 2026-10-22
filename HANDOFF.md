@@ -37,10 +37,11 @@
 
 ## Next action (one)
 
-**A3c is in flight**: make it playable — sim↔render bridge with interpolation, keyboard/
-mouse commands, a dummy target, a world revision counter, hull aligned to the body,
-the look-budget tile metric, and the missing circle-overlap pin. Then Slice B (AI +
-batch rig) so battles can be watched.
+**A4 is in flight**: the authored 48×48 m arena (4-fold symmetry, ring walls with four
+gateways, a breakable central cluster, low shoot-over barriers, diagonal sniper lanes,
+ambush pockets), validated at load and reviewed from a top-down debug pose. Then B1 —
+the AI core, four character profiles and the headless batch rig, so battles can be
+watched and judged.
 
 ## Open questions for the owner
 

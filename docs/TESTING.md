@@ -622,3 +622,17 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
   oriented bodies stay on the debt list.
 - The duel trace is unchanged by A3b (shots 1/61/121, kill 124), so body blocking did not
   perturb the baseline scenario.
+
+### row 41 — the dispatcher's own verification (248daac)
+
+- Integrated gate 78/78, exit 0.
+- **Arms:** rebuild-every-frame → RED on the revision-gate pin; aim-yaw-unclamped →
+  RED on the ±60° turret pin; hull-wider-than-body (2.0 → 3.4 m) → RED on the hull-fit
+  pin. Tree restored to `40379ca2` after each.
+- **Look, re-measured by me:** all four poses PASS, including the new tile gate
+  (p90 6.7–10.2 % vs 12 %). The tile proof is real: the writer's white injection measured
+  255 L / 100 % and made `look-budget.py` exit 1.
+- **Visual verdict:** playable is real — sim-driven tanks, shells, damage, a win state.
+  The arena, however, is an **empty hall** with no cover or lanes, which is why the
+  authored arena (A4) precedes the AI. The placeholder HUD labels are clipped at the frame
+  edge; that is A5's problem, recorded here so it is not lost.
