@@ -113,12 +113,14 @@ never "it passed".
 | A destroyed cell is attributed to the firing team | `attributes a destroyed cell to the team that fired the shell` | `src/core/sim.test.ts` | attribute world destruction to the wrong team, or skip `destroyedNow` → team 0's count is 0 and the pin reds |
 | The 4×4 and 2×2 team stagings create 16/4 non-overlapping tanks | `builds the 4×4 and 2×2 authored team stagings without overlapping tanks` | `src/game/aiBatch.test.ts` | overlap one gate pad, or return one spawn per team → match creation / count assertions red |
 | The 4×4 team batch runs a real table | `runs the authored 4×4 team table without sharing a corner` | `src/game/aiBatch.test.ts` | drop `runTeamBatch`'s corner map or a team's spawns → character/corner count reds |
+| Every corner spawn, every other spawn and the central objective are body-reachable | `all four corner spawns and the centre objective are body-reachable` | `src/game/levels/arena.test.ts` | re-close one ring gateway, or restore the authored 2×2 gates → `findPath` returns null from a corner |
+| Batch destruction attribution maps each team, not a forced team 0 | `runs the authored 4×4 team table without sharing a corner` (the `onMatchCreated` baselines) | `src/game/aiBatch.test.ts` | force `worldDestructionByTeam[0]` in the corner diagnostic → the sorted corner lower bounds red; executed arm observed RED at `destroyed[1] >= 20` |
 | The spectator match is deterministic and has a director shot | `runs a deterministic four-team match and exposes a director shot` | `src/game/spectator.test.ts` | seed a controller from `Math.random`, or skip the overview/engagement cut → hashes/shots diverge or focus is dead |
 | N locks a manual follow and auto resumes | `next-tank locks a manual follow and auto can be resumed` | `src/game/spectator.test.ts` | make next-tank a no-op or ignore the manual flag → `autoDirector`/reason assertions red |
 | Four-team targeting is not permanently locked to one enemy | `does not leave a tank permanently locked on one enemy` | `src/core/ai/teamTargeting.test.ts` | freeze the target to the first visible enemy → each tank's target set shrinks below 2 |
 | The spectator camera is a wider arm and rejects an out-of-range distance | `frames the spectator action from a wider arm and rejects an out-of-range distance` | `src/render/cameraMath.test.ts` | clamp spectator distance to the player's 16 m arm, or drop the range check → the pose/throw assertion reds |
 
-The A3a block (20 rows), the A3b block (7 rows) and the A3c block (11 rows) are direct assertions; A4 adds seven level-validation pins; B1a adds the two A4 gap pins and eleven AI pins; B1b adds the scripted mirror pin; B1c adds the staging-symmetry pin; B2 adds the eager-profile, destruction-attribution, team-staging, team-batch, spectator and spectator-camera pins (**108/108 tests in 24 files**). **No mutation differential was run for A3a/A3b/A3c/A4/B1a/B1b/B1c/B2**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
+The A3a block (20 rows), the A3b block (7 rows) and the A3c block (11 rows) are direct assertions; A4 adds seven level-validation pins; B1a adds the two A4 gap pins and eleven AI pins; B1b adds the scripted mirror pin; B1c adds the staging-symmetry pin; B2 adds the eager-profile, destruction-attribution, team-staging, team-batch, spectator and spectator-camera pins; B3 adds the body-aware arena connectivity pin and the batch-attribution arm (**109/109 tests in 24 files**). **No mutation differential was run for A3a/A3b/A3c/A4/B1a/B1b/B1c/B2/B3**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
 
 The differential harness is a local artifact at `.gate-logs/differential.py` (row 26)
 and `.gate-logs/differential.sh` (row 0) — both gitignored; the mutations are described
@@ -917,6 +919,68 @@ only in trim lines and small lights. The team-trim diagnostic on `wide` is orang
   differential for B2, and any A5 HUD work. The screenshot is a fixed deterministic
   frame, not a pause feature.
 
+### row 53 — Slice B3 (fair fights)
+
+- **Gate:** `bash scripts/gate.sh` → **exit 0**, **109/109 tests in 24 files**.
+- **Diagnostic before tuning** (50 seeds, mixed cast, old B2 staging; all corners
+  in LOS on tick 1):
+
+  | corner | wins | first LOS | first 600 m | damage dealt | damage taken | cells destroyed |
+  | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+  | 0 | **42 %** | 1 | 40.1 | 10.18 | 10.16 | 2.78 |
+  | 1 | **0 %** | 1 | **44.0** | **6.54** | **12.00** | **1.36** |
+  | 2 | 20 % | 1 | 40.7 | 9.98 | 11.28 | 2.62 |
+  | 3 | 24 % | 1 | 52.8 | 8.60 | 11.00 | 2.42 |
+
+  Cap hits **16.0 %**; character survival (of 200 tank appearances each) was
+  vanguard 5, sniper **47**, ambusher 11, brute 8, with HP left 0.06 / 0.60 / 0.15 /
+  0.08. So the dead corner was **not** a slow path — it moved furthest but dealt the
+  least damage and died most — and the sniper was winning the survival metric.
+- **Root cause named:** the D4 canonical navigation frame was **not** the cause. I
+  forced `IDENTITY_FRAME` for a 20-seed probe: corner 1 still won **0/20**. The dead
+  corner instead moved when the spawn facing changed and when the arena was mirrored,
+  so the cause is the **fixed world-facing pad against the corner exit geometry**.
+  The fix is four seeded corner-facing patterns, so no corner keeps one bad facing.
+- **One arena:** `TEAM_ARENA` is gone. `ARENA` is the one level used by the app,
+  batch and spectator, with 5×5 ring-corner windows; the new pin walks `findPath`
+  from every corner spawn to every other and to the centre at the 1 m body radius.
+  The 2×2 gates that split the graph into four 78-cell components cannot ship.
+- **After, 200 seeds:**
+
+  | metric | before (B2) | after (B3) | target |
+  | --- | ---: | ---: | ---: |
+  | corner split | 42 / 0 / 20 / 24 % | **27 / 20 / 25 / 20 %** | 20–30 each |
+  | cap hits | 16.0 % | **9.0 % (18/200)** | ≤10 % |
+  | team wins | 22 / 20 / 24 / 20 % | 36.0 / 20.0 / 19.0 / 20.5 % | not the character target |
+  | character team-win rate | not measured | **23.0 % each** (184/800) | 20–60 % each |
+  | sniper survival | **47/200** (23.5 %) | **61/800** (7.6 %) | not dominant |
+  | vanguard survival | 5/200 (2.5 %) | **95/800** (11.9 %) | — |
+
+  Final 200-seed detail: 16 draws, mean **5204.8** / median **3854.0** ticks (p25
+  3252 / p75 4739, max 18000), **17 968 shots / 6981 hits / 38.9 % accuracy**,
+  **1798 kills**, deaths **shell 1798 / clock 1135**, mean speed **1.26 m/s**,
+  **1.41 matches/s**. Per-character survival/HP: vanguard 95 / 0.26, sniper 61 /
+  0.17, ambusher 60 / 0.17, brute 51 / 0.14. Per-corner diagnostic after: wins
+  54 / 40 / 50 / 40; first LOS 1 all; first-600 m 41.8 / 66.4 / 54.5 / 56.1; damage
+  dealt 8.47 / 9.69 / 8.67 / 8.07; taken 11.23 / 11.24 / 11.19 / 11.35; cells
+  2.56 / 2.47 / 2.37 / 2.75.
+- **Destruction-attribution pin is now effective.** The team test injects distinct
+  `worldDestructionByTeam` baselines before the first tick and requires the sorted
+  corner counts to clear [10,20,30,40]. I mutated the batch adapter to force
+  `worldDestructionByTeam[0]`; the pin **RED** at `destroyed[1] >= 20`, then restored
+  the tree and re-ran green. This is the arm the B2 pin lacked.
+- **Remaining:** the team-id split is 32.5 / 19.5 / 21.5 / 18.5 % — an action-order/
+  facing bias by team id, not a character loss; the character team-win metric is equal.
+  A 200-seed rerun of the B1c round robin on the connected arena gives 53.0 / 52.7 /
+  48.3 / 40.7 %, with the old signature bars no longer all met; that is a level-change
+  regression and is recorded in ARCHITECTURE §4.
+  Opening the 5×5 corner windows also removes the authored central pillar cluster;
+  the centre is now an open objective area. The B2 screenshot/look evidence was not
+  re-shot (B3 is a fairness slice; presentation is untouched).
+- **Not run:** a 4-team mirror pin, a GPU frame rate, a mutation differential for B3's
+  model changes, or a re-shoot of the B2 spectate frame. The body-aware pin is an A*
+  check at cell centres, not a swept-capsule path proof.
+
 ## Honest records
 
 A VOID probe, a wrong-file green, a discarded log and a run against a stale tree are
@@ -1112,4 +1176,4 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
   adapter stays green, so the signature metrics rest on an unguarded mapping.
 - **Spectate frame** (`shot.sh`) is good: four team colours, live shells, cover, readable.
 - **Nav finding from the writer, confirmed in code:** the playable `ARENA` still separates
-  into four components at 2-cell gates; only `TEAM_ARENA` is opened to 5×5.
+  into four components at 2-cell gates; B3 folds the 5×5 gate openings back into the one `ARENA`.

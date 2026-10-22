@@ -49,6 +49,7 @@ export function hashMatch(state: MatchState): string {
   lines.push(
     `stats shots=${state.stats.shotsFired} hits=${state.stats.hits} kills=${state.stats.kills} ` +
       `damage=${state.stats.damageDealt} ticks=${state.stats.ticks} ` +
+      `damageByTeam=${[0, 1, 2, 3].map((teamId) => state.stats.damageByTeam[teamId] ?? 0).join(',')} ` +
       `shells=${state.stats.causes.shell} clocks=${state.stats.causes.clock} ` +
       `winner=${state.stats.winnerTeamId ?? '-'} outcome=${state.stats.outcome ?? '-'}`,
   );

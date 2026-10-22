@@ -40,7 +40,7 @@ const DEMO_PLAYER = { xMetres: 12, zMetres: 12, hullYawDegrees: -135 } as const;
 const DEMO_DUMMY = { xMetres: 18, zMetres: 18, hullYawDegrees: 45 } as const;
 /** One-vs-dummy training starts the target close to the player's protected exit. */
 const TRAINING_DUMMY = { xMetres: 12, zMetres: 6, hullYawDegrees: 90 } as const;
-const DEMO_BREACH_CELL = { x: 7, z: 7 } as const;
+const DEMO_BREACH_CELL = { x: 10, z: 6 } as const;
 
 export interface PlayableSessionOptions {
   /** Build the deterministic combat screenshot scenario: a demo breach and no input. */

@@ -127,7 +127,7 @@ function main(): void {
       characters: cli.characters,
       seedStart: cli.seedStart,
       rules: DEFAULT_MATCH_RULES,
-      aimErrorScale: 0.1,
+      aimErrorScale: 0.09,
     });
     const seconds = (performance.now() - started) / 1000;
     const path = join(REPORTS, 'team-batch.json');
@@ -192,15 +192,29 @@ function printTeamReport(result: TeamBatchResult, path: string, seconds: number)
   console.log('| metric | value |');
   console.log('| --- | --- |');
   for (const [metric, value] of rows) console.log(`| ${metric} | ${value} |`);
-  console.log('| character | tanks | alive at end | deaths (shell/clock) | damage taken/tank | HP left/tank |');
-  console.log('| --- | ---: | ---: | ---: | ---: | ---: |');
+  console.log('| character | tanks | team wins / apps | team win % | alive at end | deaths (shell/clock) | damage taken/tank | HP left/tank |');
+  console.log('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
   for (const character of result.characters) {
     const tanks = character.tanks;
     console.log(
-      `| ${character.name} | ${tanks} | ${character.aliveAtEnd} | ` +
+      `| ${character.name} | ${tanks} | ` +
+        `${character.teamWins} / ${character.teamAppearances} | ` +
+        `${(character.teamWinRate * 100).toFixed(1)}% | ${character.aliveAtEnd} | ` +
         `${character.deaths} (${character.shellDeaths}/${character.clockDeaths}) | ` +
         `${tanks === 0 ? 'n/a' : (character.damageTaken / tanks).toFixed(2)} | ` +
         `${tanks === 0 ? 'n/a' : (character.hpRemaining / tanks).toFixed(2)} |`,
+    );
+  }
+  console.log('| corner | wins | first LOS tick | first 600 m | damage dealt | damage taken | cells destroyed |');
+  console.log('| --- | ---: | ---: | ---: | ---: | ---: | ---: |');
+  for (const corner of result.corners) {
+    console.log(
+      `| ${corner.cornerId} | ${corner.wins}/${corner.matches} | ` +
+        `${corner.firstLosMeanTick === null ? 'n/a' : corner.firstLosMeanTick.toFixed(1)} | ` +
+        `${(corner.distanceFirst600Metres / corner.matches).toFixed(1)} | ` +
+        `${(corner.damageDealt / corner.matches).toFixed(2)} | ` +
+        `${(corner.damageTaken / corner.matches).toFixed(2)} | ` +
+        `${(corner.cellsDestroyed / corner.matches).toFixed(2)} |`,
     );
   }
   console.log(`wrote ${relativeRoot(path)}`);

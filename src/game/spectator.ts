@@ -30,10 +30,10 @@ import {
   teamDecisionPhase,
 } from '../core/ai/teamBatch.ts';
 import { arenaTeamSetup } from './aiBatch.ts';
-import { TEAM_ARENA } from './levels/arena.ts';
+import { ARENA } from './levels/arena.ts';
 import { interpolateTanks, snapshotTanks, type TankRenderFrame } from './tankFrames.ts';
 
-export const SPECTATOR_TEAM_AIM_ERROR_SCALE = 0.1;
+export const SPECTATOR_TEAM_AIM_ERROR_SCALE = 0.09;
 export const DIRECTOR_INTERVAL_TICKS = 180;
 const DIRECTOR_SHELL_RADIUS_METRES = 12;
 const DIRECTOR_NEAR_RADIUS_METRES = 24;
@@ -115,11 +115,15 @@ export class SpectatorSession {
     const setup = arenaTeamSetup(teams, tanksPerTeam);
     const groups = [...setup.teams].sort((a, b) => a.teamId - b.teamId);
     const assignments = rotateTeamAssignments(groups, seed);
+    const yawPattern = setup.cornerYawPatterns?.[seed % setup.cornerYawPatterns.length];
     this.state = createMatch({
       level: setup.level,
       teams: assignments.map((assignment) => ({
         id: assignment.teamId,
-        tanks: [...assignment.corner.spawns],
+        tanks: assignment.corner.spawns.map((spawn) => ({
+          ...spawn,
+          hullYawDegrees: yawPattern?.[assignment.corner.teamId] ?? spawn.hullYawDegrees,
+        })),
       })),
       seed,
       rules: DEFAULT_MATCH_RULES,
@@ -147,7 +151,7 @@ export class SpectatorSession {
   }
 
   get floorY(): number {
-    return TEAM_ARENA.cells.floorSurfaceHeightMetres;
+    return ARENA.cells.floorSurfaceHeightMetres;
   }
 
   get frozenFrame(): boolean {

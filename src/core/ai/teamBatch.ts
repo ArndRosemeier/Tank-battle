@@ -15,6 +15,7 @@ import {
   stepMatch,
   type MatchRules,
   type TankCommandOrder,
+  type MatchState,
   type TankSpawn,
   type TeamSpec,
   DEFAULT_MATCH_RULES,
@@ -22,6 +23,7 @@ import {
 import type { WorldSpec } from '../world.ts';
 import { STEP_SECONDS } from '../timestep.ts';
 import { AIController } from './controller.ts';
+import { hasLineOfSight, eyePosition, targetCentre } from './perception.ts';
 import { AI_DECISION_INTERVAL_TICKS } from './constants.ts';
 import { AI_PROFILES, getAIProfile, type AIProfile } from './profile.ts';
 
@@ -33,6 +35,8 @@ export interface TeamSpawnGroup {
 export interface TeamSetup {
   readonly level: WorldSpec;
   readonly teams: readonly TeamSpawnGroup[];
+  /** Optional seeded facing patterns, indexed by seed and then by corner group. */
+  readonly cornerYawPatterns?: readonly (readonly number[])[];
 }
 
 export interface TeamAssignment {
@@ -69,6 +73,8 @@ export interface TeamBatchOptions {
   /** Scales the profile's aim error; 1 is the 1v1 tuning, lower is more accurate. */
   readonly aimErrorScale?: number;
   readonly rules?: MatchRules;
+  /** A test seam: called after the match exists but before the first tick. */
+  readonly onMatchCreated?: (state: MatchState) => void;
 }
 
 export interface TeamBatchMatch {
@@ -113,6 +119,19 @@ export interface TeamBatchSummary {
   readonly meanSpeedMetresPerSecond: number;
 }
 
+export interface TeamCornerDiagnostic {
+  readonly cornerId: number;
+  readonly matches: number;
+  readonly wins: number;
+  /** Mean tick of the first eye-to-centre sighting; null when never seen. */
+  readonly firstLosMeanTick: number | null;
+  readonly firstLosSamples: number;
+  readonly distanceFirst600Metres: number;
+  readonly damageDealt: number;
+  readonly damageTaken: number;
+  readonly cellsDestroyed: number;
+}
+
 export interface TeamCharacterSummary {
   readonly name: string;
   /** Tank appearances across all matches (teams × matches). */
@@ -123,6 +142,9 @@ export interface TeamCharacterSummary {
   readonly clockDeaths: number;
   readonly damageTaken: number;
   readonly hpRemaining: number;
+  readonly teamWins: number;
+  readonly teamAppearances: number;
+  readonly teamWinRate: number;
 }
 
 export interface TeamBatchResult {
@@ -133,6 +155,9 @@ export interface TeamBatchResult {
   };
   readonly summary: TeamBatchSummary;
   readonly characters: readonly TeamCharacterSummary[];
+  readonly corners: readonly TeamCornerDiagnostic[];
+  /** wins[cornerId][teamId], the cross-tab that tells a dead corner from a weak team. */
+  readonly cornerTeamWins: Readonly<Record<number, Readonly<Record<number, number>>>>;
   readonly matches: readonly TeamBatchMatch[];
 }
 
@@ -144,6 +169,8 @@ interface MutableCharacter {
   clockDeaths: number;
   damageTaken: number;
   hpRemaining: number;
+  teamWins: number;
+  teamAppearances: number;
 }
 
 /**
@@ -189,6 +216,33 @@ export function runTeamBatch(setup: TeamSetup, options: TeamBatchOptions): TeamB
     cornerWins[team.teamId] = 0;
   }
 
+  const cornerTeamWins: Record<number, Record<number, number>> = {};
+  for (const team of teams) {
+    cornerTeamWins[team.teamId] = {};
+    for (const other of teams) cornerTeamWins[team.teamId]![other.teamId] = 0;
+  }
+  const cornerStats = new Map<number, {
+    matches: number;
+    wins: number;
+    firstLosSum: number;
+    firstLosSamples: number;
+    distanceFirst600Metres: number;
+    damageDealt: number;
+    damageTaken: number;
+    cellsDestroyed: number;
+  }>();
+  for (const team of teams) {
+    cornerStats.set(team.teamId, {
+      matches: 0,
+      wins: 0,
+      firstLosSum: 0,
+      firstLosSamples: 0,
+      distanceFirst600Metres: 0,
+      damageDealt: 0,
+      damageTaken: 0,
+      cellsDestroyed: 0,
+    });
+  }
   const characterStats = new Map<string, MutableCharacter>();
   for (const name of characterNames.slice(0, tanksPerTeam)) {
     characterStats.set(name, {
@@ -199,6 +253,8 @@ export function runTeamBatch(setup: TeamSetup, options: TeamBatchOptions): TeamB
       clockDeaths: 0,
       damageTaken: 0,
       hpRemaining: 0,
+      teamWins: 0,
+      teamAppearances: 0,
     });
   }
 
@@ -220,15 +276,20 @@ export function runTeamBatch(setup: TeamSetup, options: TeamBatchOptions): TeamB
     // each team on each corner over a seed set while the corner table still exposes a
     // genuinely favoured corner.
     const assignments = rotateTeamAssignments(teams, seed);
+    const yawPattern = setup.cornerYawPatterns?.[seed % setup.cornerYawPatterns.length];
     const state = createMatch({
       level: setup.level,
       teams: assignments.map((assignment): TeamSpec => ({
         id: assignment.teamId,
-        tanks: [...assignment.corner.spawns],
+        tanks: assignment.corner.spawns.map((spawn) => ({
+          ...spawn,
+          hullYawDegrees: yawPattern?.[assignment.corner.teamId] ?? spawn.hullYawDegrees,
+        })),
       })),
       seed,
       rules,
     });
+    options.onMatchCreated?.(state);
     const controllers = new Map<number, AIController>();
     for (const tank of state.tanks) {
       const profile = selectedProfiles[tank.teamIndex];
@@ -243,7 +304,7 @@ export function runTeamBatch(setup: TeamSetup, options: TeamBatchOptions): TeamB
           tankId: tank.id,
           profile,
           seed: teamControllerSeed(seed, tank.id),
-          decisionPhaseTicks: teamDecisionPhase(seed, tank.teamId, tank.teamIndex),
+          decisionPhaseTicks: (seed + tank.teamId * 5 + tank.teamIndex) % AI_DECISION_INTERVAL_TICKS,
           aimErrorScale,
         }),
       );
@@ -251,9 +312,16 @@ export function runTeamBatch(setup: TeamSetup, options: TeamBatchOptions): TeamB
 
     const previousHp = new Map<number, number>();
     const previousAlive = new Map<number, boolean>();
+    const distanceFirst600 = new Map<number, number>();
+    const firstLos = new Map<number, number>();
+    const teamForTank = new Map<number, number>();
+    const cornerForTeam = new Map<number, number>();
+    for (const assignment of assignments) cornerForTeam.set(assignment.teamId, assignment.corner.teamId);
     for (const tank of state.tanks) {
       previousHp.set(tank.id, tank.hp);
       previousAlive.set(tank.id, tank.alive);
+      teamForTank.set(tank.id, tank.teamId);
+      distanceFirst600.set(tank.teamId, 0);
     }
 
     let guard = 0;
@@ -272,15 +340,29 @@ export function runTeamBatch(setup: TeamSetup, options: TeamBatchOptions): TeamB
       for (const start of before) {
         const tank = state.tanks.find((candidate) => candidate.id === start.id);
         if (!tank) continue;
-        totalDistance += Math.hypot(tank.x - start.x, tank.z - start.z);
+        const moved = Math.hypot(tank.x - start.x, tank.z - start.z);
+        totalDistance += moved;
         totalAliveTankTicks += 1;
+        if (state.tick <= 600) {
+          const teamId = teamForTank.get(tank.id);
+          if (teamId !== undefined) {
+            distanceFirst600.set(teamId, (distanceFirst600.get(teamId) ?? 0) + moved);
+          }
+        }
       }
       for (const tank of state.tanks) {
-        const character = characterStats.get(selectedProfiles[tank.teamIndex]!.name);
+        const character = characterStats.get(selectedProfiles[tank.teamId]!.name);
         if (!character) throw new Error('runTeamBatch: character stats disappeared');
         const oldHp = previousHp.get(tank.id);
         if (oldHp === undefined) throw new Error(`runTeamBatch: no previous HP for tank ${tank.id}`);
-        if (tank.hp < oldHp) character.damageTaken += oldHp - tank.hp;
+        if (tank.hp < oldHp) {
+          character.damageTaken += oldHp - tank.hp;
+          const corner = cornerForTeam.get(tank.teamId);
+          if (corner === undefined) throw new Error('runTeamBatch: no corner for tank team');
+          const cornerEntry = cornerStats.get(corner);
+          if (!cornerEntry) throw new Error('runTeamBatch: corner diagnostics disappeared');
+          cornerEntry.damageTaken += oldHp - tank.hp;
+        }
         const wasAlive = previousAlive.get(tank.id) ?? true;
         if (wasAlive && !tank.alive) {
           character.deaths += 1;
@@ -291,6 +373,12 @@ export function runTeamBatch(setup: TeamSetup, options: TeamBatchOptions): TeamB
         previousHp.set(tank.id, tank.hp);
         previousAlive.set(tank.id, tank.alive);
       }
+      for (const assignment of assignments) {
+        if (firstLos.has(assignment.teamId)) continue;
+        if (teamHasSight(state, assignment.teamId)) {
+          firstLos.set(assignment.teamId, state.tick);
+        }
+      }
       guard += 1;
       if (guard > rules.tickCap + 1) {
         throw new Error(`runTeamBatch: seed ${seed} exceeded the tick cap guard`);
@@ -298,9 +386,10 @@ export function runTeamBatch(setup: TeamSetup, options: TeamBatchOptions): TeamB
     }
 
     for (const tank of state.tanks) {
-      const character = characterStats.get(selectedProfiles[tank.teamIndex]!.name);
+      const character = characterStats.get(selectedProfiles[tank.teamId]!.name);
       if (!character) throw new Error('runTeamBatch: character stats disappeared');
       character.tanks += 1;
+      character.teamAppearances += 1;
       if (tank.alive) {
         character.aliveAtEnd += 1;
         character.hpRemaining += tank.hp;
@@ -324,7 +413,36 @@ export function runTeamBatch(setup: TeamSetup, options: TeamBatchOptions): TeamB
       damageDealt: state.stats.damageDealt,
       causes: { ...state.stats.causes },
     };
+    if (state.winnerTeamId !== null) {
+      // Mixed teams contain one of each character; one win per character on the
+      // winning team. The team/corner rotation makes this a de-rotated rate.
+      for (const name of selectedProfiles.map((profile) => profile.name)) {
+        const character = characterStats.get(name);
+        if (!character) throw new Error('runTeamBatch: character stats disappeared');
+        character.teamWins += 1;
+      }
+    }
     matches.push(match);
+    for (const assignment of assignments) {
+      const corner = cornerStats.get(assignment.corner.teamId);
+      if (!corner) throw new Error('runTeamBatch: corner diagnostics disappeared');
+      corner.matches += 1;
+      if (winnerCornerId === assignment.corner.teamId) {
+        corner.wins += 1;
+        if (state.winnerTeamId !== null) {
+          cornerTeamWins[assignment.corner.teamId]![state.winnerTeamId] =
+            (cornerTeamWins[assignment.corner.teamId]![state.winnerTeamId] ?? 0) + 1;
+        }
+      }
+      const los = firstLos.get(assignment.teamId);
+      if (los !== undefined) {
+        corner.firstLosSum += los;
+        corner.firstLosSamples += 1;
+      }
+      corner.distanceFirst600Metres += distanceFirst600.get(assignment.teamId) ?? 0;
+      corner.damageDealt += state.stats.damageByTeam[assignment.teamId] ?? 0;
+      corner.cellsDestroyed += state.stats.worldDestructionByTeam[assignment.teamId] ?? 0;
+    }
     totalShots += match.shotsFired;
     totalHits += match.hits;
     totalKills += match.kills;
@@ -381,6 +499,18 @@ export function runTeamBatch(setup: TeamSetup, options: TeamBatchOptions): TeamB
       deathsByCause: { shell: totalShellDeaths, clock: totalClockDeaths },
       meanSpeedMetresPerSecond: meanSpeed,
     },
+    cornerTeamWins,
+    corners: [...cornerStats.entries()].map(([cornerId, stats]) => ({
+      cornerId,
+      matches: stats.matches,
+      wins: stats.wins,
+      firstLosMeanTick: stats.firstLosSamples === 0 ? null : stats.firstLosSum / stats.firstLosSamples,
+      firstLosSamples: stats.firstLosSamples,
+      distanceFirst600Metres: stats.distanceFirst600Metres,
+      damageDealt: stats.damageDealt,
+      damageTaken: stats.damageTaken,
+      cellsDestroyed: stats.cellsDestroyed,
+    })),
     characters: [...characterStats.entries()].map(([name, stats]) => ({
       name,
       tanks: stats.tanks,
@@ -390,9 +520,24 @@ export function runTeamBatch(setup: TeamSetup, options: TeamBatchOptions): TeamB
       clockDeaths: stats.clockDeaths,
       damageTaken: stats.damageTaken,
       hpRemaining: stats.hpRemaining,
+      teamWins: stats.teamWins,
+      teamAppearances: stats.teamAppearances,
+      teamWinRate: stats.teamAppearances === 0 ? 0 : stats.teamWins / stats.teamAppearances,
     })),
     matches,
   };
+}
+
+function teamHasSight(state: MatchState, teamId: number): boolean {
+  for (const tank of state.tanks) {
+    if (!tank.alive || tank.teamId !== teamId) continue;
+    const eye = eyePosition(state.world, tank);
+    for (const enemy of state.tanks) {
+      if (!enemy.alive || enemy.teamId === teamId) continue;
+      if (hasLineOfSight(state.world, eye, targetCentre(state.world, enemy))) return true;
+    }
+  }
+  return false;
 }
 
 function validateSetup(setup: TeamSetup): void {
@@ -425,7 +570,7 @@ export function teamControllerSeed(seed: number, tankId: number): number {
 
 /** The one team decision phase; team id and tank slot both break the action-order tie. */
 export function teamDecisionPhase(seed: number, teamId: number, teamIndex: number): number {
-  return (seed + teamId * 5 + teamIndex) % AI_DECISION_INTERVAL_TICKS;
+  return (seed + (teamId * 4 + teamIndex) * 5) % AI_DECISION_INTERVAL_TICKS;
 }
 
 function quantile(sorted: readonly number[], fraction: number): number {

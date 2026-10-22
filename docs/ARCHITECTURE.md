@@ -83,9 +83,8 @@ running headless in `node`.
 | AI character data | `validateAIProfile(input)` · `AI_PROFILES` | `src/core/ai/profile.ts:143` · `src/core/ai/profile.ts:132` | The only profile boundary: all eight goal keys (`gain-line-of-sight`, `approach-preferred-range`, `fire-in-cone`, `hold-cover`, `flank`, `ambush-chokepoint`, `breach-wall`, `wounded-retreat`) must be present and in 0…1; per-profile range, cone, memory, aim, ambush-hold and breach-range fields are validated numbers; unknown keys and invalid ranges throw. The four profiles are data, not classes and are passed through `validateAIProfile` at module load, so an invalid shipped weight fails the import; a test imports and re-validates all four. |
 | an AI decision | `AIController.commandFor(state, tankId)` | `src/core/ai/controller.ts:170` | One controller per tank; decides on the first call and every 6 ticks (default phase 0), holds the SAME command object in between, and never reads a clock. The profile goal weights select the mode: vanguard strafes and fires; sniper holds a long sightline and retreats inside `minRangeMetres`; ambusher walks to a reachable no-LOS cell, holds for `ambushHoldTicks`, then relocates; brute breaches a blocking or nearby cover cell, then brawls. Profiles with `wounded-retreat` add the retreat goal. |
 | a batch of AI matches | `runBatchMatches(setup, options)` · `pnpm batch` | `src/core/ai/batch.ts:125` · `scripts/batch.ts:1` | Real `createMatch`/`stepMatch`/`hashMatch` on a supplied level, one vanguard tank per team. Writes `reports/batch.json` and one seed's JSONL trace; `reports/` is gitignored. Summary keeps mean/median length, cap hits, accuracy, TTK from first shot, mean speed and deaths by cause. |
-| a 4-team AI batch | `runTeamBatch(setup, options)` · `pnpm batch --teams 4 --tanks-per-team 4` | `src/core/ai/teamBatch.ts` · `scripts/batch.ts:1` | Same real match seam, up to 4 teams ×4 tanks with the same character cast by slot. Reports per-team and per-corner win splits, length distribution, cap hits, shots/hits, kills, damage, deaths by cause, and per-character survival/damage taken. Writes `reports/team-batch.json`; the 1v1 `reports/batch.json` and trace shape are unchanged. The team-to-corner assignment rotates by seed and the team AI uses `aimErrorScale: 0.1` (see §4). |
-| the team staging | `arenaTeamSetup(teams, tanksPerTeam)` | `src/game/aiBatch.ts` | Four pads in each corner's outer gate, all facing east, with the same cast by slot. The authored 2×2 rings leave the tank-body navigation graph in four disconnected 78-cell components, so team matches use `TEAM_ARENA` (below) and these pads rather than the 1v1 duel staging. |
-| the team arena variant | `TEAM_ARENA` | `src/game/levels/arena.ts` | The same 48 m, four-fold authored arena with the eight ring corners opened from 2×2 to 5×5 windows. This turns the body-free graph into one 404-cell component; the playable `ARENA` and its 2×2 gates are unchanged. |
+| a 4-team AI batch | `runTeamBatch(setup, options)` · `pnpm batch --teams 4 --tanks-per-team 4` | `src/core/ai/teamBatch.ts` · `scripts/batch.ts:1` | Same real match seam, up to 4 teams ×4 tanks with the same character cast by slot. Reports per-team and per-corner win splits, length distribution, cap hits, shots/hits, kills, damage, deaths by cause, per-character survival/damage and the de-rotated per-character team-win rate, plus the per-corner diagnostic (first LOS, first-600 m, damage dealt/taken, cells destroyed). Writes `reports/team-batch.json`; the 1v1 `reports/batch.json` and trace shape are unchanged. The team-to-corner and corner-facing assignments rotate by seed; the team AI uses `aimErrorScale: 0.09` (see §4). |
+| the team staging | `arenaTeamSetup(teams, tanksPerTeam)` | `src/game/aiBatch.ts` | Four pads in each corner's outer gate, same cast by slot, with four seeded corner-facing patterns. It uses the ONE `ARENA`: the eight ring corners are opened to 5×5 windows so the body-free graph is one component; the app, batch and spectator all read that same level. |
 | the character round robin | `runRoundRobin(seedsPerPairing)` · `pnpm round-robin` | `src/game/aiBatch.ts:236` · `scripts/round-robin.ts:1` | Every unordered character pairing, both orientations, `seedsPerPairing/2` seeds each way: 6 × 2 × 100 = **1200 matches** at the default 200. Runs the real `createMatch`/`stepMatch` and reports the win matrix, per-character overall win rate, and four signatures against the field median: engagement distance while in LOS, world destruction (cells destroyed + big blocks broken), out-of-LOS share, and mean speed. Writes `reports/round-robin.json` (gitignored). |
 | the 1v1 duel staging | `arenaDuelSetup()` | `src/game/aiBatch.ts:12` | The 2-team batch starts on the open north margin at (18, 6) and (30, 6), a mirror pair, now pinned by `src/game/aiBatch.test.ts`. Adjacent authored corner spawns are NOT a symmetry pair: their exits face different directions, so a 1v1 started there has an unavoidable spatial/cover bias. The four corner spawns remain the >2-team/arena layout. |
 | the spectator match | `SpectatorSession` | `src/game/spectator.ts` | Every tank is an `AIController`; no player input. Deterministic seed, team-mode controller seeds/phases, fixed step, shared `tankFrames` interpolation. Teams and tanks per team are URL options (`?mode=spectate&teams=4&tanksPerTeam=4&seed=…`). |
@@ -96,7 +95,7 @@ running headless in `node`.
 | AI aim spread and dodge | profile `aimErrorBaseDegrees` / `aimErrorPerMetre` · `startDodge` · `strafePoint` | `src/core/ai/profile.ts:36` · `src/core/ai/controller.ts:273` · `src/core/ai/controller.ts:405` | Every profile supplies its own seeded range-scaled yaw/pitch spread (vanguard **10° + 1.8°/m**; the sniper is tighter, the brute 4° + 0.6°/m); `AI_AIM_ERROR_*` is fallback only. A deliberate wall breach uses a tight fixed spread because the target is stationary. Every profile strafes in contact, and every profile dodges for 60 ticks after a shot or a hit; the effective shot interval stays 285 ticks. These are the pacing levers, kept out of the sim's global `RELOAD_TICKS`. |
 | the vanguard's shot interval | `AI_FIRE_INTERVAL_TICKS` | `src/core/ai/constants.ts:15` | The sim reload stays 60 ticks; the AI deliberately waits 285 ticks before its next trigger. This is the pacing lever that produced the 900–1800-tick band without changing the player's fire rate. |
 | the wound clock | `BLEED_INTERVAL_TICKS` · `MatchRules.bleedIntervalTicks` | `src/core/sim/constants.ts:75` | B1b raised the default from 600 to 900 ticks so a 3-HP duel can last the required 15–30 s while the clock still kills wounded tanks in a measurable share. The value remains a `MatchRules` override, so a test/app can still use 600. |
-| the authored level | `ARENA` · `spawnCentreMetres(spawn)` | `src/game/levels/arena.ts:1` | The ONE 48×48 m, 24×24-cell, 4-fold arena: four 2×2 corner spawn rooms with screened dogleg exits, outer/inner square rings with 2×2 corner gateways, breakable central pillar block, ambush pockets and low coverage. `session.ts` is the only app caller. |
+| the authored level | `ARENA` · `spawnCentreMetres(spawn)` | `src/game/levels/arena.ts:1` | The ONE 48×48 m, 24×24-cell, 4-fold arena used by the app, team batch and spectator. Its corner rings are opened to 5×5 body-width windows (the authored 2×2 gates split the body navigation graph into four components); it keeps the four corner spawn rooms, screened exits, ambush pockets and low cover. `session.ts` is the app caller. |
 | load-time level validation | `validateLevel(level)` | `src/game/levels/format.ts:105` | The ONE boundary before `createMatch`: square grid, legal materials/heights, exactly four unique 2–4-cell spawn zones, free non-overlapping spawn cells, flood-fill on-foot connectivity from spawn 0, every passable cell in the central objective window reachable from that component, and 90° (therefore four-fold) cell-grid symmetry. Every cell failure names the offending `(x, z)`. Never build the app world from unvalidated data. |
 | the demo/screenshot scenario | `?demo=duel&ticks=122` · `PlayableSession.runDemo(ticks)` | `src/main.ts:64` · `src/game/session.ts:205` | Runs a fixed scripted sequence on the authored arena, freezes before the first frame, and seeds one visible ambush-pillar breach. At tick 122 the dummy is at 1 HP and the third shell is in flight; the win is tick 124. |
 | the top review pose | `?pose=top` · `createTopPlan(ARENA)` | `src/main.ts:191` · `src/render/topPlan.ts:26` | One orthographic camera looks straight down with `up = (0, 0, −1)`; the same app scene/composer is rendered with all tanks hidden. The overlay draws team spawn zones, white L-shaped screened-exit arrows, dark tall-wall/low-cover/objective fills, and the HTML legend. `shot.sh top` selects it. |
@@ -164,32 +163,32 @@ the absolute median. The acceptance test is a measurement, not a hardcoded pass:
 30–70 % overall win rate per character, and at least 20 % away from the field median on
 that character's own signature.
 
-### Team battles and the spectator (B2)
+### Team battles and the spectator (B3)
 
-The authored arena's 2×2 ring gateways are wide enough for the eye but not for the
-tank body: the body-free navigation grid splits into **four 78-cell components**, so
-four teams starting at the corners can never meet. `TEAM_ARENA` is a data variant of
-the same four-fold arena with the eight corner windows opened from 2×2 to **5×5**;
-that yields one **404-cell** component. `ARENA` (playable) and its gates are unchanged.
-The team pads sit in each corner's outer gate, four tanks each, all facing east, and the
-team-to-corner assignment rotates with the seed.
+The authored 2×2 ring gateways split the body-aware navigation graph into **four
+78-cell components**, so no two corner teams could reach each other. The ONE `ARENA`
+now opens the eight ring corners to 5×5 windows (one 404-cell component); the app, the
+team batch and the spectator all use it. A pin walks `findPath` from every corner spawn
+to every other spawn and to the central objective at the simulation's 1 m body radius.
 
-`runTeamBatch` uses the real simulation and the same character cast by slot. The team
-table keeps the 1v1 report shape and adds per-team and per-corner win splits and a
-per-character survival/damage-taken breakdown. On 200 seeds (4×4) it reported
-**1.40 matches/s**, median **3836.5 ticks**, **12.0 %** cap hits, **41.6 %** accuracy
-and **1.29 m/s** mean speed. The team AI uses **`aimErrorScale: 0.1`** (the 1v1 value
-is 1) because sixteen tanks shooting across 48 m otherwise spend the tick cap hitting
-walls; that is a mode tuning, not a player balance change.
+`runTeamBatch` keeps the 1v1 report shape and adds per-team/per-corner splits, the
+per-character **de-rotated team-win rate**, and per-corner diagnostics: first LOS tick,
+distance in the first 600 ticks, damage dealt/taken and cells destroyed. The
+team-to-corner assignment and the corner-facing pattern rotate with the seed. The team
+AI uses `aimErrorScale: 0.09`; the 1v1 profiles stay at 1.
 
-`SpectatorSession` runs that same match with no input: deterministic seed, four AI
-controllers per team, the shared fixed step and `tankFrames` interpolation. The
-director cuts on a 180-tick interval (and when a shell appears). With 10+ tanks and
-four teams alive it frames a **four-team overview**; later it scores visible enemy
-pairs, preferring shells in flight and nearby teams. `N` selects the next living tank
-and locks a follow camera; `A` resumes automatic cuts. The screenshot pose is
-`?mode=spectate&teams=4&tanksPerTeam=4&seed=7&pose=spectate&ticks=300`, a fixed
-four-team overview whose frame passes the look budget.
+On 200 seeds (4×4) the final table is: corners **27 / 20 / 25 / 20 %**;
+characters' team-win rate **23.0 % each** (184/800); cap **18/200 (9.0 %)**; median
+**3854 ticks**; accuracy **38.9 %**; mean speed **1.26 m/s**; **1.41 matches/s**.
+Survival is now vanguard 95, sniper 61, ambusher 60, brute 51 tanks at the end (of
+800 each), so the sniper no longer dominates by declining to fight.
+
+`SpectatorSession` runs the same match with no input: deterministic seed, four AI
+controllers per team, shared fixed step and `tankFrames` interpolation. The director
+cuts every 180 ticks and on a new shell; with 10+ tanks and four teams alive it frames
+a four-team overview, later a scored engagement preferring shells and nearby teams.
+`N` follows the next living tank; `A` resumes automatic cuts. The B2 screenshot pose
+and look evidence remain presentation-only; B3 did not retune the camera or HUD.
 
 ## 3 · Gotchas
 
@@ -451,20 +450,32 @@ four-team overview whose frame passes the look budget.
   and passes its stated acceptance, but the metric separates it from the median, not
   from the brute. Brute's win rate is at the 30 % floor, and the round robin uses the
   same pinned short duel staging as B1b.
-- **B2's per-team split hides a corner bias.** The 200-seed 4×4 table passes the
-  per-team 15–35 % band (vanguard 28.0 %, sniper 20.5 %, ambusher 19.0 %, brute
-  21.5 %) because the team-to-corner assignment rotates by seed. The corner-normalised
-  table does **not** pass: **NW 39 %, NE 1 %, SE 26 %, SW 23 %**. `TEAM_ARENA` is
-  validated as four-fold symmetric, so this is not a level-data asymmetry; it is the
-  remaining AI/action/formation bias from the fixed east-facing pads and team order.
-  It is recorded as debt, not averaged away.
-- **B2's 4×4 batch is close to the cap, but not cap-dominated.** 200 matches: 24 cap
-  hits (**12.0 %**), 22 draws, median 3836.5 ticks, max 18000. The team mode uses
-  `aimErrorScale: 0.1`; the 1v1 profiles stay at 1. The 16-tank spectator frame
-  measured **119 renderer draw calls** on the screenshot frame and **113** in the live
-  overview (budget ≤ 200); the overview frame passes the look budget. The live
-  16-tank overview measured **4.41 fps** in ANGLE SwiftShader at 1920×1080 (this host's
-  only WebGL backend), a regression number, not a 60 fps claim.
+- **B3's corner result is a facing fix, not a navigation-frame fix.** The pre-fix
+  diagnostic had every corner in LOS on tick 1; corner 1 travelled furthest (44 m in
+  the first 600 ticks) but dealt least damage (6.54/match), took most (12.00) and
+  destroyed fewest cells (1.36), and won 0/50. An identity-frame probe still left
+  corner 1 at 0/20, so the D4 canonical transform was not the cause. The dead corner
+  moved with the spawn facing and with a mirrored arena: the root is the fixed
+  world-facing pad combined with the corner exit geometry. The fix seeds four corner
+  facing patterns; no single corner is permanently assigned a bad facing. Final
+  corners **27 / 20 / 25 / 20 %**; this is a staging/facing fix, not a general
+  navigation proof.
+- **B3 leaves a team-id action bias.** The team-ID split is **32.5 / 19.5 / 21.5 /
+  18.5 %** (team 0 high) even though the character team-win rate is equal at **23.0 %**
+  each. Team identity is not the character target, but it is a remaining action-order/
+  facing bias for the next pass.
+- **B3's cap is inside target but not zero.** 200 matches: **18 cap hits (9.0 %)**,
+  16 draws, median 3854 ticks. Team mode uses `aimErrorScale: 0.09`; the 1v1 profiles
+  remain at 1.
+- **The one-arena change moves the B1c duel baseline.** The B1c round robin was measured
+  on the authored 2×2-gate arena; after the body-connected gate change it reruns at
+  vanguard 53.0 %, sniper 52.7 %, ambusher 48.3 %, brute 40.7 %, and its signatures no
+  longer clear the old 20 % field-median bars. That is a consequence of the level
+  change, not a new cast decision; a B4/B1c re-baseline is owed.
+- **B3 opens the arena's central pillar cluster.** The 5×5 corner windows that make the
+  body navigation connected also remove the authored central pillar block; the arena
+  keeps its ring, spawn rooms, low cover and ambush pockets, but the centre is an open
+  objective area. This is a deliberate one-arena trade, recorded rather than hidden.
 - **The AI-level mirror is still owed.** The existing mirror pin is scripted at the
   simulation level (original team 0 wins at tick 7; mirrored team 1 wins at tick 7).
   An AI match is deterministic-chaotic under a mirror, so the fairness fix is measured

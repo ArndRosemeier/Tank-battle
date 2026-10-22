@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { ARENA, spawnCentreMetres } from './arena.ts';
-import type { CellPlacement, WorldSpec } from '../../core/world.ts';
+import { createWorld, type CellPlacement, type WorldSpec } from '../../core/world.ts';
+import { findPath } from '../../core/ai/navigation.ts';
+import { isTankPositionFree } from '../../core/sim/match.ts';
 import { validateLevel, type LevelSpawn } from './format.ts';
 
 type MutableSpawn = { -readonly [K in keyof LevelSpawn]: LevelSpawn[K] };
@@ -59,15 +61,12 @@ describe('the authored arena', () => {
   it('rejects a level whose centre objective is sealed off', () => {
     const level = cloneArena();
     const occupied = new Set(level.cells.placements!.map((placement) => `${placement.x},${placement.z}`));
+    // The connected arena is deliberately open at the ring corners; to seal the
+    // objective this pin closes the WHOLE ring, not only the authored gate cells.
     const closeRing = (start: number, end: number, heightMetres: number): void => {
-      const isGate = (x: number, z: number): boolean => {
-        const nearX = x <= start + 1 || x >= end - 1;
-        const nearZ = z <= start + 1 || z >= end - 1;
-        return nearX && nearZ;
-      };
       for (let x = start; x <= end; x += 1) {
         for (const z of [start, end]) {
-          if (isGate(x, z) && !occupied.has(`${x},${z}`)) {
+          if (!occupied.has(`${x},${z}`)) {
             level.cells.placements!.push({ x, z, material: 'wall', heightMetres });
             occupied.add(`${x},${z}`);
           }
@@ -75,7 +74,7 @@ describe('the authored arena', () => {
       }
       for (let z = start + 1; z < end; z += 1) {
         for (const x of [start, end]) {
-          if (isGate(x, z) && !occupied.has(`${x},${z}`)) {
+          if (!occupied.has(`${x},${z}`)) {
             level.cells.placements!.push({ x, z, material: 'wall', heightMetres });
             occupied.add(`${x},${z}`);
           }
@@ -123,6 +122,28 @@ describe('the authored arena', () => {
       for (let b = a + 1; b < centres.length; b += 1) {
         expect(blocked(centres[a]!, centres[b]!)).toBe(true);
       }
+    }
+  });
+
+  it('all four corner spawns and the centre objective are body-reachable', () => {
+    const world = createWorld(ARENA.cells);
+    const centres = ARENA.spawns.map((spawn) => spawnCentreMetres(spawn));
+    // A body-free cell on the central objective ring; the exact 2×2 pillar centre is
+    // solid, so the objective is the open gap way beside it.
+    const objective = { xMetres: 10 * 2 + 1, zMetres: 11 * 2 + 1 };
+    for (const point of [...centres, objective]) {
+      expect(isTankPositionFree(world, point.xMetres, point.zMetres)).toBe(true);
+    }
+    for (let from = 0; from < centres.length; from += 1) {
+      const start = centres[from]!;
+      for (let to = 0; to < centres.length; to += 1) {
+        if (from === to) continue;
+        const target = centres[to]!;
+        expect(findPath(world, start.xMetres, start.zMetres, target.xMetres, target.zMetres)).not.toBeNull();
+      }
+      expect(
+        findPath(world, start.xMetres, start.zMetres, objective.xMetres, objective.zMetres),
+      ).not.toBeNull();
     }
   });
 

@@ -412,7 +412,7 @@ function advanceShell(state: MatchState, shell: Shell): boolean {
         // Q2: a teammate's body stops the shell and takes no damage.
         return false;
       }
-      damageEnemyTank(state, target);
+      damageEnemyTank(state, target, shell.ownerTeamId);
       return false;
     }
 
@@ -622,7 +622,7 @@ function tieKey(hit: ShellHit, columns: number): number {
 }
 
 /** One shell's damage to an enemy tank. */
-function damageEnemyTank(state: MatchState, tank: Tank): void {
+function damageEnemyTank(state: MatchState, tank: Tank, ownerTeamId: number): void {
   if (!tank.alive) {
     throw new Error(`sim: a shell tried to damage dead tank ${tank.id}`);
   }
@@ -630,6 +630,7 @@ function damageEnemyTank(state: MatchState, tank: Tank): void {
   const applied = Math.min(SHELL_DAMAGE, tank.hp);
   tank.hp -= applied;
   state.stats.damageDealt += applied;
+  state.stats.damageByTeam[ownerTeamId] = (state.stats.damageByTeam[ownerTeamId] ?? 0) + applied;
   if (tank.hp <= 0) {
     killTank(state, tank, 'shell');
   } else if (tank.bleedTicksRemaining === 0) {
@@ -735,7 +736,7 @@ function resolveMuzzleHit(state: MatchState, owner: Tank, hit: ShellHit): void {
     if (target.teamId === owner.teamId) {
       return;
     }
-    damageEnemyTank(state, target);
+    damageEnemyTank(state, target, owner.teamId);
     return;
   }
   if (hit.kind === 'shard') {

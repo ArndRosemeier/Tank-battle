@@ -43,12 +43,30 @@ describe('the headless AI batch', () => {
   });
 
   it('runs the authored 4×4 team table without sharing a corner', () => {
-    const result = runTeamBatch(arenaTeamSetup(4, 4), { seeds: 1, aimErrorScale: 0.1 });
+    const result = runTeamBatch(arenaTeamSetup(4, 4), {
+      seeds: 1,
+      aimErrorScale: 0.1,
+      onMatchCreated: (state) => {
+        // The adapter must map each team's stat, not force one team. A forced
+        // `worldDestructionByTeam[0]` makes this test red.
+        for (const team of state.teams) {
+          state.stats.worldDestructionByTeam[team.id] = 10 + team.id * 10;
+        }
+      },
+    });
     expect(result.matches).toHaveLength(1);
     expect(result.setup.teams).toBe(4);
     expect(result.setup.tanksPerTeam).toBe(4);
     expect(result.characters).toHaveLength(4);
     expect(Object.keys(result.summary.cornerWins)).toHaveLength(4);
+    // Each corner carries its assigned team's distinct baseline. A forced team-0
+    // mapping collapses every corner to the same value and fails the sorted lower
+    // bounds.
+    const destroyed = result.corners.map((corner) => corner.cellsDestroyed).sort((a, b) => a - b);
+    expect(destroyed[0]).toBeGreaterThanOrEqual(10);
+    expect(destroyed[1]).toBeGreaterThanOrEqual(20);
+    expect(destroyed[2]).toBeGreaterThanOrEqual(30);
+    expect(destroyed[3]).toBeGreaterThanOrEqual(40);
     const wins = Object.values(result.summary.teamWins).reduce((sum, value) => sum + value, 0);
     expect(wins + result.summary.draws).toBe(1);
   }, 20000);

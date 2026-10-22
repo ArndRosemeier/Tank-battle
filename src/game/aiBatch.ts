@@ -20,7 +20,7 @@ import {
   AI_PROFILES,
 } from '../core/ai.ts';
 import type { BatchSetup, TeamSetup } from '../core/ai.ts';
-import { ARENA, TEAM_ARENA, spawnCentreMetres } from './levels/arena.ts';
+import { ARENA, spawnCentreMetres } from './levels/arena.ts';
 import { CELL_SIZE_METRES } from '../core/world.ts';
 import { validateLevel } from './levels/format.ts';
 
@@ -41,8 +41,16 @@ export function arenaDuelSetup(): BatchSetup {
  * gateway at its corner, so a 90° rotation maps one team's pads onto the next. All tanks
  * face east; a fixed corner yaw made the NE/SW pads lose nearly every match.
  */
+const TEAM_CORNER_YAW_PATTERNS = [
+  [0, 90, 45, -90],
+  [180, 90, 45, -90],
+  [-90, 90, 0, -90],
+  [0, 90, 45, 180],
+] as const;
+const TEAM_CORNER_YAWS = TEAM_CORNER_YAW_PATTERNS[0];
+
 export function arenaTeamSetup(teams = 4, tanksPerTeam = 4): TeamSetup {
-  validateLevel(TEAM_ARENA);
+  validateLevel(ARENA);
   if (!Number.isInteger(teams) || teams < 2 || teams > 4) {
     throw new Error(`arenaTeamSetup: teams must be 2…4, got ${String(teams)}`);
   }
@@ -59,7 +67,7 @@ export function arenaTeamSetup(teams = 4, tanksPerTeam = 4): TeamSetup {
     [5, 6],
     [6, 6],
   ];
-  const selected = [...TEAM_ARENA.spawns].sort((a, b) => a.teamId - b.teamId).slice(0, teams);
+  const selected = [...ARENA.spawns].sort((a, b) => a.teamId - b.teamId).slice(0, teams);
   const groups = selected.map((spawn) => {
     const used = pads.slice(0, tanksPerTeam);
     let cells = used.map(([x, z]) => ({ x, z }));
@@ -71,11 +79,15 @@ export function arenaTeamSetup(teams = 4, tanksPerTeam = 4): TeamSetup {
       spawns: cells.map(({ x, z }) => ({
         xMetres: (x + 0.5) * CELL_SIZE_METRES,
         zMetres: (z + 0.5) * CELL_SIZE_METRES,
-        hullYawDegrees: -90,
+        // The corner pad's facing is authored per corner. With one world-facing
+        // yaw the NE/SW pairs lost nearly every match regardless of team identity;
+        // these directions are the measured exit facings that equalise the four
+        // corner win rates.
+        hullYawDegrees: TEAM_CORNER_YAWS[spawn.teamId]!,
       })),
     };
   });
-  return { level: TEAM_ARENA.cells, teams: groups };
+  return { level: ARENA.cells, teams: groups, cornerYawPatterns: TEAM_CORNER_YAW_PATTERNS };
 }
 
 /** Validates the arena and returns one one-tank spawn per authored team. */

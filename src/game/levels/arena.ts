@@ -157,25 +157,27 @@ for (const [x, z] of [
   addSymmetric(x, z, 'wall', LOW_COVER_HEIGHT);
 }
 
-// B2's team mode opens the ring corners wider than the authored 2×2 gate. With a
-// 2 m tank body the authored gate graph splits into four disconnected components, so
-// sixteen tanks never meet. These windows stay four-fold symmetric; the playable
-// arena above deliberately keeps the tighter authored gates.
-const TEAM_GATE_CENTRES = [
-  [6, 6],
-  [6, 17],
-  [17, 6],
-  [17, 17],
-  [9, 9],
-  [9, 14],
-  [14, 9],
-  [14, 14],
+// The one arena's ring corners are opened from the authored 2×2 gate to a 5×5 window.
+// With a 2 m tank body the authored gate graph split into four disconnected navigation
+// components, so no two corner teams could reach each other. These openings stay
+// four-fold symmetric; the playable session, the team batch and the spectator all use
+// this same `ARENA`.
+const CONNECTED_GATE_CENTRES = [
+  { x: 6, z: 6, radius: 2 },
+  { x: 6, z: 17, radius: 2 },
+  { x: 17, z: 6, radius: 2 },
+  { x: 17, z: 17, radius: 2 },
+  { x: 9, z: 9, radius: 2 },
+  { x: 9, z: 14, radius: 2 },
+  { x: 14, z: 9, radius: 2 },
+  { x: 14, z: 14, radius: 2 },
 ] as const;
-const teamPlacements = placements.filter(
+const connectedPlacements = placements.filter(
   (placement) =>
-    !TEAM_GATE_CENTRES.some(
-      ([centreX, centreZ]) =>
-        Math.abs(placement.x - centreX) <= 2 && Math.abs(placement.z - centreZ) <= 2,
+    !CONNECTED_GATE_CENTRES.some(
+      ({ x: centreX, z: centreZ, radius }) =>
+        Math.abs(placement.x - centreX) <= radius &&
+        Math.abs(placement.z - centreZ) <= radius,
     ),
 );
 
@@ -183,7 +185,7 @@ const cells = {
   columns: N,
   rows: N,
   floorSurfaceHeightMetres: FLOOR,
-  placements,
+  placements: connectedPlacements,
 } as const;
 
 /** The authored arena. `intent` is the sentence the next level author reads first. */
@@ -194,23 +196,10 @@ export const ARENA_BOUNDS = {
   maxZ: N * CELL_SIZE_METRES,
 } as const;
 
-export const TEAM_ARENA: LevelDefinition = {
-  name: `${ARENA_NAME} — Team Gate`,
-  intent:
-    'The same four-fold arena with the ring corners opened to a body-width gate ' +
-    'window: four teams of four can reach each other instead of starting in four ' +
-    'sealed quadrants. The corner spawns, rings, centre objective and low cover are unchanged.',
-  cells: {
-    ...cells,
-    placements: teamPlacements,
-  },
-  spawns,
-};
-
 export const ARENA: LevelDefinition = {
   name: ARENA_NAME,
   intent:
-    'Four corner spawns in a pinwheel, each behind a short screened dogleg exit that turns into its nearest outer gateway, so no spawn looks straight at another; concentric rings whose corner gateways make the diagonals the two long lanes; a breakable centre cluster as the objective; low cover along the cardinal lanes; ambush pockets beside each gate. Every spawn is connected on foot at start.',
+    'Four corner spawns in a pinwheel, each behind a short screened dogleg exit that turns into its nearest outer gateway, so no spawn looks straight at another; concentric rings whose corner gateways make the diagonals the two long lanes; an open centre objective after the connected gate rework; low cover along the cardinal lanes; ambush pockets beside each gate. Every spawn is connected on foot at start.',
   cells,
   spawns,
 };
