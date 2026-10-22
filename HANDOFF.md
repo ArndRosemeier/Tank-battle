@@ -37,10 +37,11 @@
 
 ## Next action (one)
 
-**B2 is in flight**: all-AI 4×4 team battles with a live spectator (auto-director +
-next-tank), a 4-team batch table, a spectate screenshot pose, 16-tank performance, and
-the two B1c fixes (eager profile validation, destruction-attribution pin). Then A3d/A5
-(combat VFX and the TRON HUD) and the single-player balance slice.
+**B3 is in flight**: instrument and fix the dead corner (corner 1 wins 0 %), fold
+TEAM_ARENA back into ONE connected playable arena with a body-aware flood-fill pin,
+measure and rebalance the sniper's 4×4 dominance, drive cap hits ≤10 %, and pin the
+destruction-attribution mapping. Then presentation (VFX + HUD), the player-team mode with
+one reload rule, and publish.
 
 ## Open questions for the owner
 

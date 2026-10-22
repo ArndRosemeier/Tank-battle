@@ -1100,3 +1100,16 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
   are B2 fix items.
 - One arm was **VOID** (my first profile mutation did not apply, so its green meant
   nothing) — redone correctly before drawing a conclusion.
+
+### row 51 — the dispatcher's own verification (8bf12d3)
+
+- Integrated gate 108/108, exit 0.
+- **My 50-seed 4×4 run:** corner-1 wins **0/50 (0 %)**, corner-0 **21/50 (42 %)**; per-team
+  split even because teams rotate. Sniper alive at the end 47/200 vs 5 for the vanguard,
+  with 121 HP remaining vs 11. Cap hits 8/50 (16 %). Accuracy 40.9 %, 1.23 matches/s.
+- **Fixes:** eager validation confirmed real (a shipped weight of 9 throws at module load).
+  The **attribution pin is not effective** — forcing `worldDestructionByTeam[0]` in the batch
+  adapter stays green, so the signature metrics rest on an unguarded mapping.
+- **Spectate frame** (`shot.sh`) is good: four team colours, live shells, cover, readable.
+- **Nav finding from the writer, confirmed in code:** the playable `ARENA` still separates
+  into four components at 2-cell gates; only `TEAM_ARENA` is opened to 5×5.
