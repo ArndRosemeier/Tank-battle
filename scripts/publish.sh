@@ -148,17 +148,30 @@ fi
 # The look gate once passed on a 28 m staging pose while the 8.2 m camera the player uses
 # failed at 29 %. This step captures the real deployed team-mode view and measures THAT.
 if [ "${SKIP_LIVE_SMOKE:-0}" != "1" ]; then
-  LIVE_SHOT="$ROOT/.gate-logs/shots/published-live.png"
-  say "look:   capturing the deployed player camera"
-  bash "$ROOT/scripts/shot-live.sh" "${PUBLIC_HOST}?mode=team&cb=${NONCE}" "$LIVE_SHOT" >/dev/null 2>&1 \
-    || die "could not capture the deployed player view"
-  if python3 "$ROOT/scripts/look-budget.py" "$LIVE_SHOT" > "$ROOT/.gate-logs/published-look.log" 2>&1; then
-    say "look:   the deployed player camera passes the look budget"
-  else
-    printf 'PUBLISH INCOMPLETE: the deployed player camera FAILS the look budget:\n' >&2
-    grep -E 'FAIL' "$ROOT/.gate-logs/published-look.log" >&2 || true
+  # A single live frame is a lucky sample: a muzzle flash is a bright TRANSIENT that the tile
+  # metric cannot tell from a bright surface (measured: a firing frame fails at 16.5 % while
+  # the same scene pre-fire passes at 7.8 %). Capture three frames a moment apart and require
+  # a majority to pass, so the gate measures the scene rather than a flash.
+  PASSED=0
+  for attempt in 1 2 3; do
+    LIVE_SHOT="$ROOT/.gate-logs/shots/published-live-${attempt}.png"
+    if bash "$ROOT/scripts/shot-live.sh" "${PUBLIC_HOST}?mode=team&cb=${NONCE}-${attempt}" "$LIVE_SHOT" >/dev/null 2>&1; then
+      if python3 "$ROOT/scripts/look-budget.py" "$LIVE_SHOT" > "$ROOT/.gate-logs/published-look-${attempt}.log" 2>&1; then
+        PASSED=$((PASSED + 1))
+        say "look:   frame ${attempt}: PASS"
+      else
+        say "look:   frame ${attempt}: FAIL ($(grep -E '^look-budget: FAIL' "$ROOT/.gate-logs/published-look-${attempt}.log" | head -1))"
+      fi
+    else
+      say "look:   frame ${attempt}: capture failed"
+    fi
+    sleep 0.8
+  done
+  if [ "$PASSED" -lt 2 ]; then
+    printf 'PUBLISH INCOMPLETE: the deployed player camera failed the look budget on %s of 3 frames.\n' "$((3 - PASSED))" >&2
     exit 3
   fi
+  say "look:   the deployed player camera passes the look budget (${PASSED}/3 frames)"
 fi
 
 say "PUBLISHED: https://apps.futuremagic.de/${SLUG}/"
