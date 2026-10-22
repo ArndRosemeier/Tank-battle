@@ -997,3 +997,20 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
   B1b's fairness fix previously rested only on the 200-seed measurement.
 - **New debt:** the AI's 285-tick fire interval is AI-only while the global reload stays
   60 ticks, so the player would fire ~4.75× faster. One rule before player-vs-AI ships.
+
+### row 49 — the dispatcher's own verification (90517b6)
+
+- **Integration note:** the landing was pushed only to `refs/heads/feat/b1c-cast`. Remote
+  `main` was still my record commit; I fast-forwarded and pushed. A LANDED report that does
+  not name `origin/main` as the pushed ref is not landed.
+- Integrated gate 100/100, exit 0.
+- **My 2400-match round robin** reproduces the matrix (56 s): 58.5 / 55.7 / 50.0 / 32.3 %,
+  signatures 15.2 m, 1.06, 46.7 %, 2.03 m/s — all above the 20 % separation bar.
+- **Arms:** staging-not-mirror-pair → RED on the mirror-pair pin (good, it exists).
+  Profile weight 9 → **GREEN**, and destruction pinned to team 0 → **GREEN**.
+- **Findings:** shipped profiles are validated lazily at controller construction, not at
+  import (`AI_PROFILES` is a raw literal), and no pin asserts the four shipped profiles
+  are valid; destruction attribution is unguarded, and it is the brute's signature. Both
+  are B2 fix items.
+- One arm was **VOID** (my first profile mutation did not apply, so its green meant
+  nothing) — redone correctly before drawing a conclusion.

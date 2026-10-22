@@ -37,11 +37,10 @@
 
 ## Next action (one)
 
-**B1c is in flight**: three more AI characters with the behaviours they need (cover,
-flank, ambush, breach), four rig signatures (engagement distance, world damage, time
-without LOS, speed), the round-robin matrix (6 pairings × 200 seeds), and the owed
-staging-symmetry pin. Then the live all-AI spectator, then the one-reload-rule fix for
-single-player fairness.
+**B2 is in flight**: all-AI 4×4 team battles with a live spectator (auto-director +
+next-tank), a 4-team batch table, a spectate screenshot pose, 16-tank performance, and
+the two B1c fixes (eager profile validation, destruction-attribution pin). Then A3d/A5
+(combat VFX and the TRON HUD) and the single-player balance slice.
 
 ## Open questions for the owner
 
