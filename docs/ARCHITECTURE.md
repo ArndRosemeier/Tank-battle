@@ -9,9 +9,9 @@ Dependencies point **downward only**; nothing below a layer may import from abov
 | **entry** | `src/main.ts` | The frame loop, renderer/composer sizing, the WebGL renderer and post pipeline, and the wiring of the error surface. The only file that calls `requestAnimationFrame`. |
 | **entry · DOM** | `src/entry/dom.ts` | The one way to obtain a DOM node the app cannot run without, with the narrowed type. |
 | **core** | `src/core/*.ts` | Pure simulation: no DOM, no time source, no globals. Takes numbers in, returns numbers out, so it tests in `node`. |
-| **core · sim** | `src/core/sim/*.ts`, entrance `src/core/sim.ts` | The combat layer over A1: builds a match from teams/spawns, validates commands, advances one fixed tick (drive, turret/pitch, world, bleed, shells), resolves 3D shell collisions, owns last-team/tick-cap outcomes and stats, and exposes the `Controller` seam and the match hash. **No renderer, DOM, input, AI, host clock or per-tank `isPlayer`.** |
+| **core · sim** | `src/core/sim/*.ts`, entrance `src/core/sim.ts` | The combat layer over A1: builds a match from teams/spawns, validates commands, advances one fixed tick (drive with tank bodies, turret/pitch, world, bleed, swept-muzzle fire, shells), resolves 3D shell collisions, owns last-team/tick-cap outcomes and stats, and exposes the `Controller` seam and the match hash. **No renderer, DOM, input, AI, host clock or per-tank `isPlayer`.** |
 | **core · world** | `src/core/world/*.ts`, entrance `src/core/world.ts` | The world model: cells with height, destruction, two debris tiers, slow regeneration with displacement, and the state hash. Pure data and functions — it has **no tank, shell or AI concept**; tanks arrive as occupant positions and shells as damage calls. |
-| **render · tuning** | `src/render/config.ts` | The ONE tuning module: palette, team-luma gains, HDR gains, §9 albedo band, neutral rim tint, bloom, post, fog, camera distances, grid size, surface seams, scene budget, `SURFACE_DETAIL`. Every render constant lives here; a source scan fails on a hex colour anywhere else. |
+| **render · tuning** | `src/render/config.ts` | The ONE tuning module: palette, team-luma gains, HDR gains, §9 albedo band, neutral rim tint, bloom, post, fog, camera distances, grid presentation, surface seams, scene budget, `SURFACE_DETAIL`; the shared cell size is imported from `src/core/world.ts`. Every render constant lives here; a source scan fails on a hex colour anywhere else. |
 | **render · surface** | `src/render/neonSurface.ts` | The ONE material seam: near-neutral dark fill + emissive team/structure edge lines + a NEUTRAL fresnel/wall-sheen/top-band rim + procedural panel seams + an (unused) detail-map slot, merged so a whole world is one fill/rim/line buffer. The fill is polygon-offset; one global `setSurfaceDetail`. |
 | **render · world** | `src/render/worldMesh.ts`, `gridFloor.ts`, `demoWorld.ts` | Meshes the REAL A1 cells, owns the one rebuild path for destruction, and draws the shader grid floor with black void quads for holes. The placeholder arena/perimeter is A2's; A4 owns the authored level. Big blocks and shards are A3 VFX. |
 | **render · assembly** | `src/render/sceneAssembly.ts`, `sceneStats.ts`, `gateways.ts` | Builds the EXACT showcase the app renders (world + 16 tanks + merged gateway arches), exposes its scene-build stats, and keeps the presentation-only gateways out of the world model. |
@@ -53,19 +53,22 @@ running headless in `node`.
 | distance fog on every renderer | `scene.fog` plus the ShaderMaterials' `uFogNear/uFogFar` | `src/main.ts:142` · `src/render/config.ts:212` | Standard fill/edge materials take scene fog automatically; the rim and grid ShaderMaterials carry the same range in their uniforms. A new ShaderMaterial must do the same or it will visibly not fade. |
 | the measured look budget | `python3 scripts/look-budget.py <png> [--json]` | `scripts/look-budget.py:1` | The ONE pixel measurement of §9: surface median ≤22 L, frame share 26–51 ≤25 %, line p99 ≥150, contrast ≥6; `shot.sh` runs it after every capture and exits non-zero on a FAIL. Void is INFO (no threshold was specified); team hulls are SKIP (the hull fill is neutral/shared). |
 | the screenshot | `scripts/shot.sh` | `scripts/shot.sh:1` | Build, serve `dist`, headless Chrome, then kill the server AND the Chrome process group in a `trap`; a SwiftShader retry only when the first frame is not a rendered image. The look budget runs on the final capture and a FAIL makes the command exit 1. |
-| building a match | `createMatch({level, teams, seed, rules})` | `src/core/sim/match.ts:136` | The ONE constructor: validates 2–4 teams, 1–4 tanks each, finite/free spawns and the pitch clamp, then creates the A1 world and the seeded RNG. Never hand-build a `MatchState`. |
-| one simulation tick | `stepMatch(state, orders)` | `src/core/sim/step.ts:70` | The ONE advance: mutates and returns the state, requires one command for every tank alive at tick start, and throws once the match has ended. Phase order is fixed; see the gotchas. |
+| building a match | `createMatch({level, teams, seed, rules})` | `src/core/sim/match.ts:136` | The ONE constructor: validates 2–4 teams, 1–4 tanks each, finite/free spawns (including no overlapping bodies), and the pitch clamp, then creates the A1 world and the seeded RNG. Never hand-build a `MatchState`. |
+| one simulation tick | `stepMatch(state, orders)` | `src/core/sim/step.ts:75` | The ONE advance: mutates and returns the state, requires one command for every tank alive at tick start, and throws once the match has ended. Phase order is fixed; see the gotchas. |
 | one tank command | `validateTankCommand` · `normaliseTankCommand` | `src/core/sim/commands.ts:37` · `src/core/sim/commands.ts:62` | The ONE boundary for command data: finite numbers, throttle/steer in −1…1, pitch in −30…25, boolean `fire`; `aimYaw` is an angle and wraps rather than clamps. Malformed commands throw; they are never silently clamped. |
 | where a tank's command comes from | `Controller.commandFor(state, tankId)` · `ScriptedController` | `src/core/sim/controller.ts:12` · `src/core/sim/controller.ts:21` | Human, AI, replay and future network all implement this ONE interface. There is no `isPlayer` in the core; a missing script entry is a loud error, not an idle tank. |
-| the match's tuning | `src/core/sim/constants.ts` (`CELL_SIZE_METRES`, `TANK_*`, `AIM_PITCH_*`, `MUZZLE_*`, `RELOAD_TICKS`, `SHELL_*`, `BLEED_INTERVAL_TICKS`, `MATCH_TICK_CAP`, `DEFAULT_MATCH_RULES`) | `src/core/sim/constants.ts:20` | The ONE combat tuning module. Values are metres/seconds/degrees or whole ticks; a speed becomes a per-tick move through `STEP_SECONDS`. Do not copy a combat number into the renderer. |
-| a tank's free position | `isTankPositionFree(world, x, z)` | `src/core/sim/match.ts:248` | The ONE circular-footprint query: arena bounds, `isCellPassable` and `isSolidAt` at hull height; a floor hole is free, a wall/pillar/big block is not. The drive slide and spawn validation both use it. |
-| a moving tank shoving floor shards | `shoveShardsUnderTank(state, tank, movedX, movedZ)` (internal) | `src/core/sim/step.ts:222` | After a successful drive or a world-regeneration displacement, every shard in the tank's entered cell goes through A1 `shoveShard` with the movement direction. Shards never block the tank; a trapped shard may stay. Do not add a second shove rule. |
+| the match's tuning | `src/core/sim/constants.ts` (`TANK_*`, `AIM_PITCH_*`, `MUZZLE_*`, `RELOAD_TICKS`, `SHELL_*`, `BLEED_INTERVAL_TICKS`, `MATCH_TICK_CAP`, `DEFAULT_MATCH_RULES`) | `src/core/sim/constants.ts:24` | The ONE combat tuning module. Values are metres/seconds/degrees or whole ticks; a speed becomes a per-tick move through `STEP_SECONDS`. The shared `CELL_SIZE_METRES` is world-owned (seam below); do not copy a combat number into the renderer. |
+| a tank's free position in the world | `isTankPositionFree(world, x, z)` | `src/core/sim/match.ts:249` | The ONE circular-footprint query against cells: arena bounds, `isCellPassable` and `isSolidAt` at hull height; a floor hole is free, a wall/pillar/big block is not. It does NOT know other tanks; body blocking is the separate seam below. |
+| tank-tank body blocking | `moveTank(state, tank, dx, dz)` · `tankBodyBlocksMove(...)` | `src/core/sim/step.ts:197` · `src/core/sim/step.ts:229` | The ONE body rule: a circle of `TANK_RADIUS_METRES` against another live tank's circle; a candidate passes only if its swept circle does not enter the sum-radius contact disc before the endpoint. Try full, then x-only, then z-only. Tanks resolve in ascending id, never array order; dead tanks do not block. |
+| rejecting an overlapping spawn | `assertTankSpawnDoesNotOverlap(tanks, spawn, teamId, teamIndex)` | `src/core/sim/match.ts:291` | `createMatch`'s authoring boundary: a same-cell spawn, or any circle overlap (centre distance < 2 × radius), throws. It never nudges or drops a tank. |
+| a swept muzzle | `fireShells(state, commands)` barrel trace | `src/core/sim/step.ts:659` | Before spawning, trace the turret origin → muzzle segment through the same `earliestCollision` resolver (owner excluded). The first wall/block/shard/tank hit resolves there and no shell enters flight; the trigger still counts and spends the reload. A muzzle flush with a wall face is included by the boundary-adjacent cell scan. |
+| a moving tank shoving floor shards | `shoveShardsUnderTank(state, tank, movedX, movedZ)` (internal) | `src/core/sim/step.ts:303` | After a successful drive or a world-regeneration displacement, every shard in the tank's entered cell goes through A1 `shoveShard` with the movement direction. Shards never block the tank; a trapped shard may stay. Do not add a second shove rule. |
 | a shell's 3D direction | `directionFromAim(turretYaw, pitch)` | `src/core/sim/geometry.ts:70` | The ONE aim convention: `(-sin(yaw)·cos(pitch), sin(pitch), -cos(yaw)·cos(pitch))`; yaw 0 faces −z, positive yaw turns towards −x, positive pitch is up. `forwardFromYaw` (`src/core/sim/geometry.ts:64`) is the horizontal sibling used by drive and the muzzle. |
-| the first thing a shell hits | `earliestCollision(state, from, to)` | `src/core/sim/step.ts:384` | The ONE shell collision resolver: world cells/blocks, shards and live tank cylinders all feed one earliest-`t` comparison, tie-broken world → shard → tank then cell/shard/tank id. Damage side effects stay in `advanceShell`. |
-| firing | `fireShells(state, commands)` | `src/core/sim/step.ts:567` | The ONE spawn path: after existing shells advance, each held `fire` with a clear reload pushes exactly one shell at the muzzle (`MUZZLE_FORWARD_METRES`, floor + `MUZZLE_HEIGHT_METRES`), increments `shotsFired`, and sets `reloadTicksRemaining = RELOAD_TICKS`. |
-| the wound clock | `bleedWoundedTanks(state)` | `src/core/sim/step.ts:238` | The ONE clock: only a wounded live tank counts down; the first wound starts it and later hits do not reset it; expiry removes 1 HP and a lethal expiry records `clock`. |
-| ending a match | `checkLastTeam` · `finishAtTickCap` | `src/core/sim/step.ts:615` · `src/core/sim/step.ts:629` | The ONE end rule: one last-team check after existing shells and before new fire; at the cap compare total live HP, then live count, else draw. Do not add an early end call. |
-| the per-match counters | `MatchStats` · `createMatchStats()` | `src/core/sim/stats.ts:20` · `src/core/sim/stats.ts:34` | The ONE stats shape for the HUD and batch rig: `shotsFired` counts spawned shells, `hits`/`damageDealt` count tank damage only, `kills` equals `causes.shell`; clock deaths are `causes.clock`. |
+| the first thing a shell hits | `earliestCollision(state, from, to)` | `src/core/sim/step.ts:465` | The ONE shell collision resolver: world cells/blocks, shards and live tank cylinders all feed one earliest-`t` comparison, tie-broken world → shard → tank then cell/shard/tank id. Damage side effects stay in `advanceShell` / `resolveMuzzleHit`. |
+| firing | `fireShells(state, commands)` | `src/core/sim/step.ts:659` | The ONE spawn path: after existing shells advance, each held `fire` with a clear reload first sweeps the barrel trace; a clear trace pushes exactly one shell at the muzzle (`MUZZLE_FORWARD_METRES`, floor + `MUZZLE_HEIGHT_METRES`), while an obstruction resolves immediately. Either way `shotsFired` increments and `reloadTicksRemaining = RELOAD_TICKS`; a muzzle hit may end the match before later tanks fire. |
+| the wound clock | `bleedWoundedTanks(state)` | `src/core/sim/step.ts:319` | The ONE clock: only a wounded live tank counts down; the first wound starts it and later hits do not reset it; expiry removes 1 HP and a lethal expiry records `clock`. |
+| ending a match | `checkLastTeam` · `finishAtTickCap` | `src/core/sim/step.ts:763` · `src/core/sim/step.ts:777` | The ONE end rule: the usual last-team check after existing shells; a resolved muzzle hit can finish immediately during fire, before later tanks. At the cap compare total live HP, then live count, else draw (equal HP + equal live tanks is a pinned draw). Do not add another generic check after fire. |
+| the per-match counters | `MatchStats` · `createMatchStats()` | `src/core/sim/stats.ts:23` · `src/core/sim/stats.ts:37` | The ONE stats shape for the HUD and batch rig: `shotsFired` counts trigger pulls that spent the reload (spawned or muzzle-blocked), `hits`/`damageDealt` count tank damage only, `kills` equals `causes.shell`; clock deaths are `causes.clock`. |
 | a run's combat identity | `hashMatch(state)` | `src/core/sim/hash.ts:18` | The ONE match hash: canonical state text including RNG state, the A1 world hash, tanks, shells, match status and stats. An equality witness, not a measurement. |
 | the simulation's public surface | `src/core/sim.ts` | `src/core/sim.ts:1` | The ONE entrance: constants, geometry, commands, stats, match, step, hash and controller re-exported. Callers outside the sim package import from here, never from `sim/*.ts` except a deliberate internal seam. |
 | a canonical core hash | `fnv1a(text)` | `src/core/fnv1a.ts:14` | The ONE FNV-1a implementation; both `hashState` (world) and `hashMatch` (combat) feed it. Do not copy the offset basis/prime into a third hasher. |
@@ -84,7 +87,8 @@ running headless in `node`.
 | advancing the world | `stepWorld(world, ticks, occupants)` | `src/core/world/regeneration.ts:63` | The tick loop: heals one frame per delay, absorbs shards, and displaces occupants by a fixed-order nearest-free search. Returns `Displacement[]`; the CALLER applies them, and the world never writes to the caller's occupants. |
 | iterating debris | `listBlocks(world)` / `listShards(world)` | `src/core/world/state.ts:246` | Blocks in a stable cell order, shards oldest first; `blockAt` / `shardAt` for one cell. |
 | a run's identity | `hashState(world)` | `src/core/world/hash.ts:17` | FNV-1a over canonical state text (ids, HP, timers, mirror angles, tick) — the pin that proves two identical runs stayed identical. |
-| the world's numbers | `MATERIAL_PROFILES` · `SHARD_CAP` · `secondsToTicks` | `src/core/world/constants.ts:38` | The ONE tuning module. `secondsToTicks` (`src/core/world/constants.ts:71`) is the only seconds→ticks conversion, and a tick IS `STEP_SECONDS`. |
+| the shared cell size | `CELL_SIZE_METRES` | `src/core/world/constants.ts:18` | The ONE 2 m definition, exported by `src/core/world.ts:51` and re-exported by `src/core/sim/constants.ts:22`. `src/render/config.ts` imports it from the world entrance; the source-scan pin fails if a second `CELL_SIZE_METRES = 2` definition appears. |
+| the world's numbers | `MATERIAL_PROFILES` · `SHARD_CAP` · `CELL_SIZE_METRES` · `secondsToTicks` | `src/core/world/constants.ts:46` | The ONE world tuning module. `secondsToTicks` (`src/core/world/constants.ts:79`) is the only seconds→ticks conversion, and a tick IS `STEP_SECONDS`. |
 | the world's public surface | `src/core/world.ts` | `src/core/world.ts:1` | The ONE entrance: the model's doc, its types and its seams, re-exported. Callers outside the world package import from here, never from `world/*.ts`. |
 
 ## 3 · Gotchas
@@ -219,10 +223,13 @@ running headless in `node`.
 - **A simulation tick resolves in a fixed phase order.** `stepMatch` validates the
   commands, applies hull/turret/drive, advances the A1 world (regeneration and
   displacement), bleeds wounded tanks, advances shells already in flight, performs the
-  ONE last-team check, then fires new shells, then applies the tick cap. A clock death
-  and a shell in flight in the same tick therefore resolve before the match is declared
-  over; a new shell is spawned only after the check, so the winning team gets no extra
-  shot on the kill tick. Do not add a second last-team check or move fire before it.
+  usual last-team check, then fires, then applies the tick cap. A clock death and a shell
+  in flight in the same tick resolve before the match is declared over; a newly spawned
+  shell moves next tick, so a shell-in-flight kill gets no gratuitous extra shot. The
+  fire phase is the exception: every barrel trace is resolved immediately, so a muzzle
+  hit can remove the last team and end the match before any later tank fires. Do not add
+  a generic second check after fire; the only fire-phase check is the one after a muzzle
+  hit.
 - **A shell is a 3D segment, and `earliestCollision` is the only resolver.** World cells
   are boxes from y 0 to their top (a big block's top if one stands there, otherwise the
   intact cell's `heightMetres`; a bare hole has no box). Tanks are vertical cylinders of
@@ -242,16 +249,22 @@ running headless in `node`.
 - **A teammate's body stops a shell without damage.** Team identity is carried on the
   shell at spawn; a tank hit with `target.teamId === shell.ownerTeamId` terminates the
   shell and records neither a hit nor damage. Every other team is hostile.
-- **The muzzle is a 3 m offset, not a barrel collider.** A shell's collision path
-  starts AT the muzzle (`tank + forward * 3 m`), so a wall, shard or tank that lies
-  between the hull and the muzzle is not intersected by the shell and can be
-  point-blank shot “through” on the spawn tick. Open-space muzzle behaviour is pinned;
-  barrel obstruction is recorded debt, not a promise this slice makes.
-- **Tank-tank collision is intentionally absent in A3a.** Tanks may pass through each
-  other and `createMatch` does not reject overlapping spawns; a scripted target can drive
-  through the shooter, which also lets it get behind a muzzle. This is recorded debt, not
-  a collision rule to copy; A3b/A4 must decide whether hull collision is added and must
-  pin it before relying on body blocking.
+- **The barrel is swept, not a point 3 m ahead.** On the fire tick the segment from
+  the turret origin to the muzzle runs through `earliestCollision` with the owner tank
+  excluded. The first hit resolves there: a wall/block is damaged once, an enemy tank
+  takes one hit, a teammate stops it without damage, a shard shatters (a defensive branch
+  — the floor shard band is below muzzle height). No shell enters `state.shells`, but
+  `shotsFired` increments and the reload is spent, so a blocked barrel is not a free
+  shot. The world cell scan includes adjacent faces, so a muzzle flush with a wall is
+  caught; `far <= 0` rejects a wall behind the starting face.
+- **Tank bodies block each other with circles, in id order.** Each live tank is a
+  circle of radius 1 m. A proposed move is rejected when its swept centre path enters
+  the 2 m contact disc of another live tank before the endpoint; full, x-only and z-only
+  are tried in that order, and a candidate ending exactly at contact is allowed. The
+  movement order is ascending tank id (never the caller's array order), and the
+  determinism pin reverses `state.tanks` to prove it. Spawn validation rejects same-cell
+  and circle-overlapping placements loudly, before a state exists. Dead tanks do not
+  block.
 - **Yaw and pitch conventions are one-way doors.** Yaw 0 faces −z and positive yaw turns
   towards −x; pitch is degrees above the horizon, positive up, clamped to −30…25. The
   direction formula above is the only consequence; do not introduce a second convention
@@ -264,30 +277,30 @@ running headless in `node`.
   Shell aim uses `Math.sin`/`Math.cos` (the world's shard mirrors deliberately do not),
   so the project does not claim cross-engine bit identity; row 25's authoritative model
   does not need it, strict lockstep would.
-- **`CELL_SIZE_METRES` is owned by `src/core/sim/constants.ts` for now.** A1 carries
-  heights but no horizontal cell size; the renderer's `src/render/config.ts` also uses
-  2 m. The two must be aligned in A3b by folding the renderer onto the sim constant (or
-  moving the constant down), never by letting them drift.
+- **`CELL_SIZE_METRES` is world-owned, one definition.** It lives in
+  `src/core/world/constants.ts`, is exported by `src/core/world.ts`, re-exported by
+  `src/core/sim/constants.ts` for sim callers, and imported by
+  `src/render/config.ts` as `GRID.cellMetres`. The source-scan pin in
+  `src/core/purity.test.ts` fails if a second `CELL_SIZE_METRES = 2` definition or a
+  literal `cellMetres: 2` appears; do not copy 2 m into a layer.
 
 ## 4 · Known debt
 
-- **The combat core exists, but nothing drives it yet.** A3a has drive/aim/fire,
-  shells, the damage clock and match outcomes in `src/core/sim/`, but there is no
-  input-to-command adapter, no AI controller, no renderer for shells/debris and no HUD.
-  A3b owns the first three, A5 the HUD; A4 owns the authored level that replaces
-  `src/render/demoWorld.ts` and the presentation-only gateways.
-- **Tank-tank collision and spawn-overlap rejection are absent.** `createMatch` accepts
-  two tanks at the same point, and `stepMatch` does not stop a tank driving through
-  another; only shells resolve tank bodies. This is deliberate for A3a's collision list
-  and recorded so no later slice mistakes it for a finished physical rule.
-- **Point-blank barrel obstruction is not resolved.** The shell path starts at the
-  3 m muzzle, so an obstacle or body between the hull and the muzzle is skipped. A3b
-  should decide whether the barrel is a collider, whether the muzzle shortens against
-  geometry, or whether the renderer/gameplay accepts the offset; do not silently claim
-  the teammate/wall collision rules cover that case.
-- **The tick-cap tie-break's final tie is a draw and is unpinned.** The code compares
-  total live HP, then live count, then draws; only the HP branch is covered by the A3a
-  tests. The HUD/batch rig must read `MatchOutcome`, not infer a winner.
+- **The combat core exists, but nothing drives it yet.** A3a/A3b have drive/aim/fire,
+  shell and body collision, the damage clock and match outcomes in `src/core/sim/`, but
+  there is no input-to-command adapter, no AI controller, no renderer for tanks/shells/
+  debris and no HUD. A3c owns input + the renderer, A5 the HUD; A4 owns the authored
+  level that replaces `src/render/demoWorld.ts` and the presentation-only gateways.
+- **Circle bodies are the documented radius, not the render hull.** `TANK_RADIUS_METRES`
+  is 1 m, while the A2 placeholder hull is 3.4 m long and 2.5 m wide. A3c must align the rendered
+  hull to the body (or move to a capsule/oriented box) or tanks will visibly clip walls
+  and each other at their long corners; this is the row-38 unproven, not a hidden copy
+  of the radius.
+- **Regeneration displacement is still cell-grained.** A1 `stepWorld` displaces an
+  occupant to a nearest free CELL, using cell occupancy, while tank bodies are circles.
+  A pathological layout with a tank body overhanging an adjacent healing cell could
+  therefore displace a tank into another body. Spawn and commanded movement are fully
+  body-checked; displacement is the remaining edge to revisit if it appears.
 - **The 60 fps target is pending an owner GPU measurement.** The only WebGL backend on
   this host is SwiftShader (no accessible DRM device; see above). The measured
   3.64–3.87 fps at 1920×1080 with 16 tanks is a lower bound from software

@@ -148,6 +148,55 @@ describe('the combat core', () => {
     expect(tankAt(holeMatch, 0).z).toBeLessThan(7);
   });
 
+  it('a tank cannot drive through another tank', () => {
+    const state = duel({
+      shooter: { xMetres: 5, zMetres: 9, hullYawDegrees: 0 },
+      target: { xMetres: 5, zMetres: 5, hullYawDegrees: 0 },
+    });
+    for (let tick = 0; tick < 60; tick += 1) {
+      step(state, onlyOverrides([[0, { throttle: 1 }]]));
+    }
+    const shooter = tankAt(state, 0);
+    const target = tankAt(state, 1);
+    expect(target.z).toBe(5);
+    expect(shooter.z).toBeGreaterThanOrEqual(7 - 1e-9);
+    expect(Math.hypot(shooter.x - target.x, shooter.z - target.z)).toBeGreaterThanOrEqual(
+      2 - 1e-9,
+    );
+  });
+
+  it('tank-tank blocking is independent of the tank array order', () => {
+    function run(reverse: boolean): { positions: readonly string[]; hash: string } {
+      const state = matchWithTeams([
+        { id: 0, tanks: [{ xMetres: 5, zMetres: 9, hullYawDegrees: 0 }] },
+        { id: 1, tanks: [{ xMetres: 5, zMetres: 5, hullYawDegrees: 180 }] },
+      ]);
+      if (reverse) {
+        state.tanks.reverse();
+      }
+      for (let tick = 0; tick < 60; tick += 1) {
+        step(state, onlyOverrides([[0, { throttle: 1 }], [1, { throttle: 1 }]]));
+      }
+      return {
+        positions: state.tanks
+          .map((tank) => `${tank.id}:${tank.x.toFixed(9)},${tank.z.toFixed(9)}`)
+          .sort(),
+        hash: hashMatch(state),
+      };
+    }
+
+    expect(run(true)).toEqual(run(false));
+  });
+
+  it('two tanks spawned on the same cell are rejected at match creation', () => {
+    expect(() =>
+      matchWithTeams([
+        { id: 0, tanks: [{ xMetres: 5, zMetres: 5 }] },
+        { id: 1, tanks: [{ xMetres: 5, zMetres: 5 }] },
+      ]),
+    ).toThrow(/shares cell|overlaps/);
+  });
+
   it('a blocked diagonal drive slides along the free x axis', () => {
     // A wall directly north; a diagonal north-east move must slide east rather than
     // stop dead. The tank starts clear of the wall and drives until it reaches it.
@@ -282,6 +331,36 @@ describe('the combat core', () => {
     }
     // The floor cell under the descending path, not the shooter's own cell.
     expect(cellState(cellAt(state.world, 2, 5))).toBe('hole');
+  });
+
+  it('a wall between the hull and the muzzle stops the shell on the spawn tick and the reload is still spent', () => {
+    const state = duel({
+      world: level({ placements: [{ x: 2, z: 6, material: 'wall', heightMetres: 3 }] }),
+      shooter: { xMetres: 5, zMetres: 15, hullYawDegrees: 0, turretYawDegrees: 0 },
+    });
+    expect(cellAt(state.world, 2, 6).hp).toBe(2);
+
+    step(state, onlyOverrides([[0, { fire: true }]]));
+
+    expect(state.shells).toHaveLength(0);
+    expect(cellAt(state.world, 2, 6).hp).toBe(1);
+    expect(tankAt(state, 0).reloadTicksRemaining).toBe(RELOAD_TICKS);
+    expect(state.stats.shotsFired).toBe(1);
+  });
+
+  it('a shell that spawns inside a solid cell resolves that hit exactly once', () => {
+    const state = duel({
+      world: level({ placements: [{ x: 2, z: 5, material: 'wall', heightMetres: 3 }] }),
+      shooter: { xMetres: 5, zMetres: 13.5, hullYawDegrees: 0, turretYawDegrees: 0 },
+    });
+    // The muzzle is at z = 10.5, inside the wall cell occupying 10…12 m.
+    step(state, onlyOverrides([[0, { fire: true }]]));
+
+    expect(state.shells).toHaveLength(0);
+    expect(cellAt(state.world, 2, 5).hp).toBe(1);
+    expect(blockAt(state.world, 2, 5)).toBeNull();
+    expect(tankAt(state, 0).reloadTicksRemaining).toBe(RELOAD_TICKS);
+    expect(state.stats.shotsFired).toBe(1);
   });
 
   it('a shell that strikes a big block damages it', () => {
@@ -499,6 +578,22 @@ describe('the combat core', () => {
     expect(capState.status).toBe('ended');
     expect(capState.outcome).toBe('tick-cap');
     expect(capState.winnerTeamId).toBe(0);
+  });
+
+  it('a match that ends at the cap with equal HP and equal tanks is a draw', () => {
+    const state = duel({ rules: { tickCap: 1, bleedIntervalTicks: 600 } });
+    step(state);
+
+    expect(state.status).toBe('ended');
+    expect(state.outcome).toBe('draw');
+    expect(state.winnerTeamId).toBeNull();
+    expect(state.stats.outcome).toBe('draw');
+    expect(state.stats.winnerTeamId).toBeNull();
+    expect(tankAt(state, 0).hp).toBe(3);
+    expect(tankAt(state, 1).hp).toBe(3);
+    expect(state.teams.map((team) => team.tanks.filter((tank) => tank.alive).length)).toEqual([
+      1, 1,
+    ]);
   });
 
   it('the same seed and command sequence produce an identical match-state hash', () => {

@@ -1,9 +1,11 @@
 /**
  * The ONE tuning module for the simulation (`src/core/sim/`).
  *
- * World numbers (materials, heights, regen delays, mirror steps) stay in
- * `src/core/world/constants.ts`; this file owns only the combat layer's numbers and
- * never re-exports the world's. A3b renders these values; it does not invent its own.
+ * World numbers (materials, heights, regen delays, mirror steps and the shared cell
+ * size) stay in `src/core/world/constants.ts`; this file owns the combat layer's
+ * numbers. The cell size is re-exported here so sim callers keep one import path, but
+ * the ONE definition lives in the world module. A3b renders these values; it does not
+ * invent its own.
  *
  * Units: metres, seconds, degrees, and whole simulation ticks. A tick IS
  * `STEP_SECONDS` (`src/core/timestep.ts`), so a speed in m/s becomes a per-tick move
@@ -14,10 +16,10 @@
  */
 
 import { STEP_SECONDS } from '../timestep.ts';
+import { CELL_SIZE_METRES } from '../world.ts';
 
-/** The world's horizontal cell size. The A1 model carries heights in metres but no
- * horizontal scale; this is the simulation's unit, and A3b must use the same one. */
-export const CELL_SIZE_METRES = 2;
+/** Re-exported from `src/core/world/constants.ts`, the ONE cell-size definition. */
+export { CELL_SIZE_METRES };
 
 /** One tank's full health. Three shell hits kill (owner, §4). */
 export const TANK_MAX_HP = 3;

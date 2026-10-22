@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cellAt, isSolidAt, type World } from '../core/world.ts';
+import { CELL_SIZE_METRES, cellAt, isSolidAt, type World } from '../core/world.ts';
 import { GRID } from './config.ts';
 import { createShowcaseScene } from './demoWorld.ts';
 import { createGridFloor } from './gridFloor.ts';
@@ -49,7 +49,7 @@ describe('grid floor holes', () => {
     expect(floor.mesh.geometry.getAttribute('position').count).toBe(
       world.columns * world.rows * 4,
     );
-    expect(GRID.cellMetres).toBe(2);
+    expect(GRID.cellMetres).toBe(CELL_SIZE_METRES);
 
     floor.dispose();
   });

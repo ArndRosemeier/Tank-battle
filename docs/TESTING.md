@@ -66,8 +66,15 @@ never "it passed".
 | Same seed + commands hash identically; a command change differs | `the same seed and command sequence produce an identical match-state hash` | `src/core/sim.test.ts` | omit a tank/shell/status field from the canonical text → the two-run/different-command assertion reds |
 | A scripted duel ends by a shell kill with consistent stats | `the scripted duel runs to a shell kill and its stats tell the story` | `src/core/sim.test.ts` | change the phase order (fire before the last-team check), or stop counting muzzle shots → shots/hits/winner/death cause red |
 | Malformed commands throw rather than clamp | `a malformed command throws instead of being silently clamped` | `src/core/sim.test.ts` | clamp throttle/steer/pitch or coerce `fire` → the throw assertions red |
+| A tank cannot drive through another tank | `a tank cannot drive through another tank` | `src/core/sim.test.ts` | remove the body sweep/end-point check → the closing tank passes the target |
+| Tank-tank blocking is independent of the state-array order | `tank-tank blocking is independent of the tank array order` | `src/core/sim.test.ts` | iterate `state.tanks` instead of ascending id → the reversed-array run diverges |
+| Same-cell spawns are rejected at match creation | `two tanks spawned on the same cell are rejected at match creation` | `src/core/sim.test.ts` | drop the spawn-overlap assert → `createMatch` returns an overlapping state |
+| A wall between hull and muzzle consumes the shot and the reload | `a wall between the hull and the muzzle stops the shell on the spawn tick and the reload is still spent` | `src/core/sim.test.ts` | spawn without the barrel trace, or forget the reload/shots accounting → a shell exists / reload is 0 |
+| A muzzle inside a solid cell resolves exactly once | `a shell that spawns inside a solid cell resolves that hit exactly once` | `src/core/sim.test.ts` | spawn then immediately advance the shell, or sweep and spawn → wall HP drops by 2 / a shell remains |
+| Equal HP + equal live tanks at the cap is a draw | `a match that ends at the cap with equal HP and equal tanks is a draw` | `src/core/sim.test.ts` | pick a winner or infer from HP alone → outcome/winner red |
+| The 2 m cell size has one definition and the renderer imports it | `the 2 m cell size is defined once and the renderer imports it` | `src/core/purity.test.ts` | add a second `CELL_SIZE_METRES = 2` literal, or make the renderer spell `cellMetres: 2` → the scan/import assertion reds |
 
-The final 20 rows are the A3a combat pins. They are direct node assertions; **no mutation differential was run for A3a**, so the "how red" text names the one-line change that would red each pin, not an executed arm. The first sim test run was red in five places and the first typecheck was red; those were test-scaffold/scenario corrections (see `### row 37`), not pin evidence.
+The A3a block (20 rows) and the A3b block (7 rows) are direct node assertions. **No mutation differential was run for A3a or A3b**, so the "how red" text names the one-line change that would red each pin, not an executed arm. The A3a first sim run was red in five places and its first typecheck was red; those were test-scaffold/scenario corrections (see `### row 37`).
 
 The differential harness is a local artifact at `.gate-logs/differential.py` (row 26)
 and `.gate-logs/differential.sh` (row 0) — both gitignored; the mutations are described
@@ -404,6 +411,39 @@ only in trim lines and small lights. The team-trim diagnostic on `wide` is orang
   or pixel assertion (this slice touches no renderer), publish, and any AI/input
   integration. The render test files stayed green, which is the evidence that the core
   did not import or disturb the renderer.
+
+### row 39 — Slice A3b (collision correctness)
+
+- **Cheap tier:** `GATE_TESTS=0 bash scripts/gate.sh` → exit **`2`** (build green; suite
+  deliberately not run). Raw `.gate-logs/gate.log`.
+- **Suite:** **66/66 tests in 12 files**, vitest 5.0.5; 26 sim tests and 3 core-purity
+  tests (the other 37 are the A1/A2 baseline). `pnpm exec tsc --noEmit` exit 0. The
+  seven A3b pins are in the matrix above. A3b did not run the full `bash scripts/gate.sh`
+  (the dispatcher owns the integrated full tier).
+- **Duel trace is unchanged from the A3a baseline:** shooter `(5,10)` firing at a target
+  `(5,20)` at throttle 0.2; shots at ticks **1/61/121**, hits at **5/65/124**, target
+  **z 20.00 → 17.52 m**, ended **tick 124**, winner team 0, outcome `last-team`, cause
+  `shell`; stats **3 shots / 3 hits / 1 kill / 3 damage / causes.shell 1 /
+  causes.clock 0**. Body blocking never engages because the target is still 7.52 m short
+  of the shooter at the end; the muzzle sweep never sees it. This is a baseline-preserved result, not
+  an unchanged test file.
+- **What the new rules are:** tank bodies are circles of `TANK_RADIUS_METRES` (1 m),
+  resolved by a swept circle-vs-circle test in ascending tank-id order with full → x-only
+  → z-only candidate order. `createMatch` rejects a same-cell spawn or any circle overlap
+  before constructing a state. The muzzle trace runs from the turret origin to the
+  muzzle through `earliestCollision` with the owner excluded; a hit resolves immediately,
+  never enters `state.shells`, still increments `shotsFired` and spends the reload. The
+  world-owned `CELL_SIZE_METRES` is imported by `src/render/config.ts`.
+- **No test assertion was red on the first A3b suite run.** One manual probe before the
+  pins were written found a real boundary gap: a muzzle exactly flush with a wall face
+  was missed because the cell range used `floor(max)` and excluded the wall cell. Fixed
+  by including the cells adjacent to both segment endpoints and by rejecting only boxes
+  whose segment span has `far > 0`; the same probe then damaged the wall once. The
+  boundary fix is folded into the muzzle pins; it is not hidden as a later re-run.
+- **Not run:** the full gate (dispatcher), any mutation differential (the matrix says so),
+  a browser/pixel assertion, publish, and AI/input integration. The render suite stayed
+  green; only `src/render/config.ts` and `gridFloor.test.ts` changed on the render side
+  (cell-size import), with no three.js or DOM change.
 
 ## Honest records
 

@@ -10,6 +10,14 @@
 import { STEP_SECONDS } from '../timestep.ts';
 
 /**
+ * The horizontal size of one world cell, in metres. This is the ONE definition:
+ * the simulation and the renderer both import it (render may import a core constant;
+ * core never imports render). It is world data because every cell address, grid
+ * query and displacement is expressed in cells.
+ */
+export const CELL_SIZE_METRES = 2;
+
+/**
  * What a cell is BUILT as. A destroyed cell is not a fourth material: it is a `hole`
  * derived from `hp === 0` (`cellState`), because the material is what regeneration
  * must restore, and two competing representations would drift apart.

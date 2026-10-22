@@ -5,7 +5,7 @@
  *
  * What is deliberately absent: a renderer, a DOM, a wall clock, an input device, and
  * any `isPlayer` distinction. A tank's control is a `TankCommand` supplied by a
- * `Controller` (local human or AI; A3b wires the former, Slice B the latter).
+ * `Controller` (local human or AI; A3c wires the former, Slice B the latter).
  *
  * Conventions (all documented in `src/render` too, via `docs/ARCHITECTURE.md`):
  *  - positions are metres in the world's floor plane; `CELL_SIZE_METRES` converts to
@@ -198,6 +198,7 @@ export function createMatch(input: CreateMatchInput): MatchState {
           `sim.createMatch: tank ${teamSpec.id}/${teamIndex} spawn (${spawn.xMetres}, ${spawn.zMetres}) is blocked or outside the arena`,
         );
       }
+      assertTankSpawnDoesNotOverlap(tanks, spawn, teamSpec.id, teamIndex);
 
       const tank: Tank = {
         id: tanks.length,
@@ -279,6 +280,39 @@ export function isTankPositionFree(world: World, x: number, z: number): boolean 
     }
   }
   return true;
+}
+
+/**
+ * Rejects a spawn that shares a cell with, or whose circular body overlaps, an already
+ * created tank. This is authoring validation, not a nudge: a level with two tanks on
+ * one another is a broken level. A same-cell pair is rejected even when two corners of
+ * that 2 m cell would leave the circles just clear.
+ */
+function assertTankSpawnDoesNotOverlap(
+  tanks: readonly Tank[],
+  spawn: TankSpawn,
+  teamId: number,
+  teamIndex: number,
+): void {
+  const cellX = Math.floor(spawn.xMetres / CELL_SIZE_METRES);
+  const cellZ = Math.floor(spawn.zMetres / CELL_SIZE_METRES);
+  const minimumDistance = TANK_RADIUS_METRES * 2;
+  for (const tank of tanks) {
+    const otherCellX = Math.floor(tank.x / CELL_SIZE_METRES);
+    const otherCellZ = Math.floor(tank.z / CELL_SIZE_METRES);
+    if (cellX === otherCellX && cellZ === otherCellZ) {
+      throw new Error(
+        `sim.createMatch: tank ${teamId}/${teamIndex} spawn (${spawn.xMetres}, ${spawn.zMetres}) shares cell (${cellX}, ${cellZ}) with tank ${tank.id}; spawn overlap is rejected`,
+      );
+    }
+    const dx = spawn.xMetres - tank.x;
+    const dz = spawn.zMetres - tank.z;
+    if (dx * dx + dz * dz < minimumDistance * minimumDistance) {
+      throw new Error(
+        `sim.createMatch: tank ${teamId}/${teamIndex} spawn (${spawn.xMetres}, ${spawn.zMetres}) overlaps tank ${tank.id} at (${tank.x}, ${tank.z}); bodies need at least ${minimumDistance} m centre separation`,
+      );
+    }
+  }
 }
 
 function validateRules(rules: MatchRules): void {

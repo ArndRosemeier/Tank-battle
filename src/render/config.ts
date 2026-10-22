@@ -1,10 +1,12 @@
 /**
  * The ONE render tuning module.
  *
- * Every colour, bloom number, camera distance, grid size and post number lives here,
- * and NOTHING under `src/render/` (or anywhere else) hardcodes one. A source-scanning
- * pin in `src/render/purity.test.ts` fails the suite on a hex colour outside this
- * file, so the palette cannot fork the way an unowned render config does.
+ * Every colour, bloom number, camera distance, grid presentation value and post
+ * number lives here; the shared 2 m cell SIZE is imported from `src/core/world.ts`.
+ * NOTHING under `src/render/` (or anywhere else) hardcodes a colour, a bloom number or
+ * the cell size. A source-scanning pin in `src/render/purity.test.ts` fails the suite on
+ * a hex colour outside this file, so the palette cannot fork the way an unowned render
+ * config does.
  *
  * The values express the presentation contract in `docs/DESIGN.md` §9: a near-black
  * field, four emissive team identities, an ice-white for the hottest cores, lines
@@ -15,6 +17,8 @@
  *
  * `docs/DESIGN.md` §7 makes these vetoable defaults. Tuning happens HERE, once.
  */
+
+import { CELL_SIZE_METRES } from '../core/world.ts';
 
 /** The arena palette: black field, emissive hues, nothing in between. */
 export const PALETTE = {
@@ -219,8 +223,8 @@ export const DPR_CAP = 2;
 
 /** The floor grid's cell size and the interval of its brighter major lines. */
 export const GRID = {
-  /** One cell is 2 m square — the same unit the world model uses. */
-  cellMetres: 2,
+  /** One cell is `CELL_SIZE_METRES` square — imported from the world module. */
+  cellMetres: CELL_SIZE_METRES,
   /** Every fifth cell line is a major line. */
   majorEvery: 5,
   /**

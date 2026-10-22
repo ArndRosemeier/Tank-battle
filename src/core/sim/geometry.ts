@@ -114,7 +114,7 @@ export function segmentAabbIntersection(from: Vec3, to: Vec3, min: Vec3, max: Ve
     }
     if (t1 > near) near = t1;
     if (t2 < far) far = t2;
-    if (near > far) return null;
+    if (near > far || far <= 0) return null;
   }
   return near;
 }
@@ -171,9 +171,52 @@ export function segmentCylinderIntersection(
     if (ty2 < far) far = ty2;
   }
 
-  if (near > far || far < 0) return null;
+  if (near > far || far <= 0) return null;
   const t = Math.max(0, near);
   return t > 1 ? null : t;
+}
+
+/**
+ * The earliest `t` in `[0, 1]` at which the horizontal segment `from → to` enters
+ * the circle at `(centreX, centreZ)` with `radius`, or `null`. A segment starting
+ * inside returns 0. This is the swept-circle test for tank-tank bodies: pass the sum
+ * of the two radii as `radius`.
+ */
+export function segmentCircleIntersection(
+  fromX: number,
+  fromZ: number,
+  toX: number,
+  toZ: number,
+  centreX: number,
+  centreZ: number,
+  radius: number,
+): number | null {
+  const ox = fromX - centreX;
+  const oz = fromZ - centreZ;
+  const dx = toX - fromX;
+  const dz = toZ - fromZ;
+  const a = dx * dx + dz * dz;
+  const c = ox * ox + oz * oz - radius * radius;
+
+  if (a < EPSILON) {
+    return c <= 0 ? 0 : null;
+  }
+
+  const b = 2 * (ox * dx + oz * dz);
+  const discriminant = b * b - 4 * a * c;
+  if (discriminant < 0) {
+    return null;
+  }
+
+  const root = Math.sqrt(discriminant);
+  const t = (-b - root) / (2 * a);
+  if (t > 1) {
+    return null;
+  }
+  if (t < 0) {
+    return c <= 0 ? 0 : null;
+  }
+  return t;
 }
 
 /** Clamp a number into `[min, max]`; callers validate their own inputs separately. */

@@ -9,11 +9,15 @@
  *  4. shells already in flight advance and resolve collisions; the last-team check
  *     happens AFTER those shells, so a clock death and a shell in flight in the same
  *     tick are resolved in one deterministic order;
- *  5. if the match is still active, live tanks fire new shells at their muzzles;
+ *  5. if the match is still active, live tanks fire: the barrel segment from the
+ *     turret origin to the muzzle is swept first; a muzzle hit resolves immediately
+ *     (and can end the match if it removes the last team), otherwise a shell is spawned;
  *  6. the tick cap is checked.
  *
- * The last-team check therefore happens ONCE per tick, after phase 4 and before the
- * fire phase: the winning team does not get a gratuitous extra shot on the kill tick.
+ * The usual last-team check happens ONCE per tick, after phase 4 and before the fire
+ * phase: a shell-in-flight kill does not give the winning team a gratuitous extra shot.
+ * A muzzle hit during phase 5 is an immediate hit and may finish the match right there,
+ * before any later tank fires; that is the one fire-phase exception.
  * A dead tank's shells already in flight keep flying (their `ownerTankId` is inert data).
  */
 
@@ -58,6 +62,7 @@ import {
   pointAt,
   rotateTowards,
   segmentAabbIntersection,
+  segmentCircleIntersection,
   segmentCylinderIntersection,
   type Vec3,
 } from './geometry.ts';
@@ -76,7 +81,7 @@ export function stepMatch(state: MatchState, orders: readonly TankCommandOrder[]
   state.tick += 1;
   state.stats.ticks = state.tick;
 
-  for (const tank of state.tanks) {
+  for (const tank of orderedTanks(state)) {
     if (!tank.alive) {
       continue;
     }
@@ -95,7 +100,9 @@ export function stepMatch(state: MatchState, orders: readonly TankCommandOrder[]
     return state;
   }
 
-  fireShells(state, commands);
+  if (fireShells(state, commands)) {
+    return state;
+  }
 
   if (state.tick >= state.rules.tickCap) {
     finishAtTickCap(state);
@@ -162,32 +169,106 @@ function applyCommand(state: MatchState, tank: Tank, command: TankCommand): void
   const distance = command.throttle * TANK_SPEED_METRES_PER_SECOND * STEP_SECONDS;
   if (distance !== 0) {
     const forward = forwardFromYaw(tank.hullYawDegrees);
-    const dx = forward.x * distance;
-    const dz = forward.z * distance;
-    // Preferred resolution: try the full move, then slide along +x, then +z. A hard
-    // stop is the last resort, never the first.
-    let movedX = 0;
-    let movedZ = 0;
-    if (isTankPositionFree(state.world, tank.x + dx, tank.z + dz)) {
-      tank.x += dx;
-      tank.z += dz;
-      movedX = dx;
-      movedZ = dz;
-    } else if (isTankPositionFree(state.world, tank.x + dx, tank.z)) {
-      tank.x += dx;
-      movedX = dx;
-    } else if (isTankPositionFree(state.world, tank.x, tank.z + dz)) {
-      tank.z += dz;
-      movedZ = dz;
-    }
-    if (movedX !== 0 || movedZ !== 0) {
-      shoveShardsUnderTank(state, tank, movedX, movedZ);
+    const moved = moveTank(state, tank, forward.x * distance, forward.z * distance);
+    if (moved.x !== 0 || moved.z !== 0) {
+      shoveShardsUnderTank(state, tank, moved.x, moved.z);
     }
   }
 
   if (tank.reloadTicksRemaining > 0) {
     tank.reloadTicksRemaining -= 1;
   }
+}
+
+/**
+ * Tanks in the ONE order body collision resolves in: ascending tank id, never the
+ * order of the caller's `tanks` array. A later tank sees the positions of earlier
+ * movers, so a two-tank closing move is deterministic and id-ordered, not random.
+ */
+function orderedTanks(state: MatchState): readonly Tank[] {
+  return [...state.tanks].sort((a, b) => a.id - b.id);
+}
+
+/**
+ * Tries the full move, then the x-only slide, then the z-only slide. A candidate is
+ * allowed only when the world is free at its endpoint AND the swept circle does not
+ * pass through a live tank before that endpoint. A hard stop is the last resort.
+ */
+function moveTank(state: MatchState, tank: Tank, dx: number, dz: number): { x: number; z: number } {
+  const full = canTankMoveTo(state, tank, tank.x + dx, tank.z + dz);
+  if (full) {
+    tank.x += dx;
+    tank.z += dz;
+    return { x: dx, z: dz };
+  }
+  if (canTankMoveTo(state, tank, tank.x + dx, tank.z)) {
+    tank.x += dx;
+    return { x: dx, z: 0 };
+  }
+  if (canTankMoveTo(state, tank, tank.x, tank.z + dz)) {
+    tank.z += dz;
+    return { x: 0, z: dz };
+  }
+  return { x: 0, z: 0 };
+}
+
+function canTankMoveTo(state: MatchState, tank: Tank, x: number, z: number): boolean {
+  if (!isTankPositionFree(state.world, x, z)) {
+    return false;
+  }
+  return !tankBodyBlocksMove(state, tank, x, z);
+}
+
+/**
+ * The swept circle-vs-circle test against every other live tank. The sum of the two
+ * radii is the contact distance. Starting exactly on contact is allowed when the move
+ * does not end inside; a candidate that would pass through is blocked even if its
+ * endpoint is clear. Max speed moves 0.1 m/tick, well below the 2 m body diameter, so
+ * the sweep also makes the no-tunnelling property explicit rather than incidental.
+ */
+function tankBodyBlocksMove(state: MatchState, tank: Tank, toX: number, toZ: number): boolean {
+  const contact = TANK_RADIUS_METRES * 2;
+  const contactSq = contact * contact;
+  for (const other of orderedTanks(state)) {
+    if (other.id === tank.id || !other.alive) {
+      continue;
+    }
+    const startDx = tank.x - other.x;
+    const startDz = tank.z - other.z;
+    const startDistSq = startDx * startDx + startDz * startDz;
+    if (startDistSq < EPSILON) {
+      // Coincident centres (a rejected spawn can never reach here); block all movement.
+      return true;
+    }
+    const endDx = toX - other.x;
+    const endDz = toZ - other.z;
+    const endDistSq = endDx * endDx + endDz * endDz;
+    const t = segmentCircleIntersection(
+      tank.x,
+      tank.z,
+      toX,
+      toZ,
+      other.x,
+      other.z,
+      contact,
+    );
+    if (t === null) {
+      continue;
+    }
+    if (t <= EPSILON) {
+      // Already touching (or overlapping): moving out is allowed, moving in is not.
+      if (endDistSq < contactSq - EPSILON) {
+        return true;
+      }
+      continue;
+    }
+    if (t >= 1 - EPSILON && endDistSq >= contactSq - EPSILON) {
+      // The move ends exactly at contact; touching is legal.
+      continue;
+    }
+    return true;
+  }
+  return false;
 }
 
 /** One A1 world tick; any displacement the world decided is applied to live tanks. */
@@ -381,25 +462,27 @@ interface ShellHit {
  * first, then a shard, then a tank (the brief's list), and then cell index / shard id /
  * tank id. The earliest POSITION always wins; the tie-break only settles equal `t`.
  */
-function earliestCollision(state: MatchState, from: Vec3, to: Vec3): ShellHit | null {
+function earliestCollision(
+  state: MatchState,
+  from: Vec3,
+  to: Vec3,
+  ignoredTankId?: number,
+): ShellHit | null {
   let best: ShellHit | null = null;
 
-  const minCellX = Math.max(0, Math.min(
-    Math.floor(from.x / CELL_SIZE_METRES),
-    Math.floor(to.x / CELL_SIZE_METRES),
-  ));
-  const maxCellX = Math.min(state.world.columns - 1, Math.max(
-    Math.floor(from.x / CELL_SIZE_METRES),
-    Math.floor(to.x / CELL_SIZE_METRES),
-  ));
-  const minCellZ = Math.max(0, Math.min(
-    Math.floor(from.z / CELL_SIZE_METRES),
-    Math.floor(to.z / CELL_SIZE_METRES),
-  ));
-  const maxCellZ = Math.min(state.world.rows - 1, Math.max(
-    Math.floor(from.z / CELL_SIZE_METRES),
-    Math.floor(to.z / CELL_SIZE_METRES),
-  ));
+  // Include the cells adjacent to the segment's endpoints. A segment that touches a
+  // cell face exactly (the muzzle flush with a wall, a shell grazing a boundary) must
+  // still test that cell; the AABB intersection rejects the extra cells honestly.
+  const minCellX = Math.max(0, Math.floor(Math.min(from.x, to.x) / CELL_SIZE_METRES) - 1);
+  const maxCellX = Math.min(
+    state.world.columns - 1,
+    Math.floor(Math.max(from.x, to.x) / CELL_SIZE_METRES) + 1,
+  );
+  const minCellZ = Math.max(0, Math.floor(Math.min(from.z, to.z) / CELL_SIZE_METRES) - 1);
+  const maxCellZ = Math.min(
+    state.world.rows - 1,
+    Math.floor(Math.max(from.z, to.z) / CELL_SIZE_METRES) + 1,
+  );
 
   for (let cellZ = minCellZ; cellZ <= maxCellZ; cellZ += 1) {
     for (let cellX = minCellX; cellX <= maxCellX; cellX += 1) {
@@ -472,7 +555,7 @@ function earliestCollision(state: MatchState, from: Vec3, to: Vec3): ShellHit | 
   }
 
   for (const tank of state.tanks) {
-    if (!tank.alive) {
+    if (!tank.alive || tank.id === ignoredTankId) {
       continue;
     }
     const t = segmentCylinderIntersection(
@@ -563,9 +646,18 @@ function killTank(state: MatchState, tank: Tank, cause: 'shell' | 'clock'): void
   }
 }
 
-/** Spawns new shells after all hits of the tick; each `fire` command makes one shell. */
-function fireShells(state: MatchState, commands: ReadonlyMap<number, TankCommand>): void {
-  for (const tank of state.tanks) {
+/**
+ * Fires every live tank that held `fire` with a clear reload. Before a shell can enter
+ * flight, the barrel segment from the turret origin to the muzzle is traced: the first
+ * wall, big block, shard or live tank in that segment resolves the shot immediately.
+ * The shot still counts and still spends the reload, so a blocked barrel is not a free
+ * trigger. The owner tank is excluded from its own barrel trace.
+ *
+ * Returns true when a barrel hit ended the match immediately (last team or draw); the
+ * caller must not apply the tick cap in that case.
+ */
+function fireShells(state: MatchState, commands: ReadonlyMap<number, TankCommand>): boolean {
+  for (const tank of orderedTanks(state)) {
     if (!tank.alive) {
       continue;
     }
@@ -575,22 +667,78 @@ function fireShells(state: MatchState, commands: ReadonlyMap<number, TankCommand
     }
     const forward = forwardFromYaw(tank.turretYawDegrees);
     const direction = directionFromAim(tank.turretYawDegrees, tank.aimPitchDegrees);
+    const muzzleY = state.world.floorSurfaceHeightMetres + MUZZLE_HEIGHT_METRES;
+    const origin: Vec3 = { x: tank.x, y: muzzleY, z: tank.z };
+    const muzzle: Vec3 = {
+      x: tank.x + forward.x * MUZZLE_FORWARD_METRES,
+      y: muzzleY,
+      z: tank.z + forward.z * MUZZLE_FORWARD_METRES,
+    };
+
+    state.stats.shotsFired += 1;
+    tank.reloadTicksRemaining = RELOAD_TICKS;
+
+    const obstruction = earliestCollision(state, origin, muzzle, tank.id);
+    if (obstruction) {
+      resolveMuzzleHit(state, tank, obstruction);
+      if (checkLastTeam(state)) {
+        return true;
+      }
+      continue;
+    }
+
     state.shells.push({
       id: state.nextShellId,
       ownerTankId: tank.id,
       ownerTeamId: tank.teamId,
-      x: tank.x + forward.x * MUZZLE_FORWARD_METRES,
-      y: state.world.floorSurfaceHeightMetres + MUZZLE_HEIGHT_METRES,
-      z: tank.z + forward.z * MUZZLE_FORWARD_METRES,
+      x: muzzle.x,
+      y: muzzle.y,
+      z: muzzle.z,
       dx: direction.x,
       dy: direction.y,
       dz: direction.z,
       travelledMetres: 0,
     });
     state.nextShellId += 1;
-    state.stats.shotsFired += 1;
-    tank.reloadTicksRemaining = RELOAD_TICKS;
   }
+  return false;
+}
+
+/**
+ * The damage/stop side of the barrel sweep. A shard in the barrel is shattered and
+ * consumes the shot; the current shard band (floor to 0.5 m) is below the muzzle
+ * height, so this is a defensive branch rather than a common path. The shell never
+ * enters `state.shells`, which is what makes a muzzle-cell hit count exactly once.
+ */
+function resolveMuzzleHit(state: MatchState, owner: Tank, hit: ShellHit): void {
+  if (hit.kind === 'world') {
+    if (hit.block) {
+      damageBlock(state.world, hit.cellX, hit.cellZ, SHELL_DAMAGE);
+    } else {
+      damageCell(state.world, hit.cellX, hit.cellZ, SHELL_DAMAGE, state.rng);
+    }
+    return;
+  }
+  if (hit.kind === 'tank') {
+    const target = hit.tank;
+    if (!target) {
+      throw new Error('sim: a muzzle tank hit lost its tank');
+    }
+    if (target.teamId === owner.teamId) {
+      return;
+    }
+    damageEnemyTank(state, target);
+    return;
+  }
+  if (hit.kind === 'shard') {
+    const shard = hit.shard;
+    if (!shard) {
+      throw new Error('sim: a muzzle shard hit lost its shard');
+    }
+    shatterShard(state.world, shard.id);
+    return;
+  }
+  throw new Error(`sim: unknown muzzle collision kind ${String((hit as { kind: string }).kind)}`);
 }
 
 /** A shell exists in the horizontal arena; below the floor is allowed (bedrock). */

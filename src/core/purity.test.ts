@@ -6,16 +6,18 @@ import { describe, expect, it } from 'vitest';
 /**
  * The layer map, enforced instead of promised (`docs/ARCHITECTURE.md` §1).
  *
- * The scan covers every `.ts` file under `src/core/` that is NOT a test (`.test.ts` /
- * `.spec.ts`). A test file is
+ * The layer scans cover every `.ts` file under `src/core/` that is NOT a test (`.test.ts`
+ * / `.spec.ts`); the one-source cell-size scan also covers `src/render/`. A test file is
  * the one place the forbidden tokens have to be spelled out (this file is the scanner),
- * and a test never reaches the bundle; every simulation module is scanned. The scan
- * asserts how many modules it found, so an empty or broken glob cannot pass as clean.
+ * and a test never reaches the bundle; every simulation module is scanned. The scans
+ * assert how many modules they found, so an empty or broken glob cannot pass as clean.
  *
  * `three` is matched as an IMPORT SPECIFIER, not as a word: a comment may name the
  * renderer while explaining that the core does not import it.
  */
 const CORE_DIR = fileURLToPath(new URL('.', import.meta.url));
+const SRC_DIR = fileURLToPath(new URL('..', import.meta.url));
+const RENDER_DIR = join(SRC_DIR, 'render');
 
 /** The layer violations: the renderer, the DOM, a window, or a host clock/timer. */
 const HOST_OR_RENDERER =
@@ -37,6 +39,21 @@ function coreModules(): readonly SourceFile[] {
     }
     const path = join(CORE_DIR, entry);
     modules.push({ path: relative(CORE_DIR, path), source: readFileSync(path, 'utf8') });
+  }
+  modules.sort((a, b) => a.path.localeCompare(b.path));
+  return modules;
+}
+
+function allSourceModules(): readonly SourceFile[] {
+  const modules: SourceFile[] = [];
+  for (const dir of [CORE_DIR, RENDER_DIR]) {
+    for (const entry of readdirSync(dir, { recursive: true, encoding: 'utf8' })) {
+      if (!entry.endsWith('.ts') || entry.endsWith('.test.ts') || entry.endsWith('.spec.ts')) {
+        continue;
+      }
+      const path = join(dir, entry);
+      modules.push({ path: relative(SRC_DIR, path), source: readFileSync(path, 'utf8') });
+    }
   }
   modules.sort((a, b) => a.path.localeCompare(b.path));
   return modules;
@@ -84,5 +101,23 @@ describe('core purity', () => {
     expect(modules.length).toBeGreaterThanOrEqual(8);
 
     expect(findMatches(modules, UNSEEDED_RANDOM)).toEqual([]);
+  });
+
+  it('the 2 m cell size is defined once and the renderer imports it', () => {
+    const modules = allSourceModules();
+    expect(modules.length).toBeGreaterThanOrEqual(20);
+
+    const definitions = findMatches(modules, /\bCELL_SIZE_METRES\s*=\s*2\b/);
+    expect(definitions).toHaveLength(1);
+    expect(definitions[0]).toContain('core/world/constants.ts');
+
+    const renderConfig = modules.find((module) => module.path === 'render/config.ts');
+    expect(renderConfig).toBeDefined();
+    const source = renderConfig?.source ?? '';
+    expect(source).toMatch(
+      /import\s*\{[^}]*CELL_SIZE_METRES[^}]*\}\s*from\s*['"]\.\.\/core\/world\.ts['"]/,
+    );
+    expect(source).toMatch(/cellMetres:\s*CELL_SIZE_METRES/);
+    expect(source).not.toMatch(/cellMetres:\s*2\b/);
   });
 });

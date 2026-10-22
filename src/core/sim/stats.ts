@@ -1,13 +1,16 @@
 /**
  * The per-match counters the batch rig will consume. This is the ONE stats shape:
- * a test, the HUD (A3b/A5) and the future batch runner read the same object.
+ * a test, the HUD (A3c/A5) and the future batch runner read the same object.
  *
  * Definitions matter, so they are explicit:
- *  - `shotsFired` — shells actually spawned (a held fire while reloading does not count);
- *  - `hits` — shells that DAMAGED an enemy tank (a shell stopped by a teammate is not a
- *    hit, and a shell that breaks a wall is not a tank hit);
- *  - `kills` — tanks killed by a shell;
- *  - `damageDealt` — HP removed from tanks by shells (clock damage is not "dealt");
+ *  - `shotsFired` — trigger pulls that spent the reload: a shell spawned, or a swept
+ *    muzzle obstruction that consumed the shot (holding fire while reloading does not
+ *    count);
+ *  - `hits` — shells or swept-muzzle shots that DAMAGED an enemy tank (a teammate's
+ *    body is not a hit, and a wall/block hit is not a tank hit);
+ *  - `kills` — tanks killed by a shell or a muzzle hit;
+ *  - `damageDealt` — HP removed from tanks by shells/muzzle shots (clock damage is not
+ *    "dealt");
  *  - `causes` — where every tank death came from; `kills` equals `causes.shell`.
  */
 
