@@ -1366,3 +1366,19 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
   most elusive. Four distinct behaviours, two wrong names (debt, ledger row 55).
 - **Reporting gap recorded:** the landing report carried no acceptance numbers and did not
   say the signature target was missed. "Complete" is not a measurement.
+
+### row 57 — the dispatcher's own verification (d151ab8)
+
+- Integrated gate 119/119, exit 0.
+- **Stand-in batch reproduced:** 29/100 player-team wins (29.0 %), cap 7 %, median 3607
+  ticks, accuracy 39.8 %. The stand-in is a vanguard, so this is a reference floor, not a
+  claim about a human.
+- **Arm:** cutting the squad to two reds the squad-count pin plus the determinism,
+  immunity and stand-in pins — the player team is guarded by four tests.
+- **One rule verified structurally:** `RELOAD_TICKS = 285` is the only cadence constant;
+  `AI_FIRE_INTERVAL_TICKS` is gone.
+- **Player-facing defects (P2):** no reticle; HUD text clipped at the frame edge; the
+  muzzle renders as a detached cube; turret ±60° exceeds the ±39° FOV, so aim can leave
+  the screen. Also recorded: a pre-existing 1v1 parked duel (seed 148), 4×4 cap at 10.5 %,
+  spawn facing can point away from the arena, and a 285-tick (4.75 s) reload is a feel
+  fork for the owner.
