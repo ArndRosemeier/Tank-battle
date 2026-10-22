@@ -14,7 +14,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_MATCH_RULES } from '../src/core/sim.ts';
 import { runBatchMatches, type BatchOptions } from '../src/core/ai.ts';
-import { arenaBatchSetup } from '../src/game/aiBatch.ts';
+import { arenaBatchSetup, arenaDuelSetup } from '../src/game/aiBatch.ts';
 
 interface CliOptions {
   readonly seeds: number;
@@ -85,7 +85,7 @@ function printHelp(): void {
 
 function main(): void {
   const cli = parseArgs(process.argv.slice(2));
-  const setup = arenaBatchSetup();
+  const setup = cli.teams === 2 ? arenaDuelSetup() : arenaBatchSetup();
   const options: BatchOptions = {
     seeds: cli.seeds,
     teams: cli.teams,
@@ -124,6 +124,7 @@ function printReport(result: ReturnType<typeof runBatchMatches>, batchPath: stri
     ['kills', String(s.kills)],
     ['time-to-kill (ticks from first shot)', s.timeToKillTicks === null ? 'n/a' : s.timeToKillTicks.toFixed(1)],
     ['median TTK (ticks)', s.medianTimeToKillTicks === null ? 'n/a' : String(s.medianTimeToKillTicks)],
+    ['mean speed while alive (m/s)', s.meanSpeedMetresPerSecond.toFixed(2)],
     ['matches with kill', String(s.matchesWithKill)],
     ['deaths by cause', `shell ${s.deathsByCause.shell} / clock ${s.deathsByCause.clock}`],
   ];

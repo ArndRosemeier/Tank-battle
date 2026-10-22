@@ -7,7 +7,7 @@
  * sightline reaches the target centre and is allowed to use the same height rules.
  */
 
-import { CELL_SIZE_METRES, type MatchState, type Tank, type Vec3 } from '../sim.ts';
+import { CELL_SIZE_METRES, MUZZLE_HEIGHT_METRES, type MatchState, type Tank, type Vec3 } from '../sim.ts';
 import { isSolidAt, type World } from '../world.ts';
 import {
   AI_EYE_HEIGHT_METRES,
@@ -59,6 +59,16 @@ export function hasLineOfSight(world: World, from: Vec3, to: Vec3): boolean {
     }
   }
   return true;
+}
+
+/** True when a shell from the muzzle to the target centre would clear the world. */
+export function hasShotLine(world: World, tank: Tank, target: Tank): boolean {
+  const from: Vec3 = {
+    x: tank.x,
+    y: world.floorSurfaceHeightMetres + MUZZLE_HEIGHT_METRES,
+    z: tank.z,
+  };
+  return hasLineOfSight(world, from, targetCentre(world, target));
 }
 
 /** Every live enemy of `tank` with a clear eye-to-centre sightline, nearest first. */

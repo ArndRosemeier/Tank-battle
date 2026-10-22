@@ -107,7 +107,9 @@ never "it passed".
 | Profile data rejects unknown goals and bad weights | `validates vanguard and rejects unknown goals and out-of-range weights` | `src/core/ai/profile.test.ts` | skip the unknown-key or range check → a typo/weight above 1 is accepted |
 | A three-seed batch is reproducible | `reproduces the same three-seed result and trace` | `src/game/aiBatch.test.ts` | use a different controller seed derivation or drop the seed → hashes/trace differ |
 
-The A3a block (20 rows), the A3b block (7 rows) and the A3c block (11 rows) are direct assertions; A4 adds seven level-validation pins; B1a adds the two A4 gap pins and eleven AI pins. **No mutation differential was run for A3a/A3b/A3c/A4/B1a**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
+| A mirrored script produces the mirrored winner, length and causes | `a mirrored script produces the mirrored winner, length and causes` | `src/game/mirror.test.ts` | swap a tank/team mapping in the script or break the z mirror → the original team-0 win/7-tick/shell result no longer maps to mirrored team 1 |
+
+The A3a block (20 rows), the A3b block (7 rows) and the A3c block (11 rows) are direct assertions; A4 adds seven level-validation pins; B1a adds the two A4 gap pins and eleven AI pins; B1b adds the scripted mirror pin. **No mutation differential was run for A3a/A3b/A3c/A4/B1a/B1b**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
 
 The differential harness is a local artifact at `.gate-logs/differential.py` (row 26)
 and `.gate-logs/differential.sh` (row 0) — both gitignored; the mutations are described
@@ -689,6 +691,70 @@ only in trim lines and small lights. The team-trim diagnostic on `wide` is orang
 - **Not run:** live all-AI spectator, other characters, cover/flank/breach behaviour,
   a GPU frame-rate claim, or a mutation differential. The vanguard's no-route stop and
   its turret-centre aim are deliberate B1a limits, not a claim of tactical play.
+
+
+### row 47 — Slice B1b (fairness and pacing)
+
+- **Full gate:** `bash scripts/gate.sh` → exit **`0`**; cheap tier `pnpm run build` exit
+  `0`; suite **99/99 in 22 files** (vitest 5.0.5). Raw log at the repository root
+  `.gate-logs/gate.log`; the post-rebase run is the landing evidence.
+- **Before / after (200 seeds, vanguard vs vanguard, 1v1 on the arena):**
+
+  | metric | B1a (100 seeds) | B1b (200 seeds) | target |
+  | --- | ---: | ---: | ---: |
+  | team-0 win split | **85.0 %** | **49.5 %** (99/101) | 40–60 % |
+  | median length | **306 ticks** | **934 ticks** | 900–1800 |
+  | accuracy | **89.4 %** | **52.0 %** | 30–60 % |
+  | cap hits | **0 %** | **0 / 200 (0.0 %)** | ≤10 % |
+  | shots / match | 5.47 | **7.38** | ≥6 |
+  | clock deaths | **0** | **87 / 200 (43.5 % of matches)** | >0 measurable |
+  | mean speed while alive | not measured (static; first B1b trace **0.29 m/s**) | **2.24 m/s** | >1.5 |
+  | draws | 0 | **0** | — |
+
+  Final table: mean **1005.9**, median **934**, min/max **579/2487** (p25 901, p75
+  1201), 143 distinct lengths; shots 1476, hits 767, kills 113 shell + 87 clock; TTK
+  from first shot mean **992.1**, median **906.5**, n=200. `reports/batch.json` and
+  `reports/trace-seed-0.jsonl` are gitignored.
+- **What the bias actually was.** It was not the candidate sequential-fire order:
+  reversing the fire loop changed nothing (85/15 unchanged). It was two things:
+  (a) the phase was derived from the tank id (`controllerSeed % 6`, with the two id
+  constants differing by 3 mod 6), so tank 0 had a fixed three-tick initiative;
+  (b) the 1v1 used the first two authored corner spawns, which are adjacent and NOT a
+  symmetry pair — their exits point different ways and their paths/cover differ. A
+  symmetric open-margin staging and a **team-balanced phase** `(seed + 3·team) mod 6`
+  produced 99/101. Same-phase AI produced all draws; fixed-phase/id seeding produced
+  the 66/34 and 85/15 bands.
+- **Fairness fix / mirror pin.** The 2-team batch now uses `arenaDuelSetup()` at
+  (18, 6)/(30, 6) on the open north margin; adjacent-author corner spawns remain the
+  arena/4-team layout. The mirror pin is **scripted at the simulation level** because
+  an AI match is deterministic-chaotic and does not reproduce exactly under mirror:
+  original team 0 wins at **tick 7** with one shell death; the same script on the
+  z-mirrored level, tanks mirrored and team ids swapped, has **team 1 win at tick 7**
+  with one shell death. `src/game/mirror.test.ts` passes; it also confirms the
+  candidate id/action-order bias is not a mirror failure in the scripted path.
+  An AI-level mirror remains known debt.
+- **Levers chosen (and the trade):**
+  - **AI shot interval 285 ticks** (`AI_FIRE_INTERVAL_TICKS`), not the global
+    `RELOAD_TICKS=60`. I left the app/demo reload alone; the AI deliberately waits.
+  - **Aim spread 10° + 1.8°/m** (with 35 % pitch spread) seeded by the controller RNG;
+    this is the accuracy lever (89 % → 52 %).
+  - **Continuous strafe** while a target is visible, **60-tick dodge** after a shot or
+    hit, direct fallback when A* has no path; this is the speed/reposition lever
+    (0.29 → 2.24 m/s).
+  - **Wound clock 600 → 900 ticks.** With 3 HP and a 600-tick clock the median
+    stalled at ~710 and 124/200 matches ended by clock; the 900-tick clock (still a
+    measurable 87 clock deaths) is the trade that lets shell fights reach 15.6 s.
+  - No HP/damage change. No global reload change.
+- **First-run reds, recorded:** same-phase controllers drew every staging match; the
+  phase/id correlation produced 85/15 and then 66/34 on the open staging; 150- and
+  250-tick shot intervals stayed below the 900-tick median or collapsed shell kills
+  into clock deaths; continuous strafe initially still measured 0.58 m/s because A*
+  returned null and the controller stopped, fixed with direct fallback movement; the
+  first mirror probe with AI failed on lengths and causes, which is why the pin is
+  scripted and the AI mirror is recorded as debt.
+- **Not run:** a live all-AI spectator, a four-character cast, an AI-level mirror,
+  a GPU frame-rate claim, or a mutation differential. The 900-tick clock is a deliberate
+  pacing trade, not a claim that the A3c 10-second clock was wrong.
 
 ## Honest records
 

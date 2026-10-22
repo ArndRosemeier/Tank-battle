@@ -82,7 +82,12 @@ running headless in `node`.
 | AI navigation | `NavigationCache.findPath(...)` · `reachablePointNear(...)` | `src/core/ai/navigation.ts:120` · `src/core/ai/navigation.ts:209` | A* over four-neighbour body-free cell centres; the cache recomputes only on `world.revision` or a new goal CELL. Smoothing uses a sampled body-clear line. Boundary rows with zero clearance are rejected so a tank cannot wedge on an arena edge. |
 | AI character data | `validateAIProfile(input)` · `VANGUARD_PROFILE` | `src/core/ai/profile.ts:44` · `src/core/ai/profile.ts:32` | The only profile boundary: all three goal weights (`gain-line-of-sight`, `approach-preferred-range`, `fire-in-cone`) must be present and in 0…1; unknown keys and invalid ranges throw. |
 | an AI decision | `AIController.commandFor(state, tankId)` | `src/core/ai/controller.ts:119` | One controller per tank; decides on the first call and every 6 ticks (default phase 0), holds the SAME command object in between, and never reads a clock. The controller options can set the cadence/phase in tests; the vanguard weighs LOS, approach and fire. |
-| a batch of AI matches | `runBatchMatches(setup, options)` · `pnpm batch` | `src/core/ai/batch.ts:125` · `scripts/batch.ts:1` | Real `createMatch`/`stepMatch`/`hashMatch` on a supplied level, one vanguard tank per team. Writes `reports/batch.json` and one seed's JSONL trace; `reports/` is gitignored. Summary keeps mean/median length, cap hits, accuracy, TTK from first shot and deaths by cause. |
+| a batch of AI matches | `runBatchMatches(setup, options)` · `pnpm batch` | `src/core/ai/batch.ts:125` · `scripts/batch.ts:1` | Real `createMatch`/`stepMatch`/`hashMatch` on a supplied level, one vanguard tank per team. Writes `reports/batch.json` and one seed's JSONL trace; `reports/` is gitignored. Summary keeps mean/median length, cap hits, accuracy, TTK from first shot, mean speed and deaths by cause. |
+| the 1v1 duel staging | `arenaDuelSetup()` | `src/game/aiBatch.ts:12` | The 2-team batch starts on the open north margin at (18, 6) and (30, 6), a mirror pair. Adjacent authored corner spawns are NOT a symmetry pair: their exits face different directions, so a 1v1 started there has an unavoidable spatial/cover bias. The four corner spawns remain the >2-team/arena layout. |
+| a fair decision phase | batch's `decisionPhaseTicks` | `src/core/ai/batch.ts:203` | The phase is balanced by TEAM: `(seed + 3·teamId) mod 6`. Deriving it from tank id made tank 0 always three ticks ahead of tank 1 (the B1a 85/15 finding); the phase must not be correlated with the id that also fixes action order. |
+| AI aim spread and dodge | `AI_AIM_ERROR_*` · `startDodge` · `strafePoint` | `src/core/ai/constants.ts:21` · `src/core/ai/controller.ts:286` · `src/core/ai/controller.ts:300` | The vanguard adds a seeded yaw/pitch error scaled by range (10° + 1.8°/m for B1b), strafes continuously in contact, and dodges for 60 ticks after a shot or a hit; the effective shot interval is 285 ticks. These are the pacing levers, kept out of the sim's global `RELOAD_TICKS` so the A3c app/demo is not retuned. |
+| the vanguard's shot interval | `AI_FIRE_INTERVAL_TICKS` | `src/core/ai/constants.ts:15` | The sim reload stays 60 ticks; the AI deliberately waits 285 ticks before its next trigger. This is the pacing lever that produced the 900–1800-tick band without changing the player's fire rate. |
+| the wound clock | `BLEED_INTERVAL_TICKS` · `MatchRules.bleedIntervalTicks` | `src/core/sim/constants.ts:75` | B1b raised the default from 600 to 900 ticks so a 3-HP duel can last the required 15–30 s while the clock still kills wounded tanks in a measurable share. The value remains a `MatchRules` override, so a test/app can still use 600. |
 | the authored level | `ARENA` · `spawnCentreMetres(spawn)` | `src/game/levels/arena.ts:1` | The ONE 48×48 m, 24×24-cell, 4-fold arena: four 2×2 corner spawn rooms with screened dogleg exits, outer/inner square rings with 2×2 corner gateways, breakable central pillar block, ambush pockets and low coverage. `session.ts` is the only app caller. |
 | load-time level validation | `validateLevel(level)` | `src/game/levels/format.ts:105` | The ONE boundary before `createMatch`: square grid, legal materials/heights, exactly four unique 2–4-cell spawn zones, free non-overlapping spawn cells, flood-fill on-foot connectivity from spawn 0, every passable cell in the central objective window reachable from that component, and 90° (therefore four-fold) cell-grid symmetry. Every cell failure names the offending `(x, z)`. Never build the app world from unvalidated data. |
 | the demo/screenshot scenario | `?demo=duel&ticks=122` · `PlayableSession.runDemo(ticks)` | `src/main.ts:64` · `src/game/session.ts:205` | Runs a fixed scripted sequence on the authored arena, freezes before the first frame, and seeds one visible ambush-pillar breach. At tick 122 the dummy is at 1 HP and the third shell is in flight; the win is tick 124. |
@@ -361,11 +366,16 @@ running headless in `node`.
   fixture measures `buildArenaScene` (16 showcase tanks), while the A4 playable scene
   measured **16 draw objects / 5,808 triangles / 17,432 vertices** and **31 renderer
   calls** in a headless 1920×937 probe. Keep the old pin as a ceiling, not an app claim.
-- **B1a's vanguard is deliberately simple.** It has no cover-seeking, flanking or
-  breaching; when A* has no ground route it stops and fires if the turret is in the
-  cone. The first 100 duplicate-free matches ended with **85 team-0 vs 15 team-1
-  wins** — a tank-id/turn-order bias, not an arena asymmetry; B1b/B2 must address the
-  fairness question. Accuracy was 89.4 % and every death was by shell.
+- **B1b's vanguard is still a simple pilot.** It has no cover-seeking, flanking or
+  breaching. It strafes/dodges and fires within an aim cone; when no ground route exists
+  it moves directly toward its goal and relies on body collision. The 200-seed acceptance
+  batch is **99/101 (49.5/50.5)**, median **934 ticks (15.6 s)**, accuracy **52.0 %**,
+  cap **0/200**, **7.38** shots per match, **2.24 m/s** mean speed and **87/200** matches
+  with a clock death. Adjacent authored corner spawns were not a fair 1v1 pair; the 2-team
+  batch now uses a symmetric duel staging on the arena, with team-balanced decision phases.
+  The mirror pin is SCRIPTED at the sim level (original team 0 wins at tick 7, mirrored
+  team 1 wins at tick 7, shell death both); an AI-level mirror is still not exact because
+  continuous aim/dodge is deterministic-chaotic. This is known debt for B1c/B2.
 - **Perception is sampled at 10 cm.** It uses `isSolidAt` and not the shell resolver;
   this is a sightline, not a guarantee that a shell clears low cover. The vanguard
   deliberately aims at the turret centre and does not plan a shoot-over arc.

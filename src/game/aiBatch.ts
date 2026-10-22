@@ -8,6 +8,18 @@ import { spawnCentreMetres, ARENA } from './levels/arena.ts';
 import { validateLevel } from './levels/format.ts';
 import type { BatchSetup } from '../core/ai.ts';
 
+/** A symmetric 1v1 duel staging on the arena's open north margin. */
+export function arenaDuelSetup(): BatchSetup {
+  validateLevel(ARENA);
+  return {
+    level: ARENA.cells,
+    spawns: [
+      { teamId: 0, spawn: { xMetres: 18, zMetres: 6, hullYawDegrees: -90 } },
+      { teamId: 1, spawn: { xMetres: 30, zMetres: 6, hullYawDegrees: 90 } },
+    ],
+  };
+}
+
 /** Validates the arena and returns one one-tank spawn per authored team. */
 export function arenaBatchSetup(): BatchSetup {
   validateLevel(ARENA);

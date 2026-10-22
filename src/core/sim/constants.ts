@@ -65,11 +65,11 @@ export const SHELL_DAMAGE = 1;
 export const SHARD_HIT_HEIGHT_METRES = 0.5;
 
 /**
- * The lethal wound clock: a damaged tank loses 1 HP every this many ticks (10 s at
- * 60 Hz). A healthy tank never bleeds. The first wound starts the clock; later hits
- * do not reset it.
+ * The lethal wound clock: a damaged tank loses 1 HP every this many ticks (15 s at
+ * 60 Hz in B1b; the A3c default was 10 s). A healthy tank never bleeds. The first
+ * wound starts the clock; later hits do not reset it.
  */
-export const BLEED_INTERVAL_TICKS = 600;
+export const BLEED_INTERVAL_TICKS = 900;
 
 /** The match cap: 5 minutes at 60 Hz. A batch run must terminate by construction. */
 export const MATCH_TICK_CAP = 18000;

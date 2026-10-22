@@ -20,6 +20,7 @@ import {
   type TeamSpec,
 } from '../sim.ts';
 import type { WorldSpec } from '../world.ts';
+import { STEP_SECONDS } from '../timestep.ts';
 import { AIController } from './controller.ts';
 import { AI_DECISION_INTERVAL_TICKS } from './constants.ts';
 import { getAIProfile, type AIProfile } from './profile.ts';
@@ -63,6 +64,9 @@ export interface BatchMatchResult {
   readonly timeToKillTicks: number | null;
   readonly causes: Readonly<{ shell: number; clock: number }>;
   readonly capHit: boolean;
+  readonly distanceMovedMetres: number;
+  readonly aliveTankTicks: number;
+  readonly meanSpeedMetresPerSecond: number;
 }
 
 export interface BatchSummary {
@@ -80,6 +84,7 @@ export interface BatchSummary {
   readonly medianTimeToKillTicks: number | null;
   readonly matchesWithKill: number;
   readonly deathsByCause: Readonly<{ shell: number; clock: number }>;
+  readonly meanSpeedMetresPerSecond: number;
 }
 
 export interface BatchTraceRecord {
@@ -164,7 +169,7 @@ export function runBatchMatches(setup: BatchSetup, options: BatchOptions): Batch
           tankId: tank.id,
           profile,
           seed: controllerSeed(seed, tank.id),
-          decisionPhaseTicks: controllerSeed(seed, tank.id) % AI_DECISION_INTERVAL_TICKS,
+          decisionPhaseTicks: (seed + tank.teamId * 3) % AI_DECISION_INTERVAL_TICKS,
         }),
       );
     }
@@ -172,11 +177,16 @@ export function runBatchMatches(setup: BatchSetup, options: BatchOptions): Batch
     const collect = seed === traceSeed;
     let firstShotTick: number | null = null;
     let previousShots = 0;
+    let distanceMoved = 0;
+    let aliveTankTicks = 0;
     let guard = 0;
     while (match.status === 'active') {
       if (collect && match.tick % AI_DECISION_INTERVAL_TICKS === 0) {
         collected.push(traceRecord(match));
       }
+      const before = match.tanks
+        .filter((tank) => tank.alive)
+        .map((tank) => ({ id: tank.id, x: tank.x, z: tank.z }));
       const orders: TankCommandOrder[] = [];
       for (const tank of match.tanks) {
         if (!tank.alive) continue;
@@ -187,6 +197,12 @@ export function runBatchMatches(setup: BatchSetup, options: BatchOptions): Batch
         orders.push({ tankId: tank.id, command: controller.commandFor(match, tank.id) });
       }
       stepMatch(match, orders);
+      for (const start of before) {
+        const tank = match.tanks.find((candidate) => candidate.id === start.id);
+        if (!tank) continue;
+        distanceMoved += Math.hypot(tank.x - start.x, tank.z - start.z);
+        aliveTankTicks += 1;
+      }
       if (firstShotTick === null && match.stats.shotsFired > previousShots) {
         firstShotTick = match.tick;
       }
@@ -221,6 +237,9 @@ export function runBatchMatches(setup: BatchSetup, options: BatchOptions): Batch
       timeToKillTicks: timeToKill,
       causes: { ...match.stats.causes },
       capHit: match.tick >= rules.tickCap,
+      distanceMovedMetres: distanceMoved,
+      aliveTankTicks,
+      meanSpeedMetresPerSecond: aliveTankTicks === 0 ? 0 : distanceMoved / (aliveTankTicks * STEP_SECONDS),
     });
   }
 
@@ -272,6 +291,11 @@ function summarize(matches: readonly BatchMatchResult[]): BatchSummary {
     medianTimeToKillTicks: killTimes.length === 0 ? null : median(killTimes),
     matchesWithKill: killTimes.length,
     deathsByCause: causes,
+    meanSpeedMetresPerSecond: (() => {
+      const distance = matches.reduce((sum, match) => sum + match.distanceMovedMetres, 0);
+      const ticks = matches.reduce((sum, match) => sum + match.aliveTankTicks, 0);
+      return ticks === 0 ? 0 : distance / (ticks * STEP_SECONDS);
+    })(),
   };
 }
 

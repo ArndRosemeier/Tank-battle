@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { runBatchMatches } from '../core/ai.ts';
-import { arenaBatchSetup } from './aiBatch.ts';
+import { arenaDuelSetup } from './aiBatch.ts';
 
 describe('the headless AI batch', () => {
   it('reproduces the same three-seed result and trace', () => {
-    const setup = arenaBatchSetup();
+    const setup = arenaDuelSetup();
     const options = {
       seeds: 3,
       teams: 2,

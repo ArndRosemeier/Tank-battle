@@ -3,10 +3,11 @@
  * seams. It decides at 10 Hz and the command is HELD between decisions, so the
  * simulation sees a stable intent rather than a twitch every tick.
  *
- * Vanguard does exactly three things: gains a sightline (patrol the centre / follow
- * the last seen position), approaches while the target is beyond its preferred range,
- * and fires only when the target is inside its aim cone with a clear sightline. It does
- * not seek cover, flank or breach; those are B1b's job.
+ * Vanguard still has the three B1a goals: gain a sightline, approach a preferred range
+ * and fire inside a clear cone. B1b adds continuous strafing in contact, a lateral dodge
+ * after firing or taking a hit, and a seeded range-scaled aim error so the duel is not a
+ * five-second stationary trade. It does not seek cover, flank or breach; that is B1c's
+ * job.
  */
 
 import { createRng, type Rng } from '../rng.ts';
@@ -16,6 +17,7 @@ import {
   MUZZLE_HEIGHT_METRES,
   TANK_TURN_RATE_DEGREES_PER_SECOND,
   clamp,
+  forwardFromYaw,
   normaliseDegrees,
   shortestAngleDelta,
   type Controller,
@@ -26,11 +28,21 @@ import {
 import { CELL_SIZE_METRES } from '../world.ts';
 import {
   AI_DECISION_INTERVAL_TICKS,
+  AI_AIM_ERROR_BASE_DEGREES,
+  AI_AIM_ERROR_PER_METRE,
+  AI_DODGE_TICKS,
+  AI_FIRE_INTERVAL_TICKS,
   AI_TARGET_CENTRE_HEIGHT_METRES,
   AI_WAYPOINT_REACHED_METRES,
 } from './constants.ts';
-import { PerceptionMemory } from './perception.ts';
+import { PerceptionMemory, hasShotLine } from './perception.ts';
 import { NavigationCache, reachablePointNear, type GridPoint } from './navigation.ts';
+import {
+  frameForPose,
+  frameToWorld,
+  worldToFrame,
+  type SpatialFrame,
+} from './spatial.ts';
 import {
   VANGUARD_PROFILE,
   validateAIProfile,
@@ -48,6 +60,8 @@ export interface AIControllerOptions {
   readonly decisionIntervalTicks?: number;
   /** Seeded reaction offset within the cadence; defaults to 0 (decide on tick 0). */
   readonly decisionPhaseTicks?: number;
+  /** Multiplies the seeded aim spread; tests use 0 for an exact aim. Default 1. */
+  readonly aimErrorScale?: number;
 }
 
 export interface AIControllerDebug {
@@ -73,6 +87,7 @@ export class AIController implements Controller {
   readonly profile: AIProfile;
   readonly decisionIntervalTicks: number;
   readonly decisionPhaseTicks: number;
+  readonly aimErrorScale: number;
   readonly memory: PerceptionMemory;
 
   private readonly rng: Rng;
@@ -85,6 +100,18 @@ export class AIController implements Controller {
   private pathIndex = 0;
   private targetTankId: number | null = null;
   private visibleTankIds: readonly number[] = [];
+  private frame: SpatialFrame | null = null;
+  private lastDecisionPosition: { x: number; z: number } | null = null;
+  private lastDecisionThrottle = 0;
+  private stuckDecisions = 0;
+  private forcePath = false;
+  private lastShotTick = Number.NEGATIVE_INFINITY;
+  private dodgeUntilTick = -1;
+  private dodgeSign: 1 | -1 = 1;
+  private lastHp: number | null = null;
+  private strafeSign: 1 | -1 = 1;
+  private nextStrafeFlip = 0;
+  private movementGoal: { x: number; z: number } | null = null;
 
   constructor(options: AIControllerOptions) {
     if (!Number.isInteger(options.tankId) || options.tankId < 0) {
@@ -103,6 +130,10 @@ export class AIController implements Controller {
       throw new Error(
         `AIController: decisionPhaseTicks must be an integer 0…${this.decisionIntervalTicks - 1}, got ${String(this.decisionPhaseTicks)}`,
       );
+    }
+    this.aimErrorScale = options.aimErrorScale ?? 1;
+    if (!Number.isFinite(this.aimErrorScale) || this.aimErrorScale < 0) {
+      throw new Error(`AIController: aimErrorScale must be finite and >= 0, got ${String(this.aimErrorScale)}`);
     }
     this.rng = createRng(options.seed);
     this.memory = new PerceptionMemory(this.profile.memoryTicks);
@@ -158,14 +189,30 @@ export class AIController implements Controller {
           (state.tick - this.decisionPhaseTicks) % this.decisionIntervalTicks === 0
         : state.tick - this.lastDecisionTick >= this.decisionIntervalTicks;
     if (due) {
-      this.command = this.decide(state, tank);
+      const decision = this.decide(state, tank);
+      this.command = { ...decision, fire: false };
       this.lastDecisionTick = state.tick;
       this.decisionCount += 1;
+      return decision;
     }
     return this.command;
   }
 
   private decide(state: MatchState, tank: Tank): TankCommand {
+    if (!this.frame) {
+      this.frame = frameForPose(state.world, tank.x, tank.z, tank.hullYawDegrees);
+      this.navigation.setFrame(this.frame);
+    }
+    if (
+      this.lastDecisionPosition !== null &&
+      this.lastDecisionThrottle > 0 &&
+      Math.hypot(tank.x - this.lastDecisionPosition.x, tank.z - this.lastDecisionPosition.z) < 0.05
+    ) {
+      this.stuckDecisions += 1;
+    } else {
+      this.stuckDecisions = 0;
+    }
+    this.forcePath = this.stuckDecisions >= 2 && this.path !== null;
     const visible = this.memory.update(state, tank);
     this.visibleTankIds = visible.map((candidate) => candidate.id);
     const target = this.chooseTarget(tank, visible);
@@ -177,9 +224,50 @@ export class AIController implements Controller {
     const distance = target
       ? Math.hypot(target.x - tank.x, target.z - tank.z)
       : Infinity;
+    const shotClear = target && target.visible && target.tank
+      ? hasShotLine(state.world, tank, target.tank)
+      : false;
     // A seeded stand-off jitter keeps identical arena geometry from producing an
     // exact clone army across seeds, while every draw is reproducible.
     const standoffJitter = (this.rng.next() - 0.5) * 0.4;
+    const incoming = this.incomingShell(state, tank);
+    const hpDropped = this.lastHp !== null && tank.hp < this.lastHp;
+    if (incoming || hpDropped) {
+      this.startDodge(state.tick);
+    }
+
+    const aimPoint = target ? { x: target.x, z: target.z } : null;
+    const aim = aimPoint
+      ? aimAt(state, tank, aimPoint.x, aimPoint.z)
+      : { yaw: tank.turretYawDegrees, pitch: tank.aimPitchDegrees };
+    if (aimPoint) {
+      const spread = (AI_AIM_ERROR_BASE_DEGREES + distance * AI_AIM_ERROR_PER_METRE) * this.aimErrorScale;
+      const yawError = (this.rng.next() * 2 - 1) * spread;
+      aim.yaw = normaliseDegrees(aim.yaw + yawError);
+      // A smaller pitch error keeps shots in the tank's vertical body while still
+      // making range and movement matter.
+      aim.pitch = clamp(aim.pitch + (this.rng.next() * 2 - 1) * spread * 0.35, AIM_PITCH_MIN_DEGREES, AIM_PITCH_MAX_DEGREES);
+    }
+    const yawError = Math.abs(shortestAngleDelta(tank.turretYawDegrees, aim.yaw));
+    const pitchError = Math.abs(tank.aimPitchDegrees - aim.pitch);
+    const fire =
+      Boolean(target && target.visible) &&
+      shotClear &&
+      this.profile.weights['fire-in-cone'] > 0 &&
+      tank.reloadTicksRemaining === 0 &&
+      state.tick - this.lastShotTick >= AI_FIRE_INTERVAL_TICKS &&
+      yawError <= this.profile.fireConeDegrees &&
+      pitchError <= this.profile.fireConeDegrees;
+    if (fire) {
+      this.lastShotTick = state.tick;
+      this.startDodge(state.tick, AI_FIRE_INTERVAL_TICKS - AI_DECISION_INTERVAL_TICKS);
+    }
+
+    if (target && target.visible && state.tick >= this.nextStrafeFlip) {
+      this.strafeSign = this.rng.int(2) === 0 ? -1 : 1;
+      this.nextStrafeFlip = state.tick + 36;
+    }
+    const dodging = state.tick < this.dodgeUntilTick;
     const wantsApproach =
       target !== null &&
       target.visible &&
@@ -192,30 +280,33 @@ export class AIController implements Controller {
       target !== null &&
       !target.visible &&
       this.profile.weights['gain-line-of-sight'] > 0;
-    const goal = wantsApproach || wantsSight || wantsRemembered ? targetPoint : null;
+    const needsReposition = Boolean(target && target.visible && !shotClear);
+    const goal =
+      target && target.visible
+        ? this.strafePoint(state, tank, targetPoint)
+        : dodging
+          ? this.dodgePoint(state, tank, targetPoint)
+          : wantsSight || wantsRemembered
+            ? targetPoint
+            : needsReposition
+              ? targetPoint
+              : wantsApproach
+                ? targetPoint
+                : null;
 
     if (goal) {
       this.setPath(state, tank, goal);
     } else {
       this.path = null;
       this.pathIndex = 0;
+      this.movementGoal = null;
     }
 
-    const aimPoint = target ? { x: target.x, z: target.z } : null;
-    const aim = aimPoint
-      ? aimAt(state, tank, aimPoint.x, aimPoint.z)
-      : { yaw: tank.turretYawDegrees, pitch: tank.aimPitchDegrees };
-    const canFire = Boolean(target && target.visible);
-    const yawError = Math.abs(shortestAngleDelta(tank.turretYawDegrees, aim.yaw));
-    const pitchError = Math.abs(tank.aimPitchDegrees - aim.pitch);
-    const fire =
-      canFire &&
-      this.profile.weights['fire-in-cone'] > 0 &&
-      tank.reloadTicksRemaining === 0 &&
-      yawError <= this.profile.fireConeDegrees &&
-      pitchError <= this.profile.fireConeDegrees;
-
     const movement = this.steerAlongPath(tank);
+    this.lastHp = tank.hp;
+    this.lastDecisionPosition = { x: tank.x, z: tank.z };
+    this.lastDecisionThrottle = movement.throttle;
+    this.forcePath = false;
     return {
       throttle: movement.throttle,
       steer: movement.steer,
@@ -223,6 +314,49 @@ export class AIController implements Controller {
       aimPitch: clamp(aim.pitch, AIM_PITCH_MIN_DEGREES, AIM_PITCH_MAX_DEGREES),
       fire,
     };
+  }
+
+  private startDodge(tick: number, durationTicks = AI_DODGE_TICKS): void {
+    if (tick >= this.dodgeUntilTick) {
+      this.dodgeSign = this.rng.int(2) === 0 ? -1 : 1;
+    }
+    this.dodgeUntilTick = Math.max(this.dodgeUntilTick, tick + durationTicks);
+  }
+
+  private strafePoint(state: MatchState, tank: Tank, target: { x: number; z: number }): { x: number; z: number } {
+    const angle = Math.atan2(tank.z - target.z, tank.x - target.x) + 0.9 * this.strafeSign;
+    const radius = Math.max(6, Math.min(14, this.profile.preferredRangeMetres));
+    const width = state.world.columns * CELL_SIZE_METRES;
+    const height = state.world.rows * CELL_SIZE_METRES;
+    return {
+      x: clamp(target.x + Math.cos(angle) * radius, CELL_SIZE_METRES * 1.5, width - CELL_SIZE_METRES * 1.5),
+      z: clamp(target.z + Math.sin(angle) * radius, CELL_SIZE_METRES * 1.5, height - CELL_SIZE_METRES * 1.5),
+    };
+  }
+
+  private dodgePoint(state: MatchState, tank: Tank, reference: { x: number; z: number }): { x: number; z: number } {
+    const direction = yawTo(tank.x, tank.z, reference.x, reference.z) + 90 * this.dodgeSign;
+    const forward = forwardFromYaw(direction);
+    const width = state.world.columns * CELL_SIZE_METRES;
+    const height = state.world.rows * CELL_SIZE_METRES;
+    return {
+      x: clamp(tank.x + forward.x * 9, CELL_SIZE_METRES * 1.5, width - CELL_SIZE_METRES * 1.5),
+      z: clamp(tank.z + forward.z * 9, CELL_SIZE_METRES * 1.5, height - CELL_SIZE_METRES * 1.5),
+    };
+  }
+
+  private incomingShell(state: MatchState, tank: Tank): boolean {
+    for (const shell of state.shells) {
+      if (shell.ownerTeamId === tank.teamId) continue;
+      const dx = tank.x - shell.x;
+      const dz = tank.z - shell.z;
+      const distance = Math.hypot(dx, dz);
+      if (distance > 25 || distance < 0.5) continue;
+      if (dx * shell.dx + dz * shell.dz <= 0) continue;
+      const lateral = Math.abs(dx * shell.dz - dz * shell.dx);
+      if (lateral <= 2.5) return true;
+    }
+    return false;
   }
 
   private chooseTarget(tank: Tank, visible: readonly Tank[]): TargetChoice | null {
@@ -252,16 +386,27 @@ export class AIController implements Controller {
     // approaches to the centre instead of every match being the same rehearsal.
     const jitterX = (this.rng.next() - 0.5) * CELL_SIZE_METRES;
     const jitterZ = (this.rng.next() - 0.5) * CELL_SIZE_METRES;
+    const canonicalCentre = worldToFrame(state.world, this.frame!, centreX, centreZ);
+    const canonicalGoal = {
+      x: canonicalCentre.x + jitterX,
+      z: canonicalCentre.z + jitterZ,
+    };
+    const worldGoal = frameToWorld(state.world, this.frame!, canonicalGoal.x, canonicalGoal.z);
     return (
-      reachablePointNear(state.world, tank.x, tank.z, centreX + jitterX, centreZ + jitterZ) ?? {
-        x: centreX,
-        z: centreZ,
-      }
+      reachablePointNear(
+        state.world,
+        tank.x,
+        tank.z,
+        worldGoal.x,
+        worldGoal.z,
+        this.frame!,
+      ) ?? { x: centreX, z: centreZ }
     );
   }
 
   private setPath(state: MatchState, tank: Tank, goal: { x: number; z: number }): void {
-    const next = this.navigation.findPath(state.world, tank.x, tank.z, goal.x, goal.z);
+    this.movementGoal = goal;
+    const next = this.navigation.findPath(state.world, tank.x, tank.z, goal.x, goal.z, this.forcePath);
     if (next !== this.path) {
       this.path = next;
       this.pathIndex = 0;
@@ -281,15 +426,29 @@ export class AIController implements Controller {
 
   private steerAlongPath(tank: Tank): { throttle: number; steer: number } {
     if (!this.path || this.pathIndex >= this.path.length) {
-      return { throttle: 0, steer: 0 };
+      if (!this.movementGoal) {
+        return { throttle: 0, steer: 0 };
+      }
+      const dx = this.movementGoal.x - tank.x;
+      const dz = this.movementGoal.z - tank.z;
+      if (Math.hypot(dx, dz) < AI_WAYPOINT_REACHED_METRES) {
+        return { throttle: 0, steer: 0 };
+      }
+      return this.steerToward(tank, this.movementGoal.x, this.movementGoal.z);
     }
     const waypoint = this.path[this.pathIndex]!;
-    const waypointX = (waypoint.x + 0.5) * CELL_SIZE_METRES;
-    const waypointZ = (waypoint.z + 0.5) * CELL_SIZE_METRES;
-    const desiredYaw = yawTo(tank.x, tank.z, waypointX, waypointZ);
+    return this.steerToward(
+      tank,
+      (waypoint.x + 0.5) * CELL_SIZE_METRES,
+      (waypoint.z + 0.5) * CELL_SIZE_METRES,
+    );
+  }
+
+  private steerToward(tank: Tank, x: number, z: number): { throttle: number; steer: number } {
+    const desiredYaw = yawTo(tank.x, tank.z, x, z);
     const yawError = shortestAngleDelta(tank.hullYawDegrees, desiredYaw);
     const steer = clamp(yawError / (TANK_TURN_RATE_DEGREES_PER_SECOND / 10), -1, 1);
-    const throttle = Math.abs(yawError) <= 45 ? 0.7 : 0;
+    const throttle = Math.abs(yawError) <= 45 ? 0.85 : 0.35;
     return { throttle, steer };
   }
 }

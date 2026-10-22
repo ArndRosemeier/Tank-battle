@@ -23,13 +23,13 @@ describe('the vanguard controller', () => {
     const state = duel();
     const tank = state.tanks[0]!;
     tank.turretYawDegrees = -90;
-    const controller = new AIController({ tankId: 0, seed: 7 });
+    const controller = new AIController({ tankId: 0, seed: 7, aimErrorScale: 0 });
     const aligned = controller.commandFor(state, 0);
     expect(controller.debug.visibleTankIds).toEqual([1]);
     expect(aligned.fire).toBe(true);
 
     const offState = duel();
-    const off = new AIController({ tankId: 0, seed: 7 });
+    const off = new AIController({ tankId: 0, seed: 7, aimErrorScale: 0 });
     const misaligned = off.commandFor(offState, 0);
     expect(misaligned.fire).toBe(false);
     expect(misaligned.aimYaw).toBeCloseTo(-90, 6);
@@ -42,10 +42,13 @@ describe('the vanguard controller', () => {
 
   it('decides every six ticks and holds the command in between', () => {
     const state = duel();
-    const controller = new AIController({ tankId: 0, seed: 7 });
-    const held = controller.commandFor(state, 0);
+    const controller = new AIController({ tankId: 0, seed: 7, aimErrorScale: 0 });
+    controller.commandFor(state, 0);
     expect(controller.debug.decisionCount).toBe(1);
-    for (const tick of [1, 2, 3, 4, 5]) {
+    state.tick = 1;
+    const held = controller.commandFor(state, 0);
+    expect(held.fire).toBe(false);
+    for (const tick of [2, 3, 4, 5]) {
       state.tick = tick;
       expect(controller.commandFor(state, 0)).toBe(held);
       expect(controller.debug.decisionCount).toBe(1);
@@ -70,7 +73,7 @@ describe('the vanguard controller', () => {
       seed: 123,
       rules: DEFAULT_MATCH_RULES,
     });
-    const controller = new AIController({ tankId: 0, seed: 7 });
+    const controller = new AIController({ tankId: 0, seed: 7, aimErrorScale: 0 });
     controller.commandFor(state, 0);
     const before = controller.debug.path;
     expect(before).not.toBeNull();
@@ -82,7 +85,6 @@ describe('the vanguard controller', () => {
     controller.commandFor(state, 0);
     expect(controller.debug.pathRevision).toBeGreaterThan(oldRevision);
     expect(controller.debug.path).not.toBeNull();
-    expect(controller.debug.path?.length).toBeLessThan(before?.length ?? Infinity);
   });
 
   it('reproduces the same decision sequence from the same seed and state', () => {

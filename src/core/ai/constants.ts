@@ -11,6 +11,17 @@ import { TANK_HEIGHT_METRES } from '../sim.ts';
 /** A decision every six ticks: 10 Hz against the 60 Hz simulation. */
 export const AI_DECISION_INTERVAL_TICKS = 6;
 
+/** The vanguard's deliberate shot interval. Longer than the sim reload, so the AI
+ *  waits for a considered shot rather than firing every time the gun is ready. */
+export const AI_FIRE_INTERVAL_TICKS = 285;
+
+/** Ticks of lateral movement after a shot or a hit. */
+export const AI_DODGE_TICKS = 60;
+
+/** Seeded aim spread: base plus range-scaled, in degrees. */
+export const AI_AIM_ERROR_BASE_DEGREES = 10.0;
+export const AI_AIM_ERROR_PER_METRE = 1.8;
+
 /**
  * The AI's eye above the floor. The tank body is 1.5 m tall; a sightline from just
  * above the turret can see over the authored 1.2 m low cover (the muzzle alone, at
