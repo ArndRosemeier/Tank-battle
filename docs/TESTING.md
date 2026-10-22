@@ -1252,3 +1252,16 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
 - **Correction to the writer's note:** the central pillar cluster is present
   (`src/game/levels/arena.ts:116–120`); it was not erased by the ring-window change.
 - **Stale artifact:** `spectate.png` predates the new arena and must be re-shot.
+
+### row 55 — the dispatcher's own verification (b726b98)
+
+- Integrated gate 113/113, exit 0.
+- **Action-order fix verified by measurement:** 4x4 team split **29/20/23/21 %** (was
+  36/19/19/17), corners 28/20/23/22 %, cap hits **7.0 %** (was 10 %), median 3639 ticks.
+- **Pin verified by arm:** freezing `turnOrder` to rotation 0 reds
+  `gives every team every rank exactly once over a four-tick cycle`.
+- **The cast is unchanged:** 52.3 / 54.3 / 49.7 / 39.0 %, signatures identical to B3. The
+  ambusher has the lowest out-of-LOS share and the highest destruction; the brute is the
+  most elusive. Four distinct behaviours, two wrong names (debt, ledger row 55).
+- **Reporting gap recorded:** the landing report carried no acceptance numbers and did not
+  say the signature target was missed. "Complete" is not a measurement.

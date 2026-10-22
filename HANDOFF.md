@@ -37,10 +37,11 @@
 
 ## Next action (one)
 
-**B4 is in flight**: remove the residual team-0 action-order bias (target 20–30 % each)
-and restore the four behaviour signatures on the new arena, or state plainly which
-archetype cannot separate. Re-shoot the spectate frame. Then P1 the player-team mode with
-one reload rule, P2 presentation (VFX + TRON HUD), P3 publish.
+**P1 is in flight**: the player team (human + 3 AI squadmates vs 3 AI teams of 4), one
+reload rule shared by player and AI, a Tron squad readout, a `?mode=team` selector and a
+screenshot scenario, with a scripted stand-in measuring the mode. Then P2 presentation
+(combat VFX + TRON HUD) and P3 publish. Debt to revisit: the ambusher and brute behaviours
+are swapped relative to their names (numbers in ledger row 55).
 
 ## Open questions for the owner
 
