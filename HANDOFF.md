@@ -37,11 +37,10 @@
 
 ## Next action (one)
 
-**B3 is in flight**: instrument and fix the dead corner (corner 1 wins 0 %), fold
-TEAM_ARENA back into ONE connected playable arena with a body-aware flood-fill pin,
-measure and rebalance the sniper's 4×4 dominance, drive cap hits ≤10 %, and pin the
-destruction-attribution mapping. Then presentation (VFX + HUD), the player-team mode with
-one reload rule, and publish.
+**B4 is in flight**: remove the residual team-0 action-order bias (target 20–30 % each)
+and restore the four behaviour signatures on the new arena, or state plainly which
+archetype cannot separate. Re-shoot the spectate frame. Then P1 the player-team mode with
+one reload rule, P2 presentation (VFX + TRON HUD), P3 publish.
 
 ## Open questions for the owner
 

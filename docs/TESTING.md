@@ -1177,3 +1177,18 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
 - **Spectate frame** (`shot.sh`) is good: four team colours, live shells, cover, readable.
 - **Nav finding from the writer, confirmed in code:** the playable `ARENA` still separates
   into four components at 2-cell gates; B3 folds the 5×5 gate openings back into the one `ARENA`.
+
+### row 53 — the dispatcher's own verification (71051e8)
+
+- Integrated gate 109/109, exit 0.
+- **4×4, 100 seeds:** corner split 24/17/28/22 % (the 0 % corner is fixed), cap hits
+  10.0 %, median 4040 ticks. **Team-0 split 36.0 / 19.0 / 19.0 / 17.0 %** — corners rotate,
+  so this is action order, not space. Still open.
+- **1v1 round robin, 100 seeds:** win rates 51.7 / 54.3 / 49.7 / 39.7 % (inside the broad
+  band) but **the signatures fail**: sniper engagement 19.3 m vs 16.9 (+14 %, bar 20 %);
+  ambusher out-of-LOS 32.6 % vs 39.9 % (wrong direction); brute destruction 1.34 vs 1.37.
+  Vanguard still separates on speed (2.79 vs 1.72, +62 %). The arena change re-baselined
+  the behaviour that the signatures measured.
+- **Correction to the writer's note:** the central pillar cluster is present
+  (`src/game/levels/arena.ts:116–120`); it was not erased by the ring-window change.
+- **Stale artifact:** `spectate.png` predates the new arena and must be re-shot.
