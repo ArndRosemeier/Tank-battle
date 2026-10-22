@@ -49,6 +49,14 @@ const TEAM_CORNER_YAW_PATTERNS = [
 ] as const;
 const TEAM_CORNER_YAWS = TEAM_CORNER_YAW_PATTERNS[0];
 
+/**
+ * The team-mode aim-error scale. Sixteen tanks firing at the 1v1 spread turned a
+ * four-team match into a wall-hitting cap; 0.09 keeps the cast's relative accuracy
+ * while the 4×4 battle resolves. The spectator, the player's squadmates, the enemy
+ * teams and the stand-in all use this ONE value.
+ */
+export const TEAM_MODE_AIM_ERROR_SCALE = 0.09;
+
 export function arenaTeamSetup(teams = 4, tanksPerTeam = 4): TeamSetup {
   validateLevel(ARENA);
   if (!Number.isInteger(teams) || teams < 2 || teams > 4) {

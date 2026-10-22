@@ -315,6 +315,13 @@ export const CAMERA = {
   combatUpMetres: 7.0,
   combatLookAheadMetres: 9.0,
   combatTargetHeightMetres: 1.0,
+  /**
+   * The `team` screenshot pose: a pulled-back 3/4 frame of the player and the three
+   * squadmates. The live 8.2 m follow arm is too tight to read four hulls in one frame.
+   */
+  teamPoseDistanceMetres: 12.5,
+  teamPosePitchDegrees: 22,
+  teamPoseYawOffsetDegrees: 18,
 } as const;
 
 /**

@@ -15,6 +15,7 @@ import {
   AIM_PITCH_MAX_DEGREES,
   AIM_PITCH_MIN_DEGREES,
   MUZZLE_HEIGHT_METRES,
+  RELOAD_TICKS,
   TANK_TURN_RATE_DEGREES_PER_SECOND,
   clamp,
   forwardFromYaw,
@@ -30,7 +31,6 @@ import { CELL_SIZE_METRES, cellAt, isSolidAt } from '../world.ts';
 import {
   AI_DECISION_INTERVAL_TICKS,
   AI_DODGE_TICKS,
-  AI_FIRE_INTERVAL_TICKS,
   AI_TARGET_CENTRE_HEIGHT_METRES,
   AI_WAYPOINT_REACHED_METRES,
 } from './constants.ts';
@@ -104,7 +104,6 @@ export class AIController implements Controller {
   private lastDecisionThrottle = 0;
   private stuckDecisions = 0;
   private forcePath = false;
-  private lastShotTick = Number.NEGATIVE_INFINITY;
   private dodgeUntilTick = -1;
   private dodgeSign: 1 | -1 = 1;
   private lastHp: number | null = null;
@@ -295,12 +294,12 @@ export class AIController implements Controller {
       (shotClear || this.breachedCell !== null) &&
       this.profile.weights['fire-in-cone'] > 0 &&
       tank.reloadTicksRemaining === 0 &&
-      state.tick - this.lastShotTick >= AI_FIRE_INTERVAL_TICKS &&
       yawError <= this.profile.fireConeDegrees &&
       pitchError <= this.profile.fireConeDegrees;
     if (fire) {
-      this.lastShotTick = state.tick;
-      this.startDodge(state.tick, AI_FIRE_INTERVAL_TICKS - AI_DECISION_INTERVAL_TICKS);
+      // Keep the trigger-to-trigger cadence in the dodge timing: the AI sidesteps
+      // between shots under the SAME global reload a human uses.
+      this.startDodge(state.tick, RELOAD_TICKS - AI_DECISION_INTERVAL_TICKS);
     }
 
     if (target && target.visible && state.tick >= this.nextStrafeFlip) {

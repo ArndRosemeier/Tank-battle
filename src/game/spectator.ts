@@ -29,11 +29,11 @@ import {
   teamControllerSeed,
   teamDecisionPhase,
 } from '../core/ai/teamBatch.ts';
-import { arenaTeamSetup } from './aiBatch.ts';
+import { arenaTeamSetup, TEAM_MODE_AIM_ERROR_SCALE } from './aiBatch.ts';
 import { ARENA } from './levels/arena.ts';
 import { interpolateTanks, snapshotTanks, type TankRenderFrame } from './tankFrames.ts';
 
-export const SPECTATOR_TEAM_AIM_ERROR_SCALE = 0.09;
+export const SPECTATOR_TEAM_AIM_ERROR_SCALE = TEAM_MODE_AIM_ERROR_SCALE;
 export const DIRECTOR_INTERVAL_TICKS = 180;
 const DIRECTOR_SHELL_RADIUS_METRES = 12;
 const DIRECTOR_NEAR_RADIUS_METRES = 24;

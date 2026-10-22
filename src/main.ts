@@ -15,7 +15,7 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { requireElement } from './entry/dom.ts';
-import { createHud } from './entry/hud.ts';
+import { createHud, type HudState } from './entry/hud.ts';
 import { CameraRig } from './render/cameraRig.ts';
 import {
   isCameraPoseName,
@@ -36,11 +36,12 @@ import { getSurfaceDetail, setSurfaceDetail } from './render/neonSurface.ts';
 import { createPlayableScene } from './render/playableScene.ts';
 import { createTopPlan, spawnMarkerColor, TOP_LEGEND_COLORS } from './render/topPlan.ts';
 import { measureScene } from './render/sceneStats.ts';
-import { createBrowserInput } from './game/browserInput.ts';
-import { RELOAD_TICKS } from './core/sim.ts';
+import { createBrowserInput, type BrowserInput } from './game/browserInput.ts';
+import { RELOAD_TICKS, type MatchState } from './core/sim.ts';
 import { ARENA, ARENA_BOUNDS } from './game/levels/arena.ts';
-import { PlayableSession } from './game/session.ts';
+import { PlayableSession, type TankRenderFrame } from './game/session.ts';
 import { SpectatorSession } from './game/spectator.ts';
+import { TeamSession, createVanguardStandIn } from './game/teamSession.ts';
 
 /**
  * Slice A3c's wiring: the real MatchState on a fixed 60 Hz bridge, two sim tanks, a
@@ -70,31 +71,31 @@ window.addEventListener('error', (event) => reportError(event.error ?? event.mes
 window.addEventListener('unhandledrejection', (event) => reportError(event.reason));
 
 type RenderPoseName = CameraPoseName | 'top' | 'spectate';
-type LaunchMode = 'play' | 'spectate';
+type LaunchMode = 'play' | 'team' | 'spectate';
 
 interface LaunchOptions {
   readonly mode: LaunchMode;
   readonly detail: number | null;
   readonly pose: RenderPoseName | null;
   readonly demo: boolean;
-  /** Demo defaults to 122; spectator has no pre-run unless `?ticks=` is supplied. */
+  /** Demo defaults to 571 (play) or 600 (team); spectator has no pre-run unless `?ticks=`. */
   readonly ticks: number | null;
   readonly teams: number;
   readonly tanksPerTeam: number;
   readonly seed: number;
 }
 
-/** `?detail=0…1&pose=…&demo=duel&ticks=122` or `?mode=spectate&…`. Unknown values fail visibly. */
+/** `?mode=team&demo=team&ticks=600`, `?detail=…&pose=…&demo=duel&ticks=571` or `?mode=spectate&…`. Unknown values fail visibly. */
 function readLaunchOptions(): LaunchOptions {
   const query = new URLSearchParams(window.location.search);
 
   const modeText = query.get('mode');
   let mode: LaunchMode = 'play';
   if (modeText !== null) {
-    if (modeText !== 'spectate') {
-      throw new Error(`launch: unknown ?mode "${modeText}" — expected spectate`);
+    if (modeText !== 'spectate' && modeText !== 'team') {
+      throw new Error(`launch: unknown ?mode "${modeText}" — expected play, team or spectate`);
     }
-    mode = 'spectate';
+    mode = modeText;
   }
 
   const detailText = query.get('detail');
@@ -113,35 +114,55 @@ function readLaunchOptions(): LaunchOptions {
       pose = 'top';
     } else if (poseText === 'spectate' && mode === 'spectate') {
       pose = 'spectate';
-    } else if (isCameraPoseName(poseText) && mode === 'play') {
+    } else if (poseText === 'team' && mode === 'team') {
+      pose = 'team';
+    } else if (isCameraPoseName(poseText) && mode !== 'spectate') {
       pose = poseText;
     } else {
+      const expected =
+        mode === 'play'
+          ? 'wide, tank, first, combat or top'
+          : mode === 'team'
+            ? 'wide, tank, first, combat or team'
+            : 'spectate';
       throw new Error(
-        `launch: unknown ?pose "${poseText}" for mode "${mode}" — expected ` +
-          (mode === 'play' ? 'wide, tank, first, combat or top' : 'spectate'),
+        `launch: unknown ?pose "${poseText}" for mode "${mode}" — expected ${expected}`,
       );
     }
   }
 
   const demoText = query.get('demo');
   const demo = demoText !== null;
-  if (demo && (demoText !== 'duel' || mode !== 'play')) {
-    throw new Error(`launch: ?demo="${demoText}" is only valid as ?demo=duel in play mode`);
+  if (demo) {
+    if (mode === 'play' && demoText !== 'duel') {
+      throw new Error(`launch: ?demo="${demoText}" is only valid as ?demo=duel in play mode`);
+    }
+    if (mode === 'team' && demoText !== 'team') {
+      throw new Error(`launch: ?demo="${demoText}" is only valid as ?demo=team in team mode`);
+    }
+    if (mode === 'spectate') {
+      throw new Error('launch: ?demo is not valid in spectate mode');
+    }
   }
 
   const ticksText = query.get('ticks');
-  let ticks: number | null = demo ? 122 : null;
+  let ticks: number | null = demo ? (mode === 'team' ? 600 : 571) : null;
   if (ticksText !== null) {
     ticks = Number(ticksText);
     if (!Number.isInteger(ticks) || ticks < 0 || ticks > 10000) {
       throw new Error(`launch: ?ticks must be an integer within 0…10000, got "${ticksText}"`);
     }
     if (!demo && mode !== 'spectate') {
-      throw new Error('launch: ?ticks is only valid with ?demo=duel or ?mode=spectate');
+      throw new Error('launch: ?ticks is only valid with ?demo=… or ?mode=spectate');
     }
   }
 
   const teamsText = query.get('teams');
+  if (mode === 'team' && (teamsText !== null || query.get('tanksPerTeam') !== null)) {
+    throw new Error(
+      'launch: ?teams/?tanksPerTeam are spectator-only; team mode is the player plus three squadmates against three teams of four',
+    );
+  }
   const teams = teamsText === null ? 4 : Number(teamsText);
   if (!Number.isInteger(teams) || teams < 2 || teams > 4) {
     throw new Error(`launch: ?teams must be an integer 2…4, got "${teamsText ?? teams}"`);
@@ -364,31 +385,112 @@ function bootSpectate(launch: LaunchOptions): (nowMilliseconds: number) => void 
   return frame;
 }
 
-function boot(): (nowMilliseconds: number) => void {
-  const launch = readLaunchOptions();
-  if (launch.mode === 'spectate') {
-    return bootSpectate(launch);
-  }
-  if (launch.detail !== null) {
-    setSurfaceDetail(launch.detail);
-  }
-  document.body.style.background = PALETTE.background;
+/** What the render loop needs from a running match; both sessions satisfy it. */
+interface MatchView {
+  readonly state: MatchState;
+  readonly playerTankId: number;
+  readonly floorY: number;
+  readonly alpha: number;
+  readonly player: TankRenderFrame;
+  advance(frameSeconds: number): number;
+  interpolatedTanks(alpha: number): readonly TankRenderFrame[];
+}
 
-  // The demo is frozen BEFORE the scene/camera is built, so the screenshot pose sees
-  // the final deterministic state, not an intermediate tick.
-  const session = new PlayableSession({ demo: launch.demo });
-  if (launch.demo) {
-    session.runDemo(launch.ticks ?? 122);
-  }
+/** Binds the browser input source to the playable session's per-tick advance. */
+function playableMatchView(session: PlayableSession, input: BrowserInput): MatchView {
+  return {
+    get state() {
+      return session.state;
+    },
+    get playerTankId() {
+      return session.playerTankId;
+    },
+    get floorY() {
+      return session.floorY;
+    },
+    get alpha() {
+      return session.alpha;
+    },
+    get player() {
+      return session.player;
+    },
+    advance(frameSeconds: number): number {
+      return session.advance(frameSeconds, input.read());
+    },
+    interpolatedTanks(alpha: number): readonly TankRenderFrame[] {
+      return session.interpolatedTanks(alpha);
+    },
+  };
+}
 
+/** The duel HUD: the player's hull and reload ring plus the training target. */
+function playHudState(session: PlayableSession, fps: number): HudState {
+  const player = session.state.tanks[session.playerTankId];
+  const dummy = session.state.tanks[session.dummyTankId];
+  if (!player || !dummy) {
+    throw new Error('main: the playable session lost a tank');
+  }
+  return {
+    status: session.state.status,
+    outcome: session.state.outcome,
+    winnerTeamId: session.state.winnerTeamId,
+    playerTeamId: player.teamId,
+    playerHp: player.hp,
+    playerMaxHp: player.maxHp,
+    reloadTicksRemaining: player.reloadTicksRemaining,
+    reloadTicks: RELOAD_TICKS,
+    fps,
+    targetTeamId: dummy.teamId,
+    targetHp: dummy.hp,
+    targetMaxHp: dummy.maxHp,
+  };
+}
+
+/** The player team's HUD: the same hull/reload block plus the three squad rows. */
+function teamHudState(session: TeamSession, fps: number): HudState {
+  const player = session.state.tanks[session.playerTankId];
+  if (!player) {
+    throw new Error('main: the team session lost the player tank');
+  }
+  const squad = session.squad.slice(1).map((tank) => {
+    const name = session.characters[tank.teamIndex];
+    if (!name) {
+      throw new Error(`main: no character name for team slot ${tank.teamIndex}`);
+    }
+    return { name, hp: tank.hp, maxHp: tank.maxHp, alive: tank.alive };
+  });
+  return {
+    status: session.state.status,
+    outcome: session.state.outcome,
+    winnerTeamId: session.state.winnerTeamId,
+    playerTeamId: player.teamId,
+    playerHp: player.hp,
+    playerMaxHp: player.maxHp,
+    reloadTicksRemaining: player.reloadTicksRemaining,
+    reloadTicks: RELOAD_TICKS,
+    fps,
+    squad,
+  };
+}
+
+/**
+ * The ONE scene/render/loop path for both playable modes. The session supplies the
+ * current match, the player's tank and per-frame ticks; this function owns the
+ * renderer, the follow rig, the screenshot poses and the HUD update.
+ */
+function bootMatch(
+  launch: LaunchOptions,
+  session: MatchView,
+  hudState: (fps: number) => HudState,
+): (nowMilliseconds: number) => void {
   const scene = createPlayableScene(session.state, {
     playerTankId: session.playerTankId,
-    dummyTankId: session.dummyTankId,
+    dummyTankId: launch.mode === 'play' ? 1 : undefined,
   });
   const initialPlayer = session.player;
   const sceneStats = measureScene(scene.group);
   console.log(
-    `[tank-battle] playable scene: ${sceneStats.drawObjects} draw objects · ` +
+    `[tank-battle] ${launch.mode} scene: ${sceneStats.drawObjects} draw objects · ` +
       `${sceneStats.triangles} triangles · ${sceneStats.vertices} vertices · ` +
       `hull half-width ${TANK_HALF_WIDTH_METRES.toFixed(2)} m`,
   );
@@ -416,6 +518,8 @@ function boot(): (nowMilliseconds: number) => void {
   topPlan.setVisible(isTop);
   threeScene.add(topPlan.group);
 
+  const rigPose: CameraPoseName | null =
+    launch.pose !== null && isCameraPoseName(launch.pose) ? launch.pose : null;
   const rig = new CameraRig({
     arena: ARENA_BOUNDS,
     floorY: session.floorY,
@@ -423,7 +527,7 @@ function boot(): (nowMilliseconds: number) => void {
       position: { x: initialPlayer.x, y: session.floorY, z: initialPlayer.z },
       yawDegrees: initialPlayer.hullYawDegrees,
     },
-    pose: isTop ? null : (launch.pose as CameraPoseName | null),
+    pose: isTop ? null : rigPose,
   });
 
   const topCamera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
@@ -479,7 +583,6 @@ function boot(): (nowMilliseconds: number) => void {
       topSwatches.append(swatch);
     }
   }
-  const input = createBrowserInput(canvas);
 
   let lastFps = 0;
   let framesInWindow = 0;
@@ -511,25 +614,7 @@ function boot(): (nowMilliseconds: number) => void {
   }
 
   function updateHud(): void {
-    const player = session.state.tanks[session.playerTankId];
-    const dummy = session.state.tanks[session.dummyTankId];
-    if (!player || !dummy) {
-      throw new Error('main: the playable session lost a tank');
-    }
-    hud.update({
-      status: session.state.status,
-      outcome: session.state.outcome,
-      winnerTeamId: session.state.winnerTeamId,
-      playerTeamId: player.teamId,
-      targetTeamId: dummy.teamId,
-      playerHp: player.hp,
-      playerMaxHp: player.maxHp,
-      targetHp: dummy.hp,
-      targetMaxHp: dummy.maxHp,
-      reloadTicksRemaining: player.reloadTicksRemaining,
-      reloadTicks: RELOAD_TICKS,
-      fps: lastFps,
-    });
+    hud.update(hudState(lastFps));
   }
 
   function frame(nowMilliseconds: number): void {
@@ -542,13 +627,11 @@ function boot(): (nowMilliseconds: number) => void {
       const frameSeconds = nowSeconds - lastSeconds;
       lastSeconds = nowSeconds;
 
-      if (!session.demo) {
-        session.advance(frameSeconds, input.read());
-      }
+      session.advance(frameSeconds);
 
-      const alpha = session.demo ? 1 : session.alpha;
+      const alpha = session.alpha;
       const frames = session.interpolatedTanks(alpha);
-      const playerFrame = frames.find((frame) => frame.id === session.playerTankId);
+      const playerFrame = frames.find((candidate) => candidate.id === session.playerTankId);
       if (!playerFrame) {
         throw new Error('main: the interpolated player frame is missing');
       }
@@ -589,7 +672,7 @@ function boot(): (nowMilliseconds: number) => void {
           `[tank-battle] ${lastFps.toFixed(1)} fps · ${renderer.domElement.width}×${renderer.domElement.height} · ` +
             `${drawCalls} draw calls · tick ${session.state.tick} · ` +
             `revision ${session.state.world.revision} · detail ${getSurfaceDetail().toFixed(2)} · ` +
-            `pose ${launch.pose ?? 'follow'}`,
+            `mode ${launch.mode} · pose ${launch.pose ?? 'follow'}`,
         );
       }
       updateHud();
@@ -625,13 +708,17 @@ function boot(): (nowMilliseconds: number) => void {
     drawCalls: () => drawCalls,
     detail: () => getSurfaceDetail(),
     pixels: () => ({ width: renderer.domElement.width, height: renderer.domElement.height }),
+    mode: () => launch.mode,
     ticks: () => session.state.tick,
     pose: () => launch.pose ?? 'follow',
-    demo: () => session.demo,
+    demo: () => launch.demo,
     revision: () => session.state.world.revision,
     shells: () => session.state.shells.length,
     playerHp: () => session.state.tanks[session.playerTankId]?.hp ?? -1,
-    dummyHp: () => session.state.tanks[session.dummyTankId]?.hp ?? -1,
+    dummyHp: () => (launch.mode === 'play' ? (session.state.tanks[1]?.hp ?? -1) : -1),
+    squadHp: () => session.state.teams[0]?.tanks.map((tank) => tank.hp) ?? [],
+    winnerTeam: () => session.state.winnerTeamId,
+    outcome: () => session.state.outcome,
     sceneStats: () => sceneStats,
   };
   (window as Window & { __TANK_BATTLE__?: typeof debugApi }).__TANK_BATTLE__ = debugApi;
@@ -639,6 +726,40 @@ function boot(): (nowMilliseconds: number) => void {
   resize();
   updateHud();
   return frame;
+}
+
+function boot(): (nowMilliseconds: number) => void {
+  const launch = readLaunchOptions();
+  if (launch.mode === 'spectate') {
+    return bootSpectate(launch);
+  }
+  if (launch.detail !== null) {
+    setSurfaceDetail(launch.detail);
+  }
+  document.body.style.background = PALETTE.background;
+
+  const input = createBrowserInput(canvas);
+
+  // The demo is frozen BEFORE the scene/camera is built, so the screenshot pose sees
+  // the final deterministic state, not an intermediate tick.
+  if (launch.mode === 'team') {
+    const session = launch.demo
+      ? new TeamSession({
+          seed: launch.seed,
+          playerController: createVanguardStandIn(launch.seed),
+        })
+      : new TeamSession({ seed: launch.seed, readInput: () => input.read() });
+    if (launch.demo) {
+      session.runTicks(launch.ticks ?? 600);
+    }
+    return bootMatch(launch, session, (fps) => teamHudState(session, fps));
+  }
+
+  const session = new PlayableSession({ demo: launch.demo });
+  if (launch.demo) {
+    session.runDemo(launch.ticks ?? 571);
+  }
+  return bootMatch(launch, playableMatchView(session, input), (fps) => playHudState(session, fps));
 }
 
 /** Measured from the render geometry constants: hull width / 2. */

@@ -36,7 +36,7 @@ export interface ArenaBounds {
 }
 
 /** The selectable deterministic screenshot poses. */
-export const CAMERA_POSE_NAMES = ['wide', 'tank', 'first', 'combat'] as const;
+export const CAMERA_POSE_NAMES = ['wide', 'tank', 'first', 'combat', 'team'] as const;
 export type CameraPoseName = (typeof CAMERA_POSE_NAMES)[number];
 
 export function isCameraPoseName(value: string): value is CameraPoseName {
@@ -212,6 +212,8 @@ export interface CameraPoseRequest {
  * - `wide`: the arena from a high three-quarter angle, framed from its extents.
  * - `tank`: the close third-person follow arm.
  * - `first`: a fixed eye-height forward view (hull hidden by the caller).
+ * - `team`: a pulled-back over-the-shoulder frame of the player plus the squad; the
+ *   live follow arm is too tight to read three hulls beside the player.
  */
 export function cameraPose(request: CameraPoseRequest): CameraPose {
   const { name, arena, floorY, focus, focusYawDegrees } = request;
@@ -261,6 +263,25 @@ export function cameraPose(request: CameraPoseRequest): CameraPose {
         forward: poseForward,
         distance: CAMERA.defaultDistanceMetres,
         pitchDegrees: CAMERA.defaultPitchDegrees,
+      });
+    }
+    case 'team': {
+      const eye: Vec3 = {
+        x: focus.x,
+        y: floorY + CAMERA.focusHeightMetres,
+        z: focus.z,
+      };
+      const yaw = (CAMERA.teamPoseYawOffsetDegrees * Math.PI) / 180;
+      const poseForward: Vec3 = {
+        x: forward.x * Math.cos(yaw) + forward.z * Math.sin(yaw),
+        y: 0,
+        z: -forward.x * Math.sin(yaw) + forward.z * Math.cos(yaw),
+      };
+      return orbitPose({
+        focus: eye,
+        forward: poseForward,
+        distance: CAMERA.teamPoseDistanceMetres,
+        pitchDegrees: CAMERA.teamPosePitchDegrees,
       });
     }
     case 'first': {

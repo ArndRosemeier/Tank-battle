@@ -10,13 +10,13 @@ const FIRE = {
 } as const;
 
 describe('the playable session bridge', () => {
-  it('the demo is deterministic and freezes on a shell in flight at tick 122', () => {
+  it('the demo is deterministic and freezes on a shell in flight at tick 571', () => {
     const first = new PlayableSession({ demo: true });
     const second = new PlayableSession({ demo: true });
-    first.runDemo(122);
-    second.runDemo(122);
+    first.runDemo(571);
+    second.runDemo(571);
 
-    expect(first.state.tick).toBe(122);
+    expect(first.state.tick).toBe(571);
     expect(first.state.status).toBe('active');
     expect(first.dummy.hp).toBe(1);
     expect(first.state.shells).toHaveLength(1);
@@ -29,8 +29,8 @@ describe('the playable session bridge', () => {
 
   it('the demo reaches a real last-team win and leaves a dead dummy', () => {
     const session = new PlayableSession({ demo: true });
-    session.runDemo(130);
-    expect(session.state.tick).toBe(124);
+    session.runDemo(600);
+    expect(session.state.tick).toBe(574);
     expect(session.state.status).toBe('ended');
     expect(session.state.outcome).toBe('last-team');
     expect(session.state.winnerTeamId).toBe(0);

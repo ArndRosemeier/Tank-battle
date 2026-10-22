@@ -27,6 +27,7 @@ import { AIController } from './controller.ts';
 import { hasLineOfSight, eyePosition, targetCentre } from './perception.ts';
 import { AI_DECISION_INTERVAL_TICKS } from './constants.ts';
 import { AI_PROFILES, getAIProfile, type AIProfile } from './profile.ts';
+import { mean, quantile } from './batchStats.ts';
 
 export interface TeamSpawnGroup {
   readonly teamId: number;
@@ -590,19 +591,4 @@ export function teamControllerSeed(seed: number, teamIndex: number): number {
 /** The one team decision phase; team id and tank slot both break the action-order tie. */
 export function teamDecisionPhase(seed: number, teamId: number, teamIndex: number): number {
   return (seed + teamId * 5 + teamIndex) % AI_DECISION_INTERVAL_TICKS;
-}
-
-function quantile(sorted: readonly number[], fraction: number): number {
-  if (sorted.length === 0) throw new Error('runTeamBatch: quantile of an empty list');
-  const position = (sorted.length - 1) * fraction;
-  const lower = Math.floor(position);
-  const upper = Math.ceil(position);
-  const low = sorted[lower] ?? sorted[0]!;
-  const high = sorted[upper] ?? low;
-  return low + (high - low) * (position - lower);
-}
-
-function mean(values: readonly number[]): number {
-  if (values.length === 0) throw new Error('runTeamBatch: mean of an empty list');
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
 }

@@ -3,9 +3,11 @@
 # shot.sh — THE one screenshot command for Tank Battle.
 #
 #   bash scripts/shot.sh [pose] [detail] [output.png]
-#   pose:   wide | tank | first | combat | top | spectate (default wide)
+#   pose:   wide | tank | first | combat | top | spectate | team (default wide)
 #   detail: 0 … 1                        (default 0.3, the SURFACE_DETAIL default)
 #   output: default .gate-logs/shots/<pose>-detail-<detail>.png
+#   team env: TEAM_SEED (default 1), TEAM_TICKS (default 600), TEAM_CAMERA_POSE
+#             (default `team`; `first` shows the eye-level squad view)
 #
 # It builds the app, serves `dist` on 127.0.0.1, runs headless Chrome at 1920×1080
 # with a virtual-time budget, then kills the server AND the whole Chrome process
@@ -40,9 +42,9 @@ case "$OUT_ABS" in
 esac
 
 case "$POSE" in
-  wide | tank | first | combat | top | spectate) ;;
+  wide | tank | first | combat | top | spectate | team) ;;
   *)
-    echo "shot: unknown pose '$POSE' — expected wide, tank, first, combat, top or spectate" >&2
+    echo "shot: unknown pose '$POSE' — expected wide, tank, first, combat, top, spectate or team" >&2
     exit 2
     ;;
 esac
@@ -137,11 +139,17 @@ fi
 
 DEMO_QUERY=""
 if [ "$POSE" = "combat" ]; then
-  DEMO_QUERY="&demo=duel&ticks=122"
+  DEMO_QUERY="&demo=duel&ticks=${COMBAT_TICKS:-571}"
 elif [ "$POSE" = "spectate" ]; then
   DEMO_QUERY="&mode=spectate&teams=4&tanksPerTeam=4&seed=7&ticks=${SPECTATE_TICKS:-300}"
 fi
-URL="http://127.0.0.1:$PORT/?pose=$POSE&detail=$DETAIL$DEMO_QUERY"
+if [ "$POSE" = "team" ]; then
+  # The team scenario always runs ?mode=team; TEAM_CAMERA_POSE picks the camera
+  # framing (`team` by default, `first` for the eye-level squad view).
+  URL="http://127.0.0.1:$PORT/?mode=team&demo=team&seed=${TEAM_SEED:-1}&ticks=${TEAM_TICKS:-600}&pose=${TEAM_CAMERA_POSE:-team}&detail=$DETAIL"
+else
+  URL="http://127.0.0.1:$PORT/?pose=$POSE&detail=$DETAIL$DEMO_QUERY"
+fi
 BASE_ARGS=(
   --headless=new
   --disable-gpu

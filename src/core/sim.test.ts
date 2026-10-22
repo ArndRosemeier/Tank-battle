@@ -470,7 +470,7 @@ describe('the combat core', () => {
       target: { xMetres: 5, zMetres: 15, hullYawDegrees: 0 },
     });
     let guard = 0;
-    while (state.status === 'active' && guard < 300) {
+    while (state.status === 'active' && guard < RELOAD_TICKS * 3 + 100) {
       step(state, onlyOverrides([[0, { fire: true }]]));
       guard += 1;
     }
@@ -545,7 +545,7 @@ describe('the combat core', () => {
       ] },
     ]);
     let guard = 0;
-    while (tankAt(state, 1).alive && guard < 400) {
+    while (tankAt(state, 1).alive && guard < RELOAD_TICKS * 3 + 100) {
       step(state, onlyOverrides([[0, { fire: true }]]));
       guard += 1;
     }
@@ -581,7 +581,7 @@ describe('the combat core', () => {
       target: { xMetres: 5, zMetres: 15 },
     });
     let guard = 0;
-    while (killState.status === 'active' && guard < 300) {
+    while (killState.status === 'active' && guard < RELOAD_TICKS * 3 + 100) {
       step(killState, onlyOverrides([[0, { fire: true }]]));
       guard += 1;
     }
@@ -661,11 +661,15 @@ describe('the combat core', () => {
       target: { xMetres: 5, zMetres: 20, hullYawDegrees: 0 },
     });
     const startTargetZ = tankAt(state, 1).z;
-    const shooterCommands = Array.from({ length: 600 }, () =>
+    const shooterCommands = Array.from({ length: RELOAD_TICKS * 3 + 30 }, () =>
       command({ aimYaw: 180, aimPitch: 0, fire: true }),
     );
-    const targetCommands = Array.from({ length: 600 }, () =>
-      command({ throttle: 0.2, aimYaw: 0, aimPitch: 0 }),
+    // The target moves off its start, then holds the line: with the one 285-tick
+    // reload, a target that kept driving would walk out of three fixed-aim shots.
+    const targetCommands = Array.from({ length: RELOAD_TICKS * 3 + 30 }, (_, tick) =>
+      tick < 20
+        ? command({ throttle: 0.2, aimYaw: 0, aimPitch: 0 })
+        : command({ throttle: 0, aimYaw: 0, aimPitch: 0 }),
     );
     const controller: ScriptedController = new Scripted(
       new Map([
@@ -675,7 +679,7 @@ describe('the combat core', () => {
     );
 
     let guard = 0;
-    while (state.status === 'active' && guard < 400) {
+    while (state.status === 'active' && guard < RELOAD_TICKS * 3 + 30) {
       const commandOrders = state.tanks
         .filter((tank) => tank.alive)
         .map((tank) => ({

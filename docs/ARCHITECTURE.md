@@ -93,22 +93,27 @@ running headless in `node`.
 | the spectator camera | `spectatorPose(input)` · `CAMERA.spectator*` | `src/render/cameraMath.ts` · `src/render/config.ts` | The director's wider arm, 12–44 m and 34–55° pitch, outside the player's 16 m zoom clamp. The spectator renderer uses `CAMERA.spectatorExposureScale` 0.8; the playable exposure is untouched. |
 | the spectate screenshot | `bash scripts/shot.sh spectate [detail] [out]` | `scripts/shot.sh:1` | Builds, serves `dist`, and loads `?mode=spectate&teams=4&tanksPerTeam=4&seed=7&pose=spectate&ticks=300`. The fixed tick is deterministic; the four-team overview frame passes the look budget including the 24×14 tile gate. |
 | a fair decision phase | batch's `decisionPhaseTicks` | `src/core/ai/batch.ts:203` | The phase is balanced by TEAM: `(seed + 3·teamId) mod 6`. Deriving it from tank id made tank 0 always three ticks ahead of tank 1 (the B1a 85/15 finding); the phase must not be correlated with the id that also fixes action order. |
-| AI aim spread and dodge | profile `aimErrorBaseDegrees` / `aimErrorPerMetre` · `startDodge` · `strafePoint` | `src/core/ai/profile.ts:36` · `src/core/ai/controller.ts:273` · `src/core/ai/controller.ts:405` | Every profile supplies its own seeded range-scaled yaw/pitch spread (vanguard **10° + 1.8°/m**; the sniper is tighter, the brute 4° + 0.6°/m); `AI_AIM_ERROR_*` is fallback only. A deliberate wall breach uses a tight fixed spread because the target is stationary. Every profile strafes in contact, and every profile dodges for 60 ticks after a shot or a hit; the effective shot interval stays 285 ticks. These are the pacing levers, kept out of the sim's global `RELOAD_TICKS`. |
-| the vanguard's shot interval | `AI_FIRE_INTERVAL_TICKS` | `src/core/ai/constants.ts:15` | The sim reload stays 60 ticks; the AI deliberately waits 285 ticks before its next trigger. This is the pacing lever that produced the 900–1800-tick band without changing the player's fire rate. |
+| AI aim spread and dodge | profile `aimErrorBaseDegrees` / `aimErrorPerMetre` · `startDodge` · `strafePoint` | `src/core/ai/profile.ts:36` · `src/core/ai/controller.ts:273` · `src/core/ai/controller.ts:405` | Every profile supplies its own seeded range-scaled yaw/pitch spread (vanguard **10° + 1.8°/m**; the sniper is tighter, the brute 4° + 0.6°/m); `AI_AIM_ERROR_*` is fallback only. A deliberate wall breach uses a tight fixed spread because the target is stationary. Every profile strafes in contact; a hit starts a 60-tick dodge, and a shot keeps the tank moving until the global reload is nearly ready. The shot cadence is the sim's `RELOAD_TICKS` (285), not a second AI interval. These are the AI's movement/accuracy levers, not a private fire rate. |
+| one reload rule | `RELOAD_TICKS` | `src/core/sim/constants.ts:53` | The ONE shot cadence: **285 ticks** since P1, the cadence B1b measured into the 900–1800-tick duel band. A held human trigger, an AI fire decision and the stand-in all spend the same reload; the old `AI_FIRE_INTERVAL_TICKS` is deleted, and `reloadRule.test.ts` scans the AI source to keep it gone. |
 | the wound clock | `BLEED_INTERVAL_TICKS` · `MatchRules.bleedIntervalTicks` | `src/core/sim/constants.ts:75` | B1b raised the default from 600 to 900 ticks so a 3-HP duel can last the required 15–30 s while the clock still kills wounded tanks in a measurable share. The value remains a `MatchRules` override, so a test/app can still use 600. |
 | the authored level | `ARENA` · `spawnCentreMetres(spawn)` | `src/game/levels/arena.ts:1` | The ONE 48×48 m, 24×24-cell, 4-fold arena used by the app, team batch and spectator. Its corner rings are opened to 5×5 body-width windows (the authored 2×2 gates split the body navigation graph into four components); it keeps the four corner spawn rooms, screened exits, ambush pockets and low cover. `session.ts` is the app caller. |
 | load-time level validation | `validateLevel(level)` | `src/game/levels/format.ts:105` | The ONE boundary before `createMatch`: square grid, legal materials/heights, exactly four unique 2–4-cell spawn zones, free non-overlapping spawn cells, flood-fill on-foot connectivity from spawn 0, every passable cell in the central objective window reachable from that component, and 90° (therefore four-fold) cell-grid symmetry. Every cell failure names the offending `(x, z)`. Never build the app world from unvalidated data. |
-| the demo/screenshot scenario | `?demo=duel&ticks=122` · `PlayableSession.runDemo(ticks)` | `src/main.ts:64` · `src/game/session.ts:205` | Runs a fixed scripted sequence on the authored arena, freezes before the first frame, and seeds one visible ambush-pillar breach. At tick 122 the dummy is at 1 HP and the third shell is in flight; the win is tick 124. |
+| the demo/screenshot scenario | `?demo=duel&ticks=571` · `PlayableSession.runDemo(ticks)` | `src/main.ts:89` · `src/game/session.ts:205` | Runs a fixed scripted sequence on the authored arena, freezes before the first frame, and seeds one visible ambush-pillar breach. Under the one 285-tick reload, tick 571 freezes with the dummy at 1 HP and the third shell in flight; the win is tick 574. |
 | the top review pose | `?pose=top` · `createTopPlan(ARENA)` | `src/main.ts:191` · `src/render/topPlan.ts:26` | One orthographic camera looks straight down with `up = (0, 0, −1)`; the same app scene/composer is rendered with all tanks hidden. The overlay draws team spawn zones, white L-shaped screened-exit arrows, dark tall-wall/low-cover/objective fills, and the HTML legend. `shot.sh top` selects it. |
 | interpolation | `PlayableSession.interpolatedTanks(alpha)` | `src/game/session.ts:230` | Tanks interpolate x/z/hull/turret/pitch between the previous and current tick; yaw uses the shortest arc. Shells render at the latest state (no interpolation), chosen because their flight is short and a trail already reads motion. |
 | the app scene | `createPlayableScene(state, ids)` | `src/render/playableScene.ts:40` | Builds the real world mesh, debris, two tank views and the shell streak buffer. This is the app path; the A2 showcase remains the budget fixture. `setTanksHidden` is the top-plan review switch, not gameplay. |
 | rebuilding on revision | `PlayableScene.syncWorld()` | `src/render/playableScene.ts:77` | The ONE rebuild gate: compares `World.revision` with the last built revision; only a change calls `worldMesh.rebuild()` / `debrisView.rebuild()`. Never per frame. |
 | shells/debris views | `createShellView()` · `createDebrisView(world)` | `src/render/shellView.ts:31` · `src/render/debrisView.ts:24` | One merged streak line buffer for shells; one merged `NeonSurface` for A1 blocks and shards. Both are data-derived, never patched. |
-| the in-style HUD | `createHud()` | `src/entry/hud.ts:42` | DOM only: 3-segment player/target HP, reload ring, fps and the victory/defeat banner. Colours come from `PALETTE`/`teamColor`; no HTML controls. |
+| the in-style HUD | `createHud()` | `src/entry/hud.ts:67` | DOM only: 3-segment player/target HP, reload ring, the player-team squad rows (name, 3 pips, LIVE/KIA), fps and the victory/defeat banner. The squad rows hide in duel mode and the target block hides in team mode. Colours come from `PALETTE`/`teamColor`; no HTML controls. |
 | the combat screenshot pose | `cameraPose('combat', ...)` | `src/render/cameraMath.ts:228` | Deterministic behind/above player frame for the demo breach, target and in-flight shell. Added to `CAMERA_POSE_NAMES`; `shot.sh combat` selects it. |
+| the player-team mode | `?mode=team` · `TeamSession` | `src/main.ts:89` · `src/game/teamSession.ts:101` | Team 0 is the input tank plus three AI squadmates, against three AI teams of four on `ARENA`; the seed rotates the team-to-corner assignment. `hash()` is the determinism witness; the stand-in and the demo both run through this same class. |
+| the player's controller | `PlayerInputController` | `src/game/teamSession.ts:67` | The ONE human→sim adapter: the existing `PlayerInput`/`commandFromInput` mapping behind the core's `Controller` seam. The player is one controller among the AI's; `src/core` has no `isPlayer`. |
+| the squad readout | `createHud()` squad rows | `src/entry/hud.ts:67` | One row per AI squadmate in slot order: character name, three HP pips, LIVE/KIA; the player's own block keeps the hull segments and reload ring. Team mode omits the duel target block; duel mode hides the squad. |
+| the team screenshot pose | `cameraPose('team', …)` | `src/render/cameraMath.ts:268` | A deterministic 12.5 m / 22° / 18° over-the-shoulder frame of the player and squad, selected by `shot.sh team`; the live follow arm stays the existing 8.2 m. |
+| the player-team stand-in | `runPlayerTeamBatch` | `src/game/playerBatch.ts:82` | The ONE way the player mode gets a win rate without a human: the vanguard `AIController` drives tank 0 through the real `TeamSession`, 100 seeds by default, writing `reports/player-batch.json`. Human skill is not measured. |
 | a low shoot-over barrier | `isLowCover(heightMetres)` · `LOW_COVER_MAX_HEIGHT_METRES` | `src/render/config.ts:193` | ONE predicate/height threshold distinguishes low cover from tall architecture in both the 3D edge hue (`worldMesh`) and the plan fill (`topPlan`); the A1 height model remains the collision authority. |
 | the spatial look budget | `tile_p90(luminance)` | `scripts/look-budget.py:97` | Splits a frame into 24×14 tiles, takes each tile median, and requires p90 ≤ 30.6 L (12 %); alongside the existing whole-frame gates. Proof injection reaches 255 L / 100 % and FAILS. |
-| the screenshot command | `scripts/shot.sh [pose] [detail] [out]` | `scripts/shot.sh:1` | Accepts `wide \| tank \| first \| combat \| top \| spectate`; `combat` appends `&demo=duel&ticks=122`, `top` selects the plan, every run executes the look budget, and the trapped Chrome tree is reaped (`chrome processes after cleanup: 0`). |
+| the screenshot command | `scripts/shot.sh [pose] [detail] [out]` | `scripts/shot.sh:1` | Accepts `wide \| tank \| first \| combat \| top \| spectate \| team`; `combat` appends `&demo=duel&ticks=571`, `team` runs `?mode=team&demo=team` with `TEAM_SEED`/`TEAM_TICKS`/`TEAM_CAMERA_POSE`, `top` selects the plan, every run executes the look budget, and the trapped Chrome tree is reaped (`chrome processes after cleanup: 0`). |
 | a canonical core hash | `fnv1a(text)` | `src/core/fnv1a.ts:14` | The ONE FNV-1a implementation; both `hashState` (world) and `hashMatch` (combat) feed it. Do not copy the offset basis/prime into a third hasher. |
 | seeded randomness in the simulation | `createRng(seed)` | `src/core/rng.ts:35` | The ONLY draw source under `src/core`: integer-only mulberry32, so a seed reproduces its sequence on every engine. A source scan (`src/core/purity.test.ts`) fails the build on `Math.random`. |
 | building the world | `createWorld(spec)` | `src/core/world/state.ts:108` | Validates the spec loudly (integer dimensions, a height above the floor plane, no double placement) and builds the row-major grid. Level data fills the same shape. |
@@ -216,6 +221,51 @@ pillar placements out of `ARENA.cells.placements`. The SOURCE still calls `add()
 them (lines 116–120), but the filtered level has none: the cluster is not present,
 reachable or visible. The earlier note should have said "built then filtered", not
 "still built"; corrected here.
+
+### P1 · One reload rule and the player team
+
+The AI-only handicap is gone. `RELOAD_TICKS` is **285 ticks**, the cadence B1b measured
+into the 900–1800-tick duel band, and the AI's `AI_FIRE_INTERVAL_TICKS` gate is deleted.
+The AI fires when `reloadTicksRemaining === 0`, exactly like a held human trigger, and
+its post-shot dodge is derived from the same reload. This is behaviour-preserving for
+AI-only matches: on 200 seeds the 1v1 table is **104/94, median 992.5, accuracy 43.2 %,
+1/200 cap**, and the 4×4 table is the B4 table repeated exactly (team
+**28.5 / 20.5 / 19.5 / 21.0**, corners **24.5 / 22.5 / 22.0 / 20.5**, cap **21/200**).
+What changed is the human's side of the law: 285 ticks now bound the player's trigger,
+where it used to be 60. The pacing was not retuned to make the player faster.
+
+`?mode=team` builds the player team: team 0 is tank 0 (input) plus three AI squadmates,
+against three AI teams of four on `ARENA`, with the seed rotating the team-to-corner
+assignment. `TeamSession` owns the match, a `FixedStep`, the controller map and `hash()`;
+`PlayerInputController` is one `Controller` in that map, mapping the existing input
+through `commandFromInput`. There is no `isPlayer` in `src/core`; only the session knows
+which tank receives the input-backed controller. Squadmates and opponents use the same
+four profiles and the one `TEAM_MODE_AIM_ERROR_SCALE` (0.09, moved from the spectator so
+there is one value, not two copies).
+
+The HUD gains a squad panel in the Tron language: one row per squadmate with its
+character name, three HP pips and LIVE/KIA, while the player's block keeps the three hull
+segments and the reload ring; the victory/defeat banner is unchanged. `?mode=team&demo=team&ticks=600`
+pre-runs the stand-in and freezes; `shot.sh team` captures it with the deterministic
+`team` pose (12.5 m, 22° pitch, 18° yaw offset), because the live 8.2 m follow arm is too
+tight to read three squadmates beside the player. The frame passes the look budget:
+surface **11 L**, line p99 **187**, contrast **17.00**, tile p90 **22 L (8.6 %)**, void
+52.9 % (INFO).
+
+The stand-in batch (`pnpm player-batch --seeds 100`) puts the scripted vanguard on the
+player's tank: **29.0 % player-team wins**, team split 29/20/23/21, **7/100 cap**, median
+**3607 ticks**, 39.8 % accuracy. Human skill is not measured: the stand-in is the AI
+vanguard the game already ships, so this is a measured reference point, not a claim about
+a person's play. The mode is deterministic for a seed and the player's input (pinned by
+state hash), and the player is not given a different gun: the same reload, the same shell
+and the same damage.
+
+Two camera/aim limits are recorded rather than polished in P1: the follow camera looks
+along the hull, while the mouse can put the turret ±60° off it (the horizontal field of
+view is about ±39°), so at the extremes the player aims at a point they cannot see without
+a reticle; and the authored corner facing can point a human away from the arena centre
+until they turn. A full HUD/crosshair and a team-specific live camera are presentation
+work (P2), not a rules change.
 
 ## 3 · Gotchas
 
@@ -432,20 +482,21 @@ reachable or visible. The earlier note should have said "built then filtered", n
   turret/barrel are scaled with it. The whole turret group is the pitch pivot, so pitch
   tilts the turret body as well as the gun; a gun-only pivot would need a third
   `NeonSurface` and is deferred until the visual complaint is measured.
-- **The demo is frozen before the camera is built.** `?demo=duel&ticks=122` runs
+- **The demo is frozen before the camera is built.** `?demo=duel&ticks=571` runs
   `runDemo` synchronously, seeds one wall breach through the real destruction seams,
-  then constructs the scene/camera. At 122 the dummy is at 1 HP and the third shell is
-  in flight; ticking it to 123 produces a real last-team win/death. Do not animate a
-  screenshot past the freeze.
+  then constructs the scene/camera. Under the one 285-tick reload, tick 571 has the
+  dummy at 1 HP and the third shell in flight; ticking it to 574 produces a real
+  last-team win/death. Do not animate a screenshot past the freeze.
 - **The look budget now includes a 24×14 tile p90.** `scripts/look-budget.py` takes
   each tile's median and requires p90 ≤ 30.6 L (12 % of white) in addition to the
   whole-frame gates. A white injection rectangle measured 255 L / 100 % and FAILED,
   proving the check catches a locally bright wall; the four final poses pass at 17–26 L.
   Thresholds are the gate; do not widen them to fit a frame.
 - **The HUD is DOM, not canvas.** `createHud()` owns the three-segment HP bars, reload
-  ring and banner; colours come from `PALETTE`/`teamColor`, and the element has
-  `pointer-events: none`. There are no HTML controls. The HUD is a minimal A3c readout,
-  not the A5 interface.
+  ring, the player-team squad rows and banner; colours come from
+  `PALETTE`/`teamColor`, and the element has `pointer-events: none`. There are no HTML
+  controls. It is still a minimal readout (P2/A5 owns the full interface and a reticle),
+  not a second UI system.
 
 ## 4 · Known debt
 
@@ -507,9 +558,9 @@ reachable or visible. The earlier note should have said "built then filtered", n
   simulation level (original team 0 wins at tick 7; mirrored team 1 wins at tick 7).
   An AI match is deterministic-chaotic under a mirror, so the fairness fix is measured
   and its staging coordinates are pinned, not proven by an AI-level mirror.
-- **The AI-only fire interval is still single-player debt.** The 285-tick
-  `AI_FIRE_INTERVAL_TICKS` remains separate from the global `RELOAD_TICKS=60`; before
-  player-vs-AI ships it must become one rule. B1c deliberately did not fix it.
+- **P1 removed the AI-only fire interval.** `RELOAD_TICKS` is 285 for the human, the AI
+  and the stand-in; a source scan keeps the old constant gone. What remains untested is
+  human skill (no browser input pin), the aim-off-screen limit above, and a full P2 HUD.
 - **Perception is sampled at 10 cm.** It uses `isSolidAt` and not the shell resolver;
   this is a sightline, not a guarantee that a shell clears low cover. The vanguard
   deliberately aims at the turret centre and does not plan a shoot-over arc.

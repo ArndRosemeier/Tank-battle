@@ -11,10 +11,6 @@ import { TANK_HEIGHT_METRES } from '../sim.ts';
 /** A decision every six ticks: 10 Hz against the 60 Hz simulation. */
 export const AI_DECISION_INTERVAL_TICKS = 6;
 
-/** The vanguard's deliberate shot interval. Longer than the sim reload, so the AI
- *  waits for a considered shot rather than firing every time the gun is ready. */
-export const AI_FIRE_INTERVAL_TICKS = 285;
-
 /** Ticks of lateral movement after a shot or a hit. */
 export const AI_DODGE_TICKS = 60;
 

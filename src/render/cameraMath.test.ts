@@ -69,7 +69,7 @@ describe('cameraMath', () => {
       focusYawDegrees: 0,
     } as const;
 
-    for (const name of ['wide', 'tank', 'first', 'combat'] as const) {
+    for (const name of ['wide', 'tank', 'first', 'combat', 'team'] as const) {
       const firstRun = cameraPose({ name, ...request });
       const secondRun = cameraPose({ name, ...request });
       expect(secondRun).toEqual(firstRun);
@@ -77,6 +77,12 @@ describe('cameraMath', () => {
       expect(Number.isFinite(firstRun.position.y)).toBe(true);
       expect(Number.isFinite(firstRun.position.z)).toBe(true);
     }
+
+    // The team pose is deliberately pulled back past the live follow arm so the
+    // player and three squadmates can share one legible frame.
+    const teamPose = cameraPose({ name: 'team', ...request });
+    const teamHorizontal = Math.hypot(teamPose.position.x - FOCUS.x, teamPose.position.z - FOCUS.z);
+    expect(teamHorizontal).toBeGreaterThan(CAMERA.defaultDistanceMetres);
 
     // The orbit conversion is pure too: same inputs, same numbers.
     const orbit = {

@@ -161,8 +161,9 @@ export class PlayableSession {
 
   /**
    * Runs the deterministic combat demo for exactly `ticks` ticks and freezes. The
-   * player fires straight down the corridor; by tick 122 the dummy is at 1 HP, the
-   * demo wall is breached, and the third shell is in flight.
+   * player fires straight down the corridor under the one 285-tick reload; by tick 571
+   * the dummy is at 1 HP, the demo wall is breached, and the third shell is in flight.
+   * The win lands at tick 574.
    */
   runDemo(ticks: number): void {
     if (!Number.isInteger(ticks) || ticks < 0) {

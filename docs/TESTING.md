@@ -78,7 +78,7 @@ never "it passed".
 | WASD maps to throttle/steer with a neutral centre aim | `maps WASD to throttle and steer without touching the centre aim` | `src/game/input.test.ts` | swap A/D, or add a non-zero aim at pointer centre → the command assertions red |
 | Mouse aim is hull-relative and pitch is clamped | `turns the turret RELATIVE to the hull and clamps the offset` · `maps pointer height to a clamped pitch, with centre = zero` | `src/game/input.test.ts` | use an absolute yaw, clamp wrongly, or map pitch from the bottom → the ±60°/25°/−30° assertions red |
 | The pure input surface rejects malformed pointer data | `passes the fire state through and rejects non-finite pointer input` | `src/game/input.test.ts` | silently coerce NaN/Infinity → the throw assertions red |
-| The demo freezes on a shell in flight and deterministic damage | `the demo is deterministic and freezes on a shell in flight at tick 122` | `src/game/session.test.ts` | stop the 122-tick run early, or run it twice non-deterministically → the shell/HP/revision assertions red |
+| The demo freezes on a shell in flight and deterministic damage | `the demo is deterministic and freezes on a shell in flight at tick 571` | `src/game/session.test.ts` | stop the 571-tick run early, or run it twice non-deterministically → the shell/HP/revision assertions red |
 | The demo can reach a real last-team death/win | `the demo reaches a real last-team win and leaves a dead dummy` | `src/game/session.test.ts` | stop the match at the second hit, or leave the dummy alive → the outcome/winner/dead assertions red |
 | Tank transforms interpolate between ticks | `interpolates tank transforms between the previous and current sim tick` | `src/game/session.test.ts` | return current for every alpha, or discard the previous snapshot → the alpha0/alpha1 positions red |
 | The rendered hull half-width fits the 1 m body | `the rendered hull half-width fits inside the body radius with 5 % allowance` | `src/render/config.test.ts` | widen `TANK.hullWidthMetres` past 2.1 m → the measured half-width red |
@@ -121,9 +121,15 @@ never "it passed".
 | The spectator match is deterministic and has a director shot | `runs a deterministic four-team match and exposes a director shot` | `src/game/spectator.test.ts` | seed a controller from `Math.random`, or skip the overview/engagement cut → hashes/shots diverge or focus is dead |
 | N locks a manual follow and auto resumes | `next-tank locks a manual follow and auto can be resumed` | `src/game/spectator.test.ts` | make next-tank a no-op or ignore the manual flag → `autoDirector`/reason assertions red |
 | Four-team targeting is not permanently locked to one enemy | `does not leave a tank permanently locked on one enemy` | `src/core/ai/teamTargeting.test.ts` | freeze the target to the first visible enemy → each tank's target set shrinks below 2 |
+| The player and the AI share one reload rule | `the AI-only fire interval is gone and the AI reads the sim reload` | `src/core/ai/reloadRule.test.ts` | reintroduce `AI_FIRE_INTERVAL_TICKS` anywhere in the AI, or drop `RELOAD_TICKS` from the controller → the source scan reds |
+| A held trigger spends exactly the global reload | `a held trigger fires at exactly the global reload cadence` | `src/core/ai/reloadRule.test.ts` | change the sim reload guard or add a second interval → the shot-tick list is not `[1, 1+RELOAD_TICKS, 1+2·RELOAD_TICKS]` |
+| The player's team is the player plus three AI squadmates | `starts with the player plus three AI squadmates, against three teams of four` | `src/game/teamSession.test.ts` | drop a squad slot or put the player on another team → the squad/team counts red |
+| The player-team mode is deterministic for a seed and input | `is deterministic for a seed and a scripted player` | `src/game/teamSession.test.ts` | seed a controller from `Math.random`, or let the input counter drift → the state hashes differ |
+| A player's shell cannot damage a squadmate | `the player can spawn a shell and a squadmate is immune to it` | `src/game/teamSession.test.ts` | bypass the Q2 team check → the squadmate's HP drops or the shell passes through |
+| The team pose is a deterministic pulled-back frame | `a camera pose reproduces the same position and target for the same inputs` (team case) | `src/render/cameraMath.test.ts` | collapse the team pose to the 8.2 m follow arm or make it non-deterministic → the horizontal-distance/equality assertions red |
 | The spectator camera is a wider arm and rejects an out-of-range distance | `frames the spectator action from a wider arm and rejects an out-of-range distance` | `src/render/cameraMath.test.ts` | clamp spectator distance to the player's 16 m arm, or drop the range check → the pose/throw assertion reds |
 
-The A3a block (20 rows), the A3b block (7 rows) and the A3c block (11 rows) are direct assertions; A4 adds seven level-validation pins; B1a adds the two A4 gap pins and eleven AI pins; B1b adds the scripted mirror pin; B1c adds the staging-symmetry pin; B2 adds the eager-profile, destruction-attribution, team-staging, team-batch, spectator and spectator-camera pins; B3 adds the body-aware arena connectivity pin and the batch-attribution arm; B4 adds the turn-order purity/rank/team-array pins (**113/113 tests in 25 files**). **No mutation differential was run for A3a/A3b/A3c/A4/B1a/B1b/B1c/B2/B3/B4**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
+The A3a block (20 rows), the A3b block (7 rows) and the A3c block (11 rows) are direct assertions; A4 adds seven level-validation pins; B1a adds the two A4 gap pins and eleven AI pins; B1b adds the scripted mirror pin; B1c adds the staging-symmetry pin; B2 adds the eager-profile, destruction-attribution, team-staging, team-batch, spectator and spectator-camera pins; B3 adds the body-aware arena connectivity pin and the batch-attribution arm; B4 adds the turn-order purity/rank/team-array pins; P1 adds the one-reload source/cadence pins, the player-team composition/determinism/teammate-immunity pins and the pulled-back team pose (**119/119 tests in 27 files**). **No mutation differential was run for A3a/A3b/A3c/A4/B1a/B1b/B1c/B2/B3/B4/P1**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
 
 The differential harness is a local artifact at `.gate-logs/differential.py` (row 26)
 and `.gate-logs/differential.sh` (row 0) — both gitignored; the mutations are described
@@ -750,6 +756,7 @@ only in trim lines and small lights. The team-trim diagnostic on `wide` is orang
 - **Levers chosen (and the trade):**
   - **AI shot interval 285 ticks** (`AI_FIRE_INTERVAL_TICKS`), not the global
     `RELOAD_TICKS=60`. I left the app/demo reload alone; the AI deliberately waits.
+    *(Superseded by P1: the sim reload is now 285 for the human and the AI.)*
   - **Aim spread 10° + 1.8°/m** (with 35 % pitch spread) seeded by the controller RNG;
     this is the accuracy lever (89 % → 52 %).
   - **Continuous strafe** while a target is visible, **60-tick dodge** after a shot or
@@ -1041,6 +1048,99 @@ only in trim lines and small lights. The team-trim diagnostic on `wide` is orang
   mutation differential for the turn-order change, or a profile redesign that would
   restore all three signatures without breaking team fairness.
 
+### row 57 — Slice P1 (the player team and one reload rule)
+
+- **Gate:** `bash scripts/gate.sh` → exit **0**, **119/119 tests in 27 files** (vitest
+  5.0.5). Raw log `.gate-logs/gate.log`.
+- **One reload rule:** `RELOAD_TICKS` is **285**, the cadence B1b measured into the
+  900–1800-tick duel band; `AI_FIRE_INTERVAL_TICKS` is deleted and the AI fires when
+  `reloadTicksRemaining === 0`, exactly like a held input trigger. The post-shot dodge
+  is derived from the same reload (`RELOAD_TICKS - AI_DECISION_INTERVAL_TICKS`). Pins:
+  the source scan finds no second interval anywhere in the AI, and a held trigger's
+  shot ticks are exactly `[1, 1+RELOAD_TICKS, 1+2·RELOAD_TICKS]`.
+- **Pacing before/after, measured by me on both trees (200 seeds each):** the change is
+  behaviour-preserving for AI-only matches, because the AI's effective cadence was
+  already 285. What changed is the human side: the player's reload was 60 and is now
+  the same 285 as the AI's.
+
+  | table | before `391301a` | after P1 |
+  | --- | ---: | ---: |
+  | 1v1 win split | 104 / 94 | 104 / 94 |
+  | 1v1 median ticks | 992.5 | 992.5 |
+  | 1v1 accuracy | 43.2 % | 43.2 % |
+  | 1v1 cap hits | 1/200 (0.5 %) | 1/200 (0.5 %) |
+  | 4×4 team split | 28.5 / 20.5 / 19.5 / 21.0 % | same |
+  | 4×4 corner split | 24.5 / 22.5 / 22.0 / 20.5 % | same |
+  | 4×4 median ticks | 3731.0 | 3731.0 |
+  | 4×4 cap hits | 21/200 (10.5 %) | 21/200 (10.5 %) |
+
+  The 4×4 cap is still **0.5 points over** the 10 % line and team 2 is still 19.5 %;
+  neither is rounded into a pass. The stand-in table below is the mode's own cap
+  measurement (7/100).
+- **Player-team mode:** `?mode=team` builds team 0 as the input tank plus three AI
+  squadmates against three AI teams of four on `ARENA`; the seed rotates the
+  team-to-corner assignment. `TeamSession` owns the match/FixedStep/controller map and
+  `hash()`; `PlayerInputController` is one `Controller` among the AI ones, using the
+  existing `commandFromInput` mapper. `src/core` has no `isPlayer`. Squadmates and
+  opponents share the four profiles and the one `TEAM_MODE_AIM_ERROR_SCALE = 0.09`
+  (moved out of `spectator.ts`, so the spectator and the team mode cannot drift).
+  Pins: the player plus three squadmates composition; deterministic state hash for a
+  seed and scripted input; a player shell stops at a squadmate with no HP loss (Q2).
+- **Stand-in batch (100 seeds, `pnpm player-batch --seeds 100`)** — a scripted vanguard
+  drives the player's tank; **human skill is not measured**:
+
+  | metric | value |
+  | --- | ---: |
+  | matches | 100 |
+  | player-team wins | **29 (29.0 %)** |
+  | team split | 29 / 20 / 23 / 21 % |
+  | draws | 7 |
+  | cap hits | **7/100 (7.0 %)** |
+  | mean / median length | 4781.4 / 3607.0 ticks |
+  | length p25 / p75 | 3042 / 4563 ticks |
+  | length min / max | 1857 / 18000 ticks |
+  | shots / hits / accuracy | 8874 / 3533 / 39.8 % |
+  | kills | 934 |
+  | deaths by cause | shell 934 / clock 535 |
+
+  The stand-in is the AI vanguard the game already ships, so 29 % is a reference floor,
+  not a claim about a person's play.
+- **Squad HUD and the team frame:** `createHud()` gained three squad rows (character
+  name, three HP pips, LIVE/KIA) beside the existing player hull/reload block and the
+  victory/defeat banner; duel mode hides the squad and team mode hides the duel target.
+  `?mode=team&demo=team&ticks=600` pre-runs the stand-in and freezes; `shot.sh team`
+  uses the deterministic `team` pose (12.5 m, 22° pitch, 18° yaw offset) because the live
+  8.2 m follow arm cannot read three squadmates beside the player. Look budget **PASS**:
+
+  | gate | measured | verdict |
+  | --- | ---: | --- |
+  | void share | 52.9 % | INFO (no minimum) |
+  | surface median | 11 L (4.3 %) | PASS ≤ 22 |
+  | mid-band share | 5.6 % | PASS ≤ 25 % |
+  | line p99 | 187 | PASS ≥ 150 |
+  | contrast p99/median | 17.00 | PASS ≥ 6 |
+  | tile p90 | 22 L (8.6 %) | PASS ≤ 30.6 L / 12 % |
+
+  Raw frame `.gate-logs/shots/team.png`; the seed-1/tick-600 scenario was chosen after
+  probing the squad's positions, because at seed 7 the three hulls overlap the player's
+  from the follow arm.
+- **Combat demo retimed by the reload rule.** The old demo fired 3 shots by tick 122
+  because the player's reload was 60; with the one 285-tick reload the same three shots
+  land at ticks 1/286/571, so the deterministic freeze moved to **571** (dummy 1 HP,
+  third shell in flight, win at **574**). `shot.sh combat` re-shot at 571: look PASS —
+  surface 15 L (5.9 %), mid-band 8.3 %, line p99 196, contrast 13.07, tile p90 30 L
+  (11.8 %), void 36.4 %. The session pin and its name moved with it.
+- **Rejected:** keeping the global reload at 60 and giving the player a second, artificial
+  delay (two rules that drift); tuning the reload below 285 to buy cap headroom (the 1v1
+  median sits near the 900 floor already); a separate HUD markup for the squad (the one
+  `createHud` seam carries both modes); retiming only the demo's shot script while
+  leaving the sim cadence at 60; renaming or re-baselining the cast signatures (B4's
+  debt, not this slice).
+- **Not run:** a human at the keyboard (no browser-level input pin — human aim/skill is
+  untested), a full P2 HUD/crosshair, the aim-off-screen limit fixed, a team-specific
+  live follow camera, GPU frame rate, a 4-team AI mirror, or a mutation differential for
+  the reload/team changes.
+
 ## Honest records
 
 A VOID probe, a wrong-file green, a discarded log and a run against a stale tree are
@@ -1207,6 +1307,7 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
   B1b's fairness fix previously rested only on the 200-seed measurement.
 - **New debt:** the AI's 285-tick fire interval is AI-only while the global reload stays
   60 ticks, so the player would fire ~4.75× faster. One rule before player-vs-AI ships.
+  *(Paid in P1: one 285-tick reload for both; see row 57.)*
 
 ### row 49 — the dispatcher's own verification (90517b6)
 

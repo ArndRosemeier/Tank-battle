@@ -47,8 +47,10 @@ export const TANK_COLLISION_HEIGHT_METRES = 0.8;
 export const MUZZLE_FORWARD_METRES = 3;
 export const MUZZLE_HEIGHT_METRES = 1.1;
 
-/** Ticks from one shot to the next. The first shot is available immediately. */
-export const RELOAD_TICKS = 60;
+/** Ticks from one shot to the next. The first shot is available immediately. A human
+ *  and an AI obey this one reload: there is no AI-only firing delay. 285 ticks is the
+ *  cadence B1b measured into the 900–1800-tick duel band. */
+export const RELOAD_TICKS = 285;
 
 /** Shell speed and the distance one tick advances it. */
 export const SHELL_SPEED_METRES_PER_SECOND = 90;
