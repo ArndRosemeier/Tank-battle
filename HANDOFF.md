@@ -37,11 +37,10 @@
 
 ## Next action (one)
 
-**P2 is still in flight** (the player's screen: reticle, camera-follows-aim, HUD legibility,
-attached muzzle, combat VFX). The game is LIVE at
-`https://apps.futuremagic.de/tank-battle/` on the P1 build; when P2 lands, verify it, then
-`bash scripts/publish.sh` republishes (the host folder is a symlink, so the rebuild is
-immediate) and `bash scripts/shot-live.sh` re-verifies by content.
+**P3 is in flight**: the front door (title screen, Tron-drawn settings, pause), the audio
+seam wired to the generated score, and the hull-brightness fix so the **live** camera view
+passes the look gate (it currently fails at 29 %). Then republish and re-verify live.
+Debts: the 4x4 cap ~11 %, the seed-148 parked duel, and the ambusher/brute naming swap.
 
 ## Open questions for the owner
 

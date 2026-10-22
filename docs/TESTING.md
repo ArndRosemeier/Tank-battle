@@ -1483,3 +1483,17 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
 - **Process lesson recorded as a trap:** the first live attempt leaked 14 Chrome processes
   because `setsid … &` hands back a launcher PID, not a process group; the replacement
   captures PIDs by a unique `--user-data-dir` and kills from a file.
+
+### row 59 — the dispatcher's own verification (68cb3f5)
+
+- Integrated gate 127/127, exit 0.
+- **Frames read by me:** reticle on target, inset HUD (hull 3/3, reload ring, squad rows,
+  kill feed), attached muzzle brake, no floating cube. The player's screen is a game now.
+- **Stand-in, my 100-seed run:** 34 % player-team wins, cap 11 %, median 3912. The writer's
+  200-seed number was 26 %; both recorded, the mode is noisy.
+- **Finding: the live view fails the look gate.** `TEAM_CAMERA_POSE=tank` (8.2 m, the arm
+  the player uses) measures tile p90 **29 %** against 12 %, while the 28 m staging pose
+  passes at 11.8 %. A median-filter experiment moved it only 75→74 L, so this is a
+  genuinely bright hull, not line density. Metric change reverted; P3 fixes the hull and
+  must pass the gate on the **live** pose.
+- **Published:** P2 live (`index-CKl6ehX2.js`), public page verified by content, chrome 0.
