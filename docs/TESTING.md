@@ -907,3 +907,18 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
 - **Watched** (`reports/trace-seed-0.jsonl` rendered as frames): the tanks close to about
   14 m, stop, and trade shots. No repositioning, no use of cover, no dodging — static
   contact. Recorded as the third defect alongside fairness and length.
+
+### row 47 — the dispatcher's own verification (a1d308d)
+
+- Integrated gate 99/99, exit 0.
+- **My 200-seed batch:** 99/101 split, median 934 ticks, 52.0 % accuracy, 0 cap hits,
+  113 shell / 87 clock deaths, mean speed 2.24 m/s — targets met, reproduced independently.
+- **A VOID arm that corrected the record:** reinstating `tank.id * 3` for the decision
+  phase left the split at 48/52, because for 1v1 `id*3 ≡ team*3 (mod 6)`. So the phase
+  formula did not cause the 85/15; the unfair adjacent-spawn pairing did. The arm is
+  recorded as VOID (it could not test what it was aimed at) and the cause is corrected in
+  the ledger.
+- **Owed:** a staging-symmetry pin (the duel spawns are a mirror pair) — the fairness fix
+  is currently evidenced only by the 200-seed measurement.
+- **New debt:** the AI's 285-tick fire interval is AI-only while the global reload stays
+  60 ticks, so the player would fire ~4.75× faster. One rule before player-vs-AI ships.

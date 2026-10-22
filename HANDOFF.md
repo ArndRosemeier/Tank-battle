@@ -37,10 +37,11 @@
 
 ## Next action (one)
 
-**B1b is in flight**: fairness (the 85/15 turn-order bias, with a mirror pin) and pacing
-(targets: 40–60 % win split, 900–1800-tick matches, 30–60 % accuracy, movement instead of
-parked duels), measured over 200 seeds. Then B1c: the four-character cast, measured
-against a fair baseline; then the live all-AI spectator.
+**B1c is in flight**: three more AI characters with the behaviours they need (cover,
+flank, ambush, breach), four rig signatures (engagement distance, world damage, time
+without LOS, speed), the round-robin matrix (6 pairings × 200 seeds), and the owed
+staging-symmetry pin. Then the live all-AI spectator, then the one-reload-rule fix for
+single-player fairness.
 
 ## Open questions for the owner
 
