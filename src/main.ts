@@ -17,8 +17,10 @@ import {
   type CameraPoseName,
 } from './render/cameraMath.ts';
 import {
+  BLOOM,
   CAMERA,
   DPR_CAP,
+  POST,
   PALETTE,
   SURFACE_DETAIL,
   TANK,
