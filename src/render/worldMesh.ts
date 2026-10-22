@@ -19,7 +19,7 @@
 
 import { BoxGeometry, Group, Vector3 } from 'three';
 import { cellAt, cellState, isSolidAt, type World } from '../core/world.ts';
-import { GRID, HOLE_RIM, NEON, PALETTE } from './config.ts';
+import { GRID, HOLE_RIM, LOW_COVER_MAX_HEIGHT_METRES, NEON, PALETTE } from './config.ts';
 import { createGridFloor, type GridFloor } from './gridFloor.ts';
 import {
   createNeonSurface,
@@ -98,7 +98,7 @@ export function createWorldMesh(world: World): WorldMesh {
         parts.push({
           geometry,
           color:
-            cell.heightMetres <= 1.5
+            cell.heightMetres <= LOW_COVER_MAX_HEIGHT_METRES
               ? PALETTE.lowCoverEdge
               : cell.material === 'wall'
                 ? PALETTE.wallEdge

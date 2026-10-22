@@ -186,6 +186,12 @@ export const POST = {
  */
 export const SURFACE_DETAIL = 0.3;
 
+/**
+ * The shoot-over cover band in metres: 3D edge hue and the top-plan fill share THIS
+ * classification. The A1 height model remains the collision authority.
+ */
+export const LOW_COVER_MAX_HEIGHT_METRES = 1.5;
+
 /** Detail-map budget (§9: tileable greyscale, multiplied at ≤ 15 %). Unused in A2. */
 export const DETAIL_MAP_MAX_STRENGTH = 0.15;
 
