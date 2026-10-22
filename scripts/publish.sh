@@ -36,6 +36,19 @@ say() { printf '%s\n' "$*"; }
 die() { printf 'PUBLISH FAILED: %s\n' "$*" >&2; exit 1; }
 
 # --- 1. build -----------------------------------------------------------------
+# --- 0. a published build must correspond to a COMMIT -------------------------
+# The live artifact is built from the working tree, so an uncommitted source change makes
+# what the owner sees unreproducible from any SHA. This happened once (a clamp fix was
+# live before it was committed). Refuse, unless the operator deliberately overrides.
+if [ "${PUBLISH_DIRTY:-0}" != "1" ]; then
+  DIRTY="$(git -C "$ROOT" status --porcelain -- src scripts vite.config.ts index.html assets package.json)"
+  if [ -n "$DIRTY" ]; then
+    printf 'PUBLISH REFUSED: the working tree has uncommitted source changes; the published build must correspond to a commit.\n' >&2
+    printf '%s\n' "$DIRTY" | sed 's/^/  /' >&2
+    die "commit first (or set PUBLISH_DIRTY=1 to override deliberately)"
+  fi
+fi
+
 STAGE="$ROOT/.gate-logs/publish-dist"
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
   say "build: base=${BASE} (staged in .gate-logs/publish-dist)"

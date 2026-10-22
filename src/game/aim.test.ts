@@ -167,10 +167,11 @@ describe('world-point aiming', () => {
     expect(Math.abs(projected.y)).toBeLessThan(0.05);
   });
 
-  it('keeps the ±60° hull-relative clamp and shows the clamped impact', () => {
+  it('aims at a point BEHIND the hull (full turret rotation), not clamped to ±60°', () => {
     const state = flatMatch();
     const player = state.tanks[0]!;
-    // A camera looking due EAST from the player's hull-forward (-z) asks for a 90° turn.
+    // A camera looking due EAST from a hull whose forward is -z asks for a 90° turret turn.
+    // The owner's intent is "fire at whatever the mouse points at", so this must NOT clamp.
     const camera: AimCamera = {
       position: { x: 12, y: 4, z: 20 },
       target: { x: 40, y: FLOOR, z: 20 },
@@ -179,8 +180,26 @@ describe('world-point aiming', () => {
       aspect: 16 / 9,
     };
     const solution = solveAim(state, player, camera, 0, 0);
+    expect(solution.clamped).toBe(false);
+    expect(Math.abs(solution.aimYaw - player.hullYawDegrees)).toBeGreaterThan(60);
+    expect(distance(solution.impactPoint, solution.desiredPoint)).toBeLessThan(0.5);
+  });
+
+  it('clamps PITCH, and says so', () => {
+    const state = flatMatch();
+    const player = state.tanks[0]!;
+    // Ground 1 m in front of the muzzle (the muzzle sits 3 m ahead of the hull): the
+    // required depression is ~58 degrees, beyond the gun's -30 limit.
+    const camera: AimCamera = {
+      // Offset a little in x: a camera looking exactly straight down has no valid right vector.
+      position: { x: player.x + 0.5, y: 10, z: player.z - 4 },
+      target: { x: player.x, y: FLOOR, z: player.z - 4 },
+      up: { x: 0, y: 1, z: 0 },
+      fovDegrees: 50,
+      aspect: 16 / 9,
+    };
+    const solution = solveAim(state, player, camera, 0, 0);
     expect(solution.clamped).toBe(true);
-    expect(solution.aimYaw).toBeCloseTo(-60, 6);
-    expect(distance(solution.impactPoint, solution.desiredPoint)).toBeGreaterThan(0.5);
+    expect(solution.aimPitch).toBeLessThanOrEqual(-29.9);
   });
 });

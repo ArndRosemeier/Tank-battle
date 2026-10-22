@@ -37,7 +37,14 @@ import {
 import { commandFromAim, type PlayerInput } from './input.ts';
 
 /** The turret's maximum absolute yaw offset from the hull, in degrees. */
-export const AIM_YAW_OFFSET_MAX_DEGREES = 60;
+/**
+ * The turret may rotate all the way around. The player's ask was "fire at whatever the mouse
+ * points at": with a world-anchored cursor, a low on-screen point can lie BEHIND the hull
+ * (between the camera and the tank), and a ±60° clamp then left the reticle hundreds of
+ * pixels from the pointer. The hull still defines where the camera looks; it no longer
+ * limits where the gun may point. Pitch keeps its physical clamp.
+ */
+export const AIM_YAW_OFFSET_MAX_DEGREES = 180;
 /** The pointer ray's useful reach; sky/void past this is `outOfRange`. */
 export const AIM_RANGE_METRES = 80;
 
