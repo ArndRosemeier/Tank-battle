@@ -1705,3 +1705,20 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
   first "mid-fight" pair was one frame. Real time + differing hashes is the rule.
 - **Perf:** 6.8–7.3 fps at 1080p×0.75 on SwiftShader (software lower bound); the owner's GPU
   measured 60 fps on the game spectator.
+
+### audit merge (2b49f32) — what I re-verified, and what it corrected
+
+- **Local gate:** 145/145, exit 0 (was 139/139 before the merge).
+- **CI on this exact SHA:** GitHub Actions `Quality` and `Browser smoke` both
+  **success** (public API), so the branch's "draft, unverified" note no longer applies.
+- **S1 corrected my own numbers.** Re-ran the round-robin and the 4×4 with the fixed
+  attribution:
+  - 1v1 round-robin **unchanged**: 52.3 / 54.3 / 49.7 / 39.0 %, identical signatures — the
+    ambusher/brute naming finding stands.
+  - 4×4 per-character **changed**: sniper **74/400** alive, ambusher **52/400**, vanguard
+    **2/400**, brute **3/400** (previously reported as 47/200, 11/200, 5/200, 8/200 with the
+    broken keying). The earlier "sniper dominance" direction survives; the magnitudes did not.
+- **S5 named a failure of mine:** the scene-budget test measured a showcase fixture, and I
+  cited its draw calls as evidence about the shipped scene.
+- **Not verified by anyone yet:** audio by ear, 1920×1080 on real hardware, GPU context loss,
+  long soak — recorded as such rather than implied.
