@@ -85,6 +85,15 @@
       "date": "2026-10-22"
     },
     {
+      "path": "assets/audio/rocket.mp3",
+      "sha256": "d08ae890d37d00f5805d86a6cf0286db0085cc7a3c2b72bf7a26d4caad934a0f",
+      "bytes": 129611,
+      "kind": "sfx",
+      "model": "bytedance-seed/seed-audio-1-0",
+      "prompt": "The sound of a small neon rocket launching from a tank cannon: a sharp electric ignition crack, a fast rising plasma whoosh, a compact low thump, and a short fading exhaust hiss; no music, no voice, no explosion.",
+      "date": "2026-10-23"
+    },
+    {
       "path": "assets/audio/wall-break.mp3",
       "sha256": "b720fed5149c8a7009e0db689d390787839e0adbaef877b9dffaaf5c673679cb",
       "bytes": 73604,

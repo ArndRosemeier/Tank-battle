@@ -76,17 +76,19 @@ export const PALETTE = {
  * gain is the brightness of the line, and bloom pushes the cores towards white.
  */
 export const NEON = {
-  structureEdgeGain: 1.25,
-  teamEdgeGain: 2.2,
-  coreGain: 1.9,
+  // P7 glow-up: every line family is brighter, but the grid is held back so the
+  // whole-frame surface median and tile p90 still pass the live look gate.
+  structureEdgeGain: 1.4,
+  teamEdgeGain: 2.5,
+  coreGain: 2.1,
   /** Hole rims are deliberately the hottest structural line: a mechanic must read. */
-  holeRimGain: 2.2,
-  holeRimInnerGain: 1.0,
-  verticalEdgeGain: 1.3,
-  panelSeamGain: 0.45,
-  gatewayEdgeGain: 0.9,
-  gridMinorGain: 0.65,
-  gridMajorGain: 1.35,
+  holeRimGain: 2.5,
+  holeRimInnerGain: 1.15,
+  verticalEdgeGain: 1.45,
+  panelSeamGain: 0.55,
+  gatewayEdgeGain: 1.0,
+  gridMinorGain: 0.78,
+  gridMajorGain: 1.55,
 } as const;
 
 /**
@@ -165,9 +167,9 @@ export function teamEdgeGainFor(index: number): number {
  * quality knob the performance budget is allowed to move — never correctness.
  */
 export const BLOOM = {
-  threshold: 0.65,
-  strength: 0.5,
-  radius: 0.32,
+  threshold: 0.58,
+  strength: 0.65,
+  radius: 0.42,
   resolutionScale: 1,
 } as const;
 
@@ -257,6 +259,9 @@ export const GRID = {
   minorFadeEndMetres: 58,
   majorFadeStartMetres: 30,
   majorFadeEndMetres: 140,
+  /** P7: wider screen-space line cores; bloom supplies the soft outer glow. */
+  minorWidthPixels: 1.5,
+  majorWidthPixels: 1.8,
 } as const;
 
 /**
@@ -303,6 +308,13 @@ export const CAMERA = {
   aimFollowHalfLifeSeconds: 0.11,
   /** How fast the arm itself follows a zoom, in half-lives per second. */
   zoomHalfLifeSeconds: 0.12,
+  /** Firing blowback: a short camera/barrel impulse, not a simulation force. */
+  recoilSeconds: 0.16,
+  recoilBackMetres: 0.34,
+  recoilUpMetres: 0.06,
+  recoilPitchMetres: 0.09,
+  /** The barrel's visual rearward slide, in metres. */
+  barrelRecoilMetres: 0.15,
   /**
    * The `wide` screenshot pose: camera offset as a fraction of the arena's span.
    * A2c pulls it back/up from the A2b inside arm so all four team clusters and both

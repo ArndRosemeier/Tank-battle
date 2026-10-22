@@ -62,6 +62,9 @@ export class CameraRig {
 
   private pose: CameraPoseName | null = null;
   private frozenPose: CameraPose | null = null;
+  private recoilAmount = 0;
+  private readonly recoilBack = new Vector3();
+  private readonly lastPoseTarget = new Vector3();
 
   constructor(options: CameraRigOptions) {
     this.arena = options.arena;
@@ -105,6 +108,43 @@ export class CameraRig {
   /** One wheel event. The arm length is clamped; a snapshot pose is unaffected. */
   zoom(wheelDeltaY: number): void {
     this.targetDistance = zoomDistance(this.targetDistance, wheelDeltaY);
+  }
+
+  /** One firing blowback impulse. The camera returns to the spring pose as it decays. */
+  kick(strength = 1): void {
+    if (!Number.isFinite(strength) || strength < 0 || strength > 2) {
+      throw new Error(`cameraRig: kick strength must be finite and within 0…2, got ${String(strength)}`);
+    }
+    this.recoilAmount = Math.min(1, Math.max(this.recoilAmount, strength));
+  }
+
+  /** The current recoil, 0…1. Presentation only; never read by the simulation. */
+  get recoil(): number {
+    return this.recoilAmount;
+  }
+
+  /**
+   * Apply the current blowback to the RENDER camera. The aim camera snapshot must be
+   * taken before this call: a jolted camera must never move the pointer's world point.
+   */
+  applyRecoil(): void {
+    if (this.recoilAmount <= 0 || this.pose !== null || this.frozenPose !== null) return;
+    const recoil = this.recoilAmount;
+    this.recoilBack
+      .set(
+        this.camera.position.x - this.lastPoseTarget.x,
+        this.camera.position.y - this.lastPoseTarget.y,
+        this.camera.position.z - this.lastPoseTarget.z,
+      )
+      .normalize();
+    this.camera.position.addScaledVector(this.recoilBack, CAMERA.recoilBackMetres * recoil);
+    this.camera.position.y += CAMERA.recoilUpMetres * recoil;
+    this.camera.lookAt(
+      this.lastPoseTarget.x,
+      this.lastPoseTarget.y + CAMERA.recoilPitchMetres * recoil,
+      this.lastPoseTarget.z,
+    );
+    this.camera.updateMatrixWorld();
   }
 
   /**
@@ -153,6 +193,9 @@ export class CameraRig {
       pitchDegrees: CAMERA.defaultPitchDegrees,
     });
     this.applyPose(pose);
+    if (this.recoilAmount > 0) {
+      this.recoilAmount = Math.max(0, this.recoilAmount - dtSeconds / CAMERA.recoilSeconds);
+    }
   }
 
   /** Keeps the projection in step with the canvas. */
@@ -168,6 +211,7 @@ export class CameraRig {
     this.camera.position.set(pose.position.x, pose.position.y, pose.position.z);
     this.camera.up.set(pose.up.x, pose.up.y, pose.up.z);
     this.camera.lookAt(pose.target.x, pose.target.y, pose.target.z);
+    this.lastPoseTarget.set(pose.target.x, pose.target.y, pose.target.z);
     this.camera.updateMatrixWorld();
   }
 }

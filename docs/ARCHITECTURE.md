@@ -105,7 +105,7 @@ running headless in `node`.
 | interpolation | `PlayableSession.interpolatedTanks(alpha)` | `src/game/session.ts:230` | Tanks interpolate x/z/hull/turret/pitch between the previous and current tick; yaw uses the shortest arc. Shells render at the latest state (no interpolation), chosen because their flight is short and a trail already reads motion. |
 | the app scene | `createPlayableScene(state, ids)` | `src/render/playableScene.ts:40` | Builds the real world mesh, debris, two tank views and the shell streak buffer. This is the app path; the A2 showcase remains the budget fixture. `setTanksHidden` is the top-plan review switch, not gameplay. |
 | rebuilding on revision | `PlayableScene.syncWorld()` | `src/render/playableScene.ts:77` | The ONE rebuild gate: compares `World.revision` with the last built revision; only a change calls `worldMesh.rebuild()` / `debrisView.rebuild()`. Never per frame. |
-| shells/debris views | `createShellView()` · `createDebrisView(world)` | `src/render/shellView.ts:31` · `src/render/debrisView.ts:24` | One merged streak line buffer for shells; one merged `NeonSurface` for A1 blocks and shards. Both are data-derived, never patched. |
+| shells/debris views | `createShellView()` · `createDebrisView(world)` | `src/render/shellView.ts` · `src/render/debrisView.ts` | ONE instanced low-poly rocket mesh (60 triangles) plus one merged exhaust-trail buffer; both rewrite their buffers each frame and share the fire event's position/direction. One merged `NeonSurface` for A1 blocks and shards. Data-derived, never patched. |
 | the in-style HUD | `createHud()` · `createAimHud()` | `src/entry/hud.ts` | DOM only: three 44 px hull segments with a numeric label, a 56 px reload ring with seconds, the squad rows (name, pips, LIVE/KIA), the duel target, the kill feed, the victory/defeat banner, and the projected impact reticle plus a team-coloured target bracket. Team mode omits the duel target; duel mode hides the squad. Colours come from `PALETTE`/`teamColor`; no HTML controls. |
 | the combat screenshot pose | `cameraPose('combat', ...)` | `src/render/cameraMath.ts:228` | Deterministic behind/above player frame for the demo breach, target and in-flight shell. Added to `CAMERA_POSE_NAMES`; `shot.sh combat` selects it. |
 | the player-team mode | `?mode=team` · `TeamSession` | `src/main.ts:89` · `src/game/teamSession.ts:101` | Team 0 is the input tank plus three AI squadmates, against three AI teams of four on `ARENA`; the seed rotates the team-to-corner assignment. `hash()` is the determinism witness; the stand-in and the demo both run through this same class. |
@@ -113,14 +113,15 @@ running headless in `node`.
 | the squad readout | `createHud()` squad rows | `src/entry/hud.ts:67` | One row per AI squadmate in slot order: character name, three HP pips, LIVE/KIA; the player's own block keeps the hull segments and reload ring. Team mode omits the duel target block; duel mode hides the squad. |
 | the team screenshot pose | `cameraPose('team', …)` | `src/render/cameraMath.ts` | A deterministic 28 m / 34° / 18° staging frame of the player and squad, selected by `shot.sh team`; the live follow arm is 8.2 m and unchanged. The 12.5 m version put too many bright hull tiles in one screen band and failed the look-budget tile p90. |
 | the player-team stand-in | `runPlayerTeamBatch` | `src/game/playerBatch.ts:82` | The ONE way the player mode gets a win rate without a human: the vanguard `AIController` drives tank 0 through the real `TeamSession`, 100 seeds by default, writing `reports/player-batch.json`. Human skill is not measured. |
-| the player's aiming loop | `solveAim` · `castAimRay` · `projectAimPoint` · `createAimHud()` | `src/game/aim.ts` · `src/core/sim/step.ts` · `src/render/aimProjection.ts` · `src/entry/hud.ts` · `src/main.ts` | The camera yaw follows the HULL only (`aimFollowFraction = 0`; the 0.11 s spring remains). Per tick, a camera ray through the pointer takes the first enemy tank / world cell / big block / floor hit, then solves yaw+pitch from the muzzle with the ±60° / −30…+25° clamps. The reticle is the projection of the CLAMPED true impact point (not the screen centre); a tank impact adds a team-coloured bracket. Empty sky is `outOfRange` and aims at the 80 m endpoint. `fovDegrees` stays **50**. |
-| combat VFX | `createEffectsView()` | `src/render/effectsView.ts` | ONE additive particle view: muzzle flash, impact/hit sparks, cell-break shards, a regeneration grow-in cage and death bursts. Point sprites use a generated radial alpha texture; the shells draw a travelled-clamped trail. No VFX is a bright flat surface. |
+| the player's aiming loop | `solveAim` · `castAimRay` · `projectAimPoint` · `createAimHud()` | `src/game/aim.ts` · `src/core/sim/step.ts` · `src/render/aimProjection.ts` · `src/entry/hud.ts` · `src/main.ts` | The camera yaw follows the HULL only (`aimFollowFraction = 0`; the 0.11 s spring remains). Per tick, a camera ray through the pointer takes the first enemy tank / world cell / big block / floor hit, then solves yaw+pitch from the muzzle. The P6 correction made the yaw full **180°** (the owner's intent); pitch keeps −30…+25°. The reticle is the projection of the true impact point (not the screen centre); a tank impact adds a team-coloured bracket. Empty sky is `outOfRange` and aims at the 80 m endpoint. `fovDegrees` stays **50**. Firing adds a visual blowback after the aim snapshot (below). |
+| combat VFX | `createEffectsView()` · `createShellView()` | `src/render/effectsView.ts` · `src/render/shellView.ts` | ONE additive particle view: muzzle flash, impact/hit sparks, cell-break shards, a regeneration grow-in cage and death bursts. The shell is now a small rocket body + orange exhaust + a travelled-clamped trail; point sprites use a generated radial alpha texture. No VFX is a bright flat surface. |
 | the gun and muzzle | `PlaceholderTank` turret parts · `effects.muzzle` | `src/render/placeholderTank.ts` · `src/render/effectsView.ts` | The 2.15 m barrel ends in a hexagonal muzzle brake at the sim's 3 m muzzle, with a small ice bore ring; a shot spawns a lifted, soft muzzle flash at the shell origin. |
 | killer attribution and feed | `Tank.killedByTeamId` · `KillFeedTracker` · `describeKill` | `src/core/sim/match.ts` · `src/game/killFeed.ts` | The sim records the firing team on a shell kill (null for the clock); the game layer turns alive→dead transitions into labelled rows (SQUAD / YOU / TEAM n, cause). Presentation only — no gameplay rule. |
 | the damage vignette | `damageFlash` in `HudState` | `src/entry/hud.ts` · `src/main.ts` | The host decays a 0…1 flash when the player's HP drops; the HUD renders a radial edge glow, never a filled bright overlay. |
 | the hull's light | `NEON.teamEdgeGain` · `BLOOM` | `src/render/config.ts` | The close player hull is a DARK mass with thin trim: team edge HDR **2.2** (was 3.2) and bloom threshold **0.65** / strength **0.5** / radius **0.32** (was 0.6/0.62/0.4). The live 8.2 m `TEAM_CAMERA_POSE=tank` frame measures tile p90 **15 L (5.9 %)**; it was 75 L (29.4 %) before. Do not raise either without re-running the live pose. |
-| the audio seam | `AudioEngine` | `src/entry/audio.ts` | ONE Web Audio graph: master → music bus + SFX bus, two looping beds (`menu`, `combat`) with a 2 s crossfade, a **0.28×** pause duck, per-bus volumes, and one-shot SFX. `unlock()` must be called from a real gesture; it creates/resumes the context and loads `assets/manifest.json`. The generated clips are local; no CDN. |
+| the audio seam | `AudioEngine` | `src/entry/audio.ts` | ONE Web Audio graph: master → music bus + SFX bus, two looping beds (`menu`, `combat`) with a 2 s crossfade, a **0.28×** pause duck, per-bus volumes, and one-shot SFX. The generated clips are local; `rocket.mp3` is the P7 launch layer, played as a 1.15 s slice from 2.55 s so a long generated file cannot stack. `unlock()` must be called from a real gesture; it creates/resumes the context and loads `assets/manifest.json`. |
 | the front door | `createScreens()` | `src/entry/screens.ts` · `index.html` | Title / settings / pause as DOM overlays in the HUD palette: Play / Team / Spectate / Settings, controls, credit, animated grid, drawn sliders (no HTML range inputs), reduced-motion switch and Back. The root URL opens the title; `?mode=…` still starts a match directly for screenshot/direct URLs. |
+| firing presentation | `CameraRig.kick/applyRecoil` · `PlaceholderTank.kick` · `ROCKET_SFX` | `src/render/cameraRig.ts` · `src/render/placeholderTank.ts` · `src/main.ts` | P7's blowback is presentation only: the camera gets a 0.16 s back/up/pitch impulse and the turret/barrel slides 0.15 m back, then decays. `applyRecoil()` runs AFTER the aim snapshot and HUD solve, so a kick can never move the pointer's world point. Reduced motion suppresses the camera kick. The simulation position, velocity and command are untouched. |
 | settings | `loadSettings()` · `saveSettings()` · `withSetting()` | `src/entry/settings.ts` | ONE persisted preference object (`tank-battle.settings.v1`): master/music/SFX volumes, quality (surface detail + bloom), reduced motion. P6 removed the sensitivity UI and its consumer; the old `mouseSensitivity` key is still validated so an existing store loads instead of being discarded. Invalid stored data is rejected and the documented defaults are used with a console warning. |
 | shipped assets | `assets/manifest.json` · build copy | `assets/` · `package.json` | Every shipped audio file is a manifest entry with sha256, bytes, model, prompt and date; every entry resolves to a file. `vite build` copies `assets/` into `dist/assets/`, so the served URLs are `assets/audio/…` and `assets/manifest.json`. |
 | presentation events | `PlayableScene.takeEvents()` | `src/render/playableScene.ts` | ONE queue of fire/reload/impact/hit/death/wall-break/regen events derived from state transitions; the host maps them to audio, and the VFX view remains the one consumer of its own particle spawns. |
@@ -435,11 +436,11 @@ second aim path.
 
 The camera follows the **hull only** (`CAMERA.aimFollowFraction = 0`). This is the P6
 feedback fix: a camera that yawed toward the turret would move the world point under a
-stationary pointer (ray → aim → camera → ray). On-screen points AHEAD of the tank are
-inside the horizontal frame (~39.8° at 16:9, so inside ±60°); points at the lower screen
-can lie between the camera and the muzzle, where the required turn exceeds ±60° and is
-clamped. That is why the reticle is the **clamped impact**, not a promise that the pointer
-always maps exactly.
+stationary pointer (ray → aim → camera → ray). The P6 correction removed the yaw clamp
+after the owner's feedback: the turret can now turn the full 180°, so a point behind the
+hull is reachable. The lower-screen ground can still be between the camera and the muzzle;
+the reticle projects the true shell impact, not a promise that the pointer always maps
+exactly to it. Pitch keeps its physical −30…+25° clamp.
 
 The reticle is drawn at the projection of that impact; the OS cursor is hidden by CSS on
 `#app`. `createAimHud()` adds a 56 px corner bracket when the true impact is an enemy tank,
@@ -455,6 +456,45 @@ the look budget: void 75.2 %, surface **12 L (4.7 %)**, mid 1.6 %, line p99 **18
 contrast **15.50**, tile p90 **11 L (4.3 %)**. `aimFollowFraction`'s 0.11 s spring, the
 `projectAimPoint` edge fallback and `fovDegrees = 50` are unchanged. No simulation rule,
 reload, damage or AI code changed.
+
+
+
+### P7 · Rockets, blowback and a line glow-up
+
+The shell is a **small rocket**: one instanced low-poly mesh (60 triangles; open body,
+nose, three fins, orange exhaust) plus the existing merged trail, which starts **behind**
+the body so the exhaust does not paint through it. `InstancedMesh` keeps it to one draw
+call and the scene budget stays at 103 objects / 16 032 triangles before shells; the
+rocket test caps its geometry at 60 triangles. The simulation's shell speed, hit rules
+and lifetime are untouched.
+
+Firing has **visual blowback**: `CameraRig.kick()` applies a short back/up/pitch impulse
+and `PlaceholderTank.kick()` slides the turret/barrel back; both decay over
+`CAMERA.recoilSeconds`. The camera impulse is applied **after** the aim snapshot and HUD
+projection (`applyRecoil()`), so it cannot move the pointer's world point or the turret's
+target. It is not a physics recoil: the tank's simulated position and velocity do not
+change. `reducedMotion` suppresses the camera kick.
+
+The fire sound is layered: the old `cannon` body plus a generated **rocket** launch clip
+(`assets/audio/rocket.mp3`, ByteDance Seed Audio, prompt in the manifest), played as a
+1.15 s slice from 2.55 s. The browser probe recorded `start(0, 2.55, 1.15)` against the
+8.046 s decoded buffer. `BrowserInput` also latches a quick pointerdown/Space for 600 ms,
+so a click that begins and ends between two slow frames still fires; this was a real
+missing-shot path, not just a sound problem.
+
+The glow-up is deliberately a **bloom/line-seam** change. `BLOOM` is threshold 0.58,
+strength 0.65, radius 0.42 (was 0.65/0.5/0.32); `NEON` raises every edge family and the
+grid gains; the floor grid's screen-space line cores widen to 1.5/1.8 px; HUD borders,
+health segments, reload strokes, reticle/target brackets and slider tracks are thicker
+and brighter. WebGL still draws the world's `LineBasicMaterial` at 1 px — the platform
+ignores linewidth — so the world-line thickness is the widened bloom halo plus the
+brighter core, not a triangle-line replacement. That avoids a line-width shader and the
+scene-budget blow-up a `Line2` conversion would cause.
+
+The live frame (1920×1080) passes the look gate: void 53.7 %, surface **12 L (4.7 %)**,
+mid 4.3 %, line p99 **196**, contrast **16.33**, tile p90 **20 L (7.8 %)**. The first
+attempt (bloom 0.85/radius 0.58 and larger gains) FAILED at surface 23 L / tile p90 98;
+that red run is why these values are the landing values.
 
 
 ## 3 · Gotchas
@@ -474,9 +514,11 @@ reload, damage or AI code changed.
   store game state in it.
 - **The A2 showcase is now a FIXTURE, not the app path.** `demoWorld.ts`/`sceneAssembly.ts` remain the hand-authored 16-tank scene the A2 `sceneBudget.test` measures; the live app uses `createPlayableScene` over the real match and `ARENA`; A5 owns the full HUD.
 - **`LineBasicMaterial.linewidth` is ignored on almost every WebGL platform.** The
-  spec permits only 1 px lines and ANGLE follows it, so the look is 1 px lines plus
-  `UnrealBloomPass` for the glow. Do not "fix" this with a screen-space line-width
-  shader in A2 — that is a different material system, not a tuning change.
+  spec permits only 1 px lines and ANGLE follows it. The world edges are still 1 px; P7
+  makes them read thicker with a wider/stronger bloom halo and brighter HDR cores, while
+  the grid is a shader and the HUD is DOM, so those two can and do have literal widths.
+  Do not "fix" the world edges with a screen-space line-width shader — that is a
+  different material system and a scene-budget change, not a tuning change.
 - **Coincident edge lines lose a depth test against their fill: that was D1.** The
   `EdgesGeometry` lines sit exactly on the fill's triangle boundaries, so the line's
   rasterized depth differs from the triangle's by a few ULPs and `LessEqualDepth`
@@ -662,13 +704,14 @@ reload, damage or AI code changed.
   for hull/turret yaw between the previous and current tick. Shells are drawn at their
   latest simulation position (a 1.8 m streak conveys motion); this is deliberate. The
   renderer never calls `stepMatch`.
-- **Input is a button mapping; the pointer is a world ray (P6).** WASD becomes
+- **Input is a button mapping; the pointer is a world ray (P6/P7).** WASD becomes
   throttle/steer and click/Space fires; `commandFromAim` takes the absolute turret angles
   from `solveAim`, which casts the camera ray through the pointer. The OS cursor is hidden
-  and the reticle is the impact point. There is deliberately NO pointer lock. A camera
-  ray at the lower screen can hit ground BEHIND the muzzle, where the required turn is
-  over 60° and the clamp moves the reticle away from the pointer; the reticle shows that
-  true clamped impact. Do not assume every on-screen point is inside the clamp.
+  and the reticle is the impact point. There is deliberately NO pointer lock. The P6
+  correction removed the yaw clamp (the turret turns the full 180°); only the physical
+  pitch clamp remains. Lower-screen ground can sit between the camera and the muzzle, so
+  the true impact can still differ from the pointed ground; the reticle shows that impact.
+  P7 also latches a quick click for 600 ms so it cannot fall between two slow frames.
 - **The hull is 2.0 × 2.6 m, inside the 1 m body radius by width.** `config.test.ts`
   pins `TANK.hullWidthMetres / 2 <= TANK_RADIUS_METRES * 1.05` (measured 1.00 m). The
   turret/barrel are scaled with it. The whole turret group is the pitch pivot, so pitch

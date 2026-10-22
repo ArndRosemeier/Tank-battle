@@ -12,7 +12,7 @@
  */
 
 import { BoxGeometry, CylinderGeometry, Group, type BufferGeometry } from 'three';
-import { NEON, PALETTE, TANK, teamColor, teamEdgeGainFor } from './config.ts';
+import { CAMERA, NEON, PALETTE, TANK, teamColor, teamEdgeGainFor } from './config.ts';
 import { createNeonSurface, type NeonSurface, type SurfacePart } from './neonSurface.ts';
 
 export interface PlaceholderTank {
@@ -20,6 +20,9 @@ export interface PlaceholderTank {
   readonly turret: Group;
   /** Advances the A2 showcase's trivial turret sweep. */
   sweep(elapsedSeconds: number): void;
+  /** One firing blowback: slide the whole turret/barrel assembly back, then recover. */
+  kick(): void;
+  updateRecoil(dtSeconds: number): void;
   /**
    * Places the A3c sim state on the model. The hull group carries hull yaw; the turret
    * carries the RELATIVE yaw and the gun pitch (the turret is the pitch pivot).
@@ -187,6 +190,8 @@ export function createPlaceholderTank(teamIndex: number, phase: number): Placeho
 
   const surfaces = [hullSurface, turretSurface];
   const sweepAngularSpeed = (Math.PI * 2) / TANK.sweepPeriodSeconds;
+  const turretRestZ = turret.position.z;
+  let recoilAmount = 0;
 
   return {
     group,
@@ -222,6 +227,16 @@ export function createPlaceholderTank(teamIndex: number, phase: number): Placeho
       const relativeYaw = turretYawDegrees - hullYawDegrees;
       turret.rotation.y = (relativeYaw * Math.PI) / 180;
       turret.rotation.x = (aimPitchDegrees * Math.PI) / 180;
+      turret.position.z = turretRestZ + recoilAmount * CAMERA.barrelRecoilMetres;
+    },
+    kick(): void {
+      recoilAmount = 1;
+    },
+    updateRecoil(dtSeconds: number): void {
+      if (!Number.isFinite(dtSeconds) || dtSeconds < 0) {
+        throw new Error(`placeholderTank: recoil dt must be finite and >= 0, got ${String(dtSeconds)}`);
+      }
+      recoilAmount = Math.max(0, recoilAmount - dtSeconds / CAMERA.recoilSeconds);
     },
     dispose(): void {
       for (const surface of surfaces) {

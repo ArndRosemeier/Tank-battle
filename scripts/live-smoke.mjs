@@ -94,6 +94,10 @@ try {
   if (!titleGone) note('the title screen is still covering the game after Play');
   const canvasCursor = await page.evaluate(() => getComputedStyle(document.querySelector('#app')).cursor);
   if (canvasCursor !== 'none') note(`the OS cursor is still visible over the canvas (cursor: ${canvasCursor})`);
+  const loadedAudio = await page.evaluate(() => window.__TANK_BATTLE__?.audio?.() ?? null);
+  if (!loadedAudio || loadedAudio.clips < 12) {
+    note(`the rocket audio clip is not loaded (audio clips: ${loadedAudio?.clips ?? 'none'})`);
+  }
 
   // AIM, end to end, on the deployed build. Two things are checkable from outside:
   // (1) the reticle is NOT a fixed centre marker - it moves when the pointer moves; and
@@ -122,6 +126,18 @@ try {
     if (!(right.x > left.x)) {
       note(`aim is INVERTED: pointer right -> reticle x ${Math.round(right.x)}, pointer left -> ${Math.round(left.x)}`);
     }
+  }
+
+  // P7: a quick click must actually fire (the input latches a click across a slow
+  // frame), and it must not raise a page/console error. The handlers above own failure.
+  const shotsBefore = await page.evaluate(() => window.__TANK_BATTLE__?.shotsFired?.() ?? -1);
+  await page.mouse.click(Math.round(size.width * 0.5), Math.round(size.height * 0.55));
+  await page.waitForTimeout(800);
+  const shotsAfter = await page.evaluate(() => window.__TANK_BATTLE__?.shotsFired?.() ?? -1);
+  if (!(shotsAfter > shotsBefore)) {
+    note(`the fire click did not produce a shot (${shotsBefore} -> ${shotsAfter})`);
+  } else {
+    console.log(`live-smoke: fire produced ${shotsAfter - shotsBefore} shot(s)`);
   }
 
   // The audio assets the page asks for must exist.

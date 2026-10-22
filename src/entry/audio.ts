@@ -17,6 +17,7 @@ export type MusicTrack = 'menu' | 'combat';
 
 export type SfxName =
   | 'cannon'
+  | 'rocket'
   | 'hit'
   | 'death'
   | 'reload'
@@ -149,7 +150,11 @@ export class AudioEngine {
     this.startMusic(track, buffer);
   }
 
-  playSfx(name: SfxName, gain = 1): void {
+  playSfx(
+    name: SfxName,
+    gain = 1,
+    options: { readonly offsetSeconds?: number; readonly durationSeconds?: number } = {},
+  ): void {
     const context = this.context;
     const bus = this.sfxBus;
     if (!context || !bus) return;
@@ -158,13 +163,25 @@ export class AudioEngine {
     if (!Number.isFinite(gain) || gain < 0 || gain > 4) {
       throw new Error(`audio: SFX gain must be within 0…4, got ${String(gain)}`);
     }
+    const offset = options.offsetSeconds ?? 0;
+    const duration = options.durationSeconds;
+    if (!Number.isFinite(offset) || offset < 0 || offset >= buffer.duration) {
+      throw new Error(`audio: SFX offset must be within 0…${buffer.duration}, got ${String(offset)}`);
+    }
+    if (duration !== undefined && (!Number.isFinite(duration) || duration <= 0)) {
+      throw new Error(`audio: SFX duration must be finite and > 0, got ${String(duration)}`);
+    }
     const source = context.createBufferSource();
     source.buffer = buffer;
     const level = context.createGain();
     level.gain.value = gain;
     source.connect(level);
     level.connect(bus);
-    source.start();
+    if (duration === undefined) {
+      source.start(0, offset);
+    } else {
+      source.start(0, offset, duration);
+    }
   }
 
   dispose(): void {
@@ -245,7 +262,7 @@ export class AudioEngine {
         this.buffers.set(bufferKey(entry.path), decoded);
       }),
     );
-    for (const name of ['cannon', 'hit', 'death', 'reload', 'wall-break', 'regen', 'ui-click', 'victory', 'defeat', 'menu', 'combat']) {
+    for (const name of ['cannon', 'rocket', 'hit', 'death', 'reload', 'wall-break', 'regen', 'ui-click', 'victory', 'defeat', 'menu', 'combat']) {
       if (!this.buffers.has(name)) {
         throw new Error(`audio: required clip "${name}" is missing from assets/manifest.json`);
       }

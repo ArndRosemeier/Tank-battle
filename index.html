@@ -43,9 +43,9 @@
         font-size: 12px;
         letter-spacing: 0.12em;
         text-transform: uppercase;
-        text-shadow: 0 0 8px currentColor;
+        text-shadow: 0 0 14px currentColor;
         --panel-bg: rgba(2, 10, 14, 0.8);
-        --panel-line: rgba(143, 244, 255, 0.32);
+        --panel-line: rgba(143, 244, 255, 0.52);
       }
       .hud-panel {
         position: absolute;
@@ -53,25 +53,26 @@
         gap: 8px;
         padding: 13px 17px;
         background: var(--panel-bg);
-        border: 1px solid var(--panel-line);
-        border-left: 2px solid currentColor;
+        border: 2px solid var(--panel-line);
+        border-left: 3px solid currentColor;
+        box-shadow: 0 0 22px rgba(143, 244, 255, 0.14);
         clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
       }
       #hud-player { left: 28px; bottom: 28px; width: 348px; }
       #hud-squad { left: 28px; top: 28px; width: 348px; display: none; }
-      #hud-target { right: 28px; top: 28px; width: 276px; text-align: right; border-left: 0; border-right: 2px solid currentColor; }
-      #hud-feed { right: 28px; bottom: 86px; width: 348px; display: none; border-left: 0; border-right: 2px solid currentColor; }
+      #hud-target { right: 28px; top: 28px; width: 276px; text-align: right; border-left: 0; border-right: 3px solid currentColor; }
+      #hud-feed { right: 28px; bottom: 86px; width: 348px; display: none; border-left: 0; border-right: 3px solid currentColor; }
       #hud-fps { position: fixed; right: 30px; bottom: 30px; opacity: 0.55; font-size: 11px; text-align: right; }
       .hud-label { opacity: 0.62; font-size: 10px; letter-spacing: 0.2em; }
       .hud-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
       .hud-value { font-size: 15px; opacity: 0.92; letter-spacing: 0.08em; }
       .hp-bar { display: flex; gap: 5px; }
-      .hp-seg { width: 44px; height: 10px; background: currentColor; opacity: 0.14; }
-      .hp-seg.live { opacity: 0.95; box-shadow: 0 0 10px currentColor; }
+      .hp-seg { width: 44px; height: 12px; background: currentColor; opacity: 0.18; }
+      .hp-seg.live { opacity: 1; box-shadow: 0 0 16px currentColor, 0 0 5px currentColor; }
       .reload-row { display: flex; align-items: center; gap: 12px; }
       #hud-reload { width: 56px; height: 56px; display: block; transform: rotate(-90deg); flex: none; }
-      #hud-reload-track { fill: none; stroke: currentColor; opacity: 0.16; stroke-width: 1.6; }
-      #hud-reload-arc { fill: none; stroke: currentColor; stroke-width: 3.2; stroke-linecap: butt; }
+      #hud-reload-track { fill: none; stroke: currentColor; opacity: 0.22; stroke-width: 2.4; }
+      #hud-reload-arc { fill: none; stroke: currentColor; stroke-width: 4.6; stroke-linecap: butt; filter: drop-shadow(0 0 5px currentColor); }
       #hud-reload-label { font-size: 13px; letter-spacing: 0.18em; }
       #hud-reload-value { font-size: 11px; opacity: 0.62; }
       #hud-squad-list { display: grid; gap: 6px; }
@@ -79,12 +80,12 @@
       .squad-row.dead { opacity: 0.38; }
       .squad-name { font-size: 13px; opacity: 0.95; }
       .squad-hp { display: flex; gap: 4px; }
-      .squad-hp .hp-seg { width: 26px; height: 8px; }
+      .squad-hp .hp-seg { width: 26px; height: 10px; }
       .squad-state { font-size: 11px; text-align: right; opacity: 0.8; }
-      #hud-target .hp-seg { width: 34px; height: 8px; }
+      #hud-target .hp-seg { width: 34px; height: 10px; }
       #hud-feed-list { display: grid; gap: 5px; }
       .feed-row { display: flex; align-items: center; justify-content: flex-end; gap: 8px; font-size: 12px; }
-      .feed-bar { width: 3px; height: 15px; background: currentColor; opacity: 0.9; }
+      .feed-bar { width: 4px; height: 17px; background: currentColor; opacity: 0.95; box-shadow: 0 0 8px currentColor; }
       .feed-killer { opacity: 0.92; }
       .feed-arrow { opacity: 0.55; }
       .feed-victim { opacity: 0.92; }
@@ -95,13 +96,14 @@
         top: 40%;
         transform: translate(-50%, -50%);
         padding: 18px 34px;
-        border: 1px solid currentColor;
+        border: 2px solid currentColor;
+        box-shadow: 0 0 28px currentColor;
         background: rgba(1, 7, 10, 0.82);
         font-size: 30px;
         letter-spacing: 0.32em;
         display: none;
         white-space: nowrap;
-        text-shadow: 0 0 18px currentColor;
+        text-shadow: 0 0 30px currentColor, 0 0 8px currentColor;
       }
       #damage-vignette {
         position: fixed;
@@ -121,7 +123,7 @@
         pointer-events: none;
         z-index: 4;
         color: #00e5ff;
-        filter: drop-shadow(0 0 6px currentColor);
+        filter: drop-shadow(0 0 12px currentColor) drop-shadow(0 0 3px #ffffff);
         transform: translate(-50%, -50%);
       }
       #aim-reticle.offscreen { opacity: 0.55; transform: translate(-50%, -50%) scale(0.78); }
@@ -136,7 +138,7 @@
         pointer-events: none;
         z-index: 4;
         color: #00e5ff;
-        filter: drop-shadow(0 0 7px currentColor);
+        filter: drop-shadow(0 0 14px currentColor) drop-shadow(0 0 4px currentColor);
         transform: translate(-50%, -50%);
       }
       #aim-edge {
@@ -320,8 +322,8 @@
       }
       .tron-button {
         appearance: none;
-        border: 1px solid rgba(0, 229, 255, 0.55);
-        border-left: 2px solid #00e5ff;
+        border: 2px solid rgba(0, 229, 255, 0.62);
+        border-left: 3px solid #00e5ff;
         background: linear-gradient(90deg, rgba(0, 229, 255, 0.12), rgba(0, 0, 0, 0.55));
         color: #c8fbff;
         font: inherit;
@@ -337,7 +339,7 @@
         cursor: pointer;
         clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
         transition: background 120ms linear, color 120ms linear, border-color 120ms linear;
-        text-shadow: 0 0 8px rgba(0, 229, 255, 0.45);
+        text-shadow: 0 0 14px rgba(0, 229, 255, 0.62);
       }
       .tron-button span {
         color: #45d8ef;
@@ -358,7 +360,7 @@
         gap: 7px;
         margin-top: 8px;
         padding-top: 14px;
-        border-top: 1px solid rgba(0, 229, 255, 0.28);
+        border-top: 2px solid rgba(0, 229, 255, 0.38);
         font-size: 10px;
         color: #8ff4ff;
         opacity: 0.72;
@@ -432,18 +434,18 @@
         position: absolute;
         left: 0;
         right: 0;
-        top: 15px;
-        height: 4px;
-        background: rgba(143, 244, 255, 0.18);
+        top: 14px;
+        height: 6px;
+        background: rgba(143, 244, 255, 0.24);
       }
       .slider-fill {
         position: absolute;
         left: 0;
-        top: 15px;
-        height: 4px;
+        top: 14px;
+        height: 6px;
         width: 50%;
         background: #00e5ff;
-        box-shadow: 0 0 8px rgba(0, 229, 255, 0.7);
+        box-shadow: 0 0 14px rgba(0, 229, 255, 0.9), 0 0 4px #eaffff;
       }
       .slider-knob {
         position: absolute;
@@ -522,14 +524,14 @@
     <div id="damage-vignette" aria-hidden="true"></div>
     <div id="aim-reticle" aria-hidden="true">
       <svg viewBox="0 0 42 42" width="42" height="42">
-        <circle cx="21" cy="21" r="14" fill="none" stroke="currentColor" stroke-width="1.6"></circle>
+        <circle cx="21" cy="21" r="14" fill="none" stroke="currentColor" stroke-width="2.5"></circle>
         <circle cx="21" cy="21" r="2" fill="currentColor"></circle>
-        <path d="M21 1v8M21 33v8M1 21h8M33 21h8" stroke="currentColor" stroke-width="1.6"></path>
+        <path d="M21 1v8M21 33v8M1 21h8M33 21h8" stroke="currentColor" stroke-width="2.5"></path>
       </svg>
     </div>
     <div id="aim-target" aria-hidden="true">
       <svg viewBox="0 0 56 56" width="56" height="56">
-        <path d="M4 20V4h16M36 4h16v16M52 36v16H36M20 52H4V36" fill="none" stroke="currentColor" stroke-width="2"></path>
+        <path d="M4 20V4h16M36 4h16v16M52 36v16H36M20 52H4V36" fill="none" stroke="currentColor" stroke-width="3"></path>
       </svg>
     </div>
     <div id="aim-edge" aria-hidden="true">

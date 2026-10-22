@@ -59,6 +59,8 @@ const GRID_FRAGMENT_SHADER = /* glsl */ `
   uniform float uMinorFadeEnd;
   uniform float uMajorFadeStart;
   uniform float uMajorFadeEnd;
+  uniform float uMinorWidth;
+  uniform float uMajorWidth;
   uniform vec3 uVoidColor;
   uniform vec3 uFogColor;
   uniform float uFogNear;
@@ -89,8 +91,8 @@ const GRID_FRAGMENT_SHADER = /* glsl */ `
     float minorFade = 1.0 - smoothstep(uMinorFadeStart, uMinorFadeEnd, distanceToCamera);
     float majorFade = 1.0 - smoothstep(uMajorFadeStart, uMajorFadeEnd, distanceToCamera);
 
-    float minor = gridLine(vWorldXZ, uCell, 1.0);
-    float major = gridLine(vWorldXZ, uCell * uMajorEvery, 1.15);
+    float minor = gridLine(vWorldXZ, uCell, uMinorWidth);
+    float major = gridLine(vWorldXZ, uCell * uMajorEvery, uMajorWidth);
 
     vec3 color = uSurface;
     color += uMinor * (minor * minorFade);
@@ -158,6 +160,8 @@ export function createGridFloor(world: World): GridFloor {
       uMinorFadeEnd: { value: GRID.minorFadeEndMetres },
       uMajorFadeStart: { value: GRID.majorFadeStartMetres },
       uMajorFadeEnd: { value: GRID.majorFadeEndMetres },
+      uMinorWidth: { value: GRID.minorWidthPixels },
+      uMajorWidth: { value: GRID.majorWidthPixels },
       uVoidColor: { value: new Color(PALETTE.void) },
       uFogColor: { value: new Color(PALETTE.background) },
       uFogNear: { value: FOG.nearMetres },

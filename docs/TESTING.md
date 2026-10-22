@@ -146,14 +146,16 @@ never "it passed".
 | A wall blocks the aim ray instead of being shot through | `aims at a wall, not through it, when the camera ray is blocked` | `src/game/aim.test.ts` | ignore world cells, or cast from the muzzle instead of the camera → the wall z/impact assertion reds |
 | Empty sky is out of range but still produces a valid command | `marks empty sky out of range and still produces a valid command` | `src/game/aim.test.ts` | return NaN, or throw instead of aiming at the range endpoint → the finite/range assertions red |
 | Pointer right still aims right, and the reticle projects at the impact | `pointer RIGHT still aims RIGHT, and the reticle projects at the impact point` | `src/game/aim.test.ts` | flip the camera-ray x sign, or project the screen centre → the forward.x / NDC assertions red |
-| The ±60° clamp is visible as the clamped impact | `keeps the ±60° hull-relative clamp and shows the clamped impact` | `src/game/aim.test.ts` | widen the clamp, or project the unclamped desired point → the −60°/distance assertions red |
+| A point behind the hull is reachable; pitch still clamps | `aims at a point BEHIND the hull (full turret rotation), not clamped to ±60°` · `clamps PITCH, and says so` | `src/game/aim.test.ts` | restore the yaw clamp, or project the unclamped pitch → the >60°/pitch-clamp assertions red |
+| The shell is an instanced low-poly rocket, not a bare streak | `adds a low-poly rocket instance and keeps the budgeted triangle count` · `hides the rocket buffer when no shells are in flight` | `src/render/shellView.test.ts` | remove the rocket mesh, or grow its geometry past 60 triangles → the instance/geometry assertions red |
+| Firing kicks the camera back and then recovers | `kicks the live camera back, then returns it to the spring pose` · `never shakes a frozen screenshot pose and rejects a bad impulse` | `src/render/cameraRig.test.ts` | drop `applyRecoil`, or apply it to a frozen pose → the distance/pose assertions red |
 | A new shell emits fire and reload presentation events | `emits fire and reload presentation events for a newly spawned shell` | `src/render/playableScene.test.ts` | drop the event queue or skip the muzzle-distance gate → the fire/reload assertions red |
 | The title background is deterministic for a seed | `is deterministic for a seed and uses the slow director` | `src/game/titleSession.test.ts` | use `Math.random` or a different seed path, or change the 420-tick director → the two hashes/director assertion reds |
 | Leaving the title disposes the background match | `is disposed when the title is left and cannot advance afterwards` | `src/game/titleSession.test.ts` | keep `advance` live after `dispose`, or make dispose non-idempotent → the throw/idempotence assertions red |
 | The first pointerdown starts the menu, not a second time | `starts the menu loop on the first pointerdown and not again on a keydown` | `src/game/titleAudioGate.test.ts` | make the gate stateless, or let a keydown restart it → the `menu`/null sequence reds |
 | The first keydown starts the menu, not a second time | `starts the menu loop on the first keydown and not again on a pointerdown` | `src/game/titleAudioGate.test.ts` | wire only pointerdown, or restart on the second gesture → the key/pointer sequence reds |
 | The shell wires both gestures and disposes the title first | `wires both gestures and disposes the background before a match boots` | `src/game/titleAudioGate.test.ts` | remove either listener, or boot the match before `titleBackground.dispose()` → the source-order assertions red |
-The A3a block (20 rows), the A3b block (7 rows) and the A3c block (11 rows) are direct assertions; A4 adds seven level-validation pins; B1a adds the two A4 gap pins and eleven AI pins; B1b adds the scripted mirror pin; B1c adds the staging-symmetry pin; B2 adds the eager-profile, destruction-attribution, team-staging, team-batch, spectator and spectator-camera pins; B3 adds the body-aware arena connectivity pin and the batch-attribution arm; B4 adds the turn-order purity/rank/team-array pins; P1 adds the one-reload source/cadence pins, the player-team composition/determinism/teammate-immunity pins and the pulled-back team pose; P2 adds the six aim/reticle pins, the spawn-facing pin, the killer/clock attribution pin and the kill-feed label pin; P3 adds the two-way asset-manifest pins, the settings validation/round-trip pin, the pointer-sensitivity pin and the presentation-event pin; P4 adds the title-session determinism/disposal pins, the two first-gesture pins and the shell-wiring order pin; P6 adds the world-point aim solver pins, the hull-only camera pin and the sensitivity-retirement pin (**151/151 tests in 37 files**), plus a deployed reticle-vs-pointer check in the live smoke. **No mutation differential was run for A3a/A3b/A3c/A4/B1a/B1b/B1c/B2/B3/B4/P1/P2/P3/P4/P6**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
+The A3a block (20 rows), the A3b block (7 rows) and the A3c block (11 rows) are direct assertions; A4 adds seven level-validation pins; B1a adds the two A4 gap pins and eleven AI pins; B1b adds the scripted mirror pin; B1c adds the staging-symmetry pin; B2 adds the eager-profile, destruction-attribution, team-staging, team-batch, spectator and spectator-camera pins; B3 adds the body-aware arena connectivity pin and the batch-attribution arm; B4 adds the turn-order purity/rank/team-array pins; P1 adds the one-reload source/cadence pins, the player-team composition/determinism/teammate-immunity pins and the pulled-back team pose; P2 adds the six aim/reticle pins, the spawn-facing pin, the killer/clock attribution pin and the kill-feed label pin; P3 adds the two-way asset-manifest pins, the settings validation/round-trip pin, the pointer-sensitivity pin and the presentation-event pin; P4 adds the title-session determinism/disposal pins, the two first-gesture pins and the shell-wiring order pin; P6 adds the world-point aim solver pins, the hull-only camera pin and the sensitivity-retirement pin; P7 adds the rocket-mesh and camera-blowback pins and the generated launch clip (**156/156 tests in 39 files**), plus the live smoke's fire/shot check. **No mutation differential was run for A3a/A3b/A3c/A4/B1a/B1b/B1c/B2/B3/B4/P1/P2/P3/P4/P6/P7**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
 
 The differential harness is a local artifact at `.gate-logs/differential.py` (row 26)
 and `.gate-logs/differential.sh` (row 0) — both gitignored; the mutations are described
@@ -1810,3 +1812,39 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
   the reticle is the true impact and a wall between the muzzle and the pointed ground
   correctly moves it. The exact property is pinned in node (shell within 0.5 m).
 - **Not verified:** the owner's hand feel, pitch aiming in the browser, aim assist (not built).
+
+### row 76 — Slice P7 (rockets, blowback and line glow-up)
+
+- **Gate:** `bash scripts/gate.sh` → exit **0**, **156/156 tests in 39 files**
+  (`.gate-logs/p7-gate-final.log`).
+- **Rockets:** `src/render/shellView.ts` now draws one `InstancedMesh` of 60-triangle
+  rocket bodies (open body, nose, three fins, orange exhaust) plus the merged trail,
+  which starts behind the body. The simulation speed/lifetime/hit rules are untouched.
+  The shell-view pin caps the geometry at 60 triangles; the scene budget remains
+  103 objects / 16,032 triangles before shells.
+- **Blowback:** `CameraRig.kick/applyRecoil` (0.16 s back/up/pitch impulse) and
+  `PlaceholderTank.kick` (0.15 m barrel/turret slide) are presentation only. The camera
+  impulse is applied after the aim snapshot/HUD solve, so it cannot move the pointer's
+  world point; reduced motion suppresses it. `cameraRig.test.ts` pins the kick and return
+  and the frozen-pose no-op.
+- **Fire and sound:** a quick pointerdown/Space is latched for 600 ms so a click between
+  two slow frames still fires. The generated `assets/audio/rocket.mp3` (ByteDance Seed
+  Audio; prompt/model/date in the manifest) is layered under the cannon as a 1.15 s
+  slice from 2.55 s. Browser probe: **12 clips loaded, context running**, and a fire
+  produced source starts `{bufferSeconds: 8.046, offset: 2.55, duration: 1.15}` plus the
+  cannon; the live smoke reports **fire produced 1 shot** with no console/HTTP error.
+  The sound is generated and wired, not ear-approved.
+- **Glow-up:** BLOOM threshold/strength/radius **0.58 / 0.65 / 0.42**; all `NEON` line
+  families raised; floor-grid line cores **1.5/1.8 px**; HUD panels/health/reload/reticle/
+  target/slider lines thicker and stronger. The first pass (0.58/0.85/radius 0.58 and
+  larger gains) FAILED the look gate at surface 23 L / tile p90 98; the final live frame
+  (`p7-aim-before.png`, 1920×1080) PASSES: void 53.7 %, surface **12 L (4.7 %)**, mid
+  4.3 %, line p99 **196**, contrast **16.33**, tile p90 **20 L (7.8 %)**.
+- **Rocket frame:** `.gate-logs/shots/p7-rocket-572.png` (frozen demo, one shell at
+  1.5 m travel) shows the rocket/exhaust/trail; it was read directly. The world's edge
+  primitives are still 1 px because WebGL ignores `linewidth`; the wider bloom halo is
+  the world-line thickness seam, while grid/HUD widths are literal. This is a documented
+  limit, not a hidden second line system.
+- **Not verified:** the owner's hand/ear verdict, real-GPU frame rate, touch or other
+  browsers, a public P7 deployment, and side-on rocket appearance in actual play (the
+  frozen demo only gives an end-on shot).

@@ -284,6 +284,7 @@ export function createPlayableScene(
           events.push({ type: 'fire', tankId: event.tankId, teamId: event.teamId, x: event.x, y: event.y, z: event.z });
           events.push({ type: 'reload', tankId: event.tankId, teamId: event.teamId });
           effects.muzzle(event.x, event.y, event.z, { x: event.dx, y: event.dy, z: event.dz }, teamColor(event.teamId));
+          tanks.get(event.tankId)?.kick();
         } else if (event.type === 'impact') {
           effects.impact(event.x, event.y, event.z, teamColor(event.teamId));
           events.push(event);
@@ -316,6 +317,7 @@ export function createPlayableScene(
     },
     updateEffects(dtSeconds: number): void {
       effects.update(dtSeconds);
+      for (const tank of tanks.values()) tank.updateRecoil(dtSeconds);
     },
     takeEvents(): readonly SceneEvent[] {
       const result = [...events];

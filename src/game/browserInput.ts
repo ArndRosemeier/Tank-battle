@@ -10,6 +10,9 @@
 
 import { normalisePointerAxis, type PlayerInput } from './input.ts';
 
+/** A click is latched long enough for at least one simulation tick, even on a slow frame. */
+const FIRE_LATCH_MS = 600;
+
 const KEY_CODES = {
   forward: ['KeyW', 'ArrowUp'],
   backward: ['KeyS', 'ArrowDown'],
@@ -29,6 +32,7 @@ export function createBrowserInput(canvas: HTMLCanvasElement): BrowserInput {
   let pointerX = 0;
   let pointerY = 0;
   let pointerFire = false;
+  let fireLatchUntil = 0;
 
   const onKeyDown = (event: KeyboardEvent): void => {
     if (
@@ -41,6 +45,7 @@ export function createBrowserInput(canvas: HTMLCanvasElement): BrowserInput {
     ) {
       event.preventDefault();
     }
+    if (event.code === 'Space') fireLatchUntil = performance.now() + FIRE_LATCH_MS;
     pressed.add(event.code);
   };
   const onKeyUp = (event: KeyboardEvent): void => {
@@ -60,6 +65,7 @@ export function createBrowserInput(canvas: HTMLCanvasElement): BrowserInput {
   const onPointerDown = (event: PointerEvent): void => {
     if (event.button !== 0) return;
     pointerFire = true;
+    fireLatchUntil = performance.now() + FIRE_LATCH_MS;
     updatePointer(event);
     canvas.focus();
   };
@@ -69,6 +75,7 @@ export function createBrowserInput(canvas: HTMLCanvasElement): BrowserInput {
   const onBlur = (): void => {
     pressed.clear();
     pointerFire = false;
+    fireLatchUntil = 0;
   };
 
   window.addEventListener('keydown', onKeyDown);
@@ -90,7 +97,10 @@ export function createBrowserInput(canvas: HTMLCanvasElement): BrowserInput {
         right: [...KEY_CODES.right].some((code) => pressed.has(code)),
         pointerX,
         pointerY,
-        fire: pointerFire || [...KEY_CODES.fire].some((code) => pressed.has(code)),
+        fire:
+          pointerFire ||
+          performance.now() < fireLatchUntil ||
+          [...KEY_CODES.fire].some((code) => pressed.has(code)),
       };
     },
     dispose(): void {

@@ -1,4 +1,4 @@
-import { Vector3 } from 'three';
+import { Matrix4, Vector3 } from 'three';
 import {
   OrthographicCamera,
   PerspectiveCamera,
@@ -75,6 +75,12 @@ window.addEventListener('error', (event) => reportError(event.error ?? event.mes
 window.addEventListener('unhandledrejection', (event) => reportError(event.reason));
 
 type RenderPoseName = CameraPoseName | 'top' | 'spectate';
+
+/**
+ * The generated rocket clip has its launch burst at ~2.7 s; play a bounded slice so a
+ * 4.75 s reload never stacks an eight-second file. The cannon layer supplies the body.
+ */
+const ROCKET_SFX = { offsetSeconds: 2.55, durationSeconds: 1.15 } as const;
 type LaunchMode = 'play' | 'team' | 'spectate' | 'title';
 
 interface LaunchOptions {
@@ -761,9 +767,18 @@ function bootMatch(
       player === undefined ? Number.POSITIVE_INFINITY : Math.hypot(x - player.x, z - player.z);
     switch (event.type) {
       case 'fire': {
-        if (event.tankId === session.playerTankId) audio.playSfx('cannon', 0.9);
-        else if (event.teamId === playerTeam) audio.playSfx('cannon', 0.45);
-        else if (near(event.x, event.z) < 20) audio.playSfx('cannon', 0.25);
+        if (event.tankId === session.playerTankId) {
+          audio.playSfx('cannon', 0.55);
+          audio.playSfx('rocket', 0.9, ROCKET_SFX);
+          // Blowback is presentation only: the sim position/velocity never changes.
+          if (!currentSettings.reducedMotion) rig.kick(1);
+        } else if (event.teamId === playerTeam) {
+          audio.playSfx('cannon', 0.3);
+          audio.playSfx('rocket', 0.35, ROCKET_SFX);
+        } else if (near(event.x, event.z) < 20) {
+          audio.playSfx('cannon', 0.2);
+          audio.playSfx('rocket', 0.18, ROCKET_SFX);
+        }
         break;
       }
       case 'reload':
@@ -909,6 +924,11 @@ function bootMatch(
           window.innerHeight,
           teamColor(playerFrame.teamId),
         );
+
+        // Recoil is applied AFTER the aim snapshot and HUD projection: the jolt is a
+        // presentation shake, not a change to the world point under the pointer.
+        if (!currentSettings.reducedMotion) rig.applyRecoil();
+        scene.updateCamera(rig.camera.position);
       }
 
       for (const event of scene.takeEvents()) {
@@ -979,6 +999,29 @@ function bootMatch(
     demo: () => launch.demo,
     revision: () => session.state.world.revision,
     shells: () => session.state.shells.length,
+    shotsFired: () => session.state.stats.shotsFired,
+    shellView: () => {
+      const rockets = scene.shells.rockets;
+      const matrix = new Matrix4();
+      if (rockets.count > 0) rockets.getMatrixAt(0, matrix);
+      return {
+        visible: rockets.visible,
+        count: rockets.count,
+        parentVisible: rockets.parent?.visible ?? false,
+        matrix: matrix.elements.slice(),
+      };
+    },
+    shellList: () =>
+      session.state.shells.map((shell) => ({
+        id: shell.id,
+        x: shell.x,
+        y: shell.y,
+        z: shell.z,
+        dx: shell.dx,
+        dy: shell.dy,
+        dz: shell.dz,
+        travelled: shell.travelledMetres,
+      })),
     playerHp: () => session.state.tanks[session.playerTankId]?.hp ?? -1,
     dummyHp: () => (launch.mode === 'play' ? (session.state.tanks[1]?.hp ?? -1) : -1),
     squadHp: () => session.state.teams[0]?.tanks.map((tank) => tank.hp) ?? [],
