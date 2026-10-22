@@ -25,6 +25,13 @@ import {
   type World,
 } from '../core/world.ts';
 import { commandFromInput, type PlayerInput } from './input.ts';
+import {
+  interpolateTanks,
+  snapshotTanks,
+  type TankRenderFrame,
+} from './tankFrames.ts';
+
+export type { TankRenderFrame } from './tankFrames.ts';
 import { ARENA, spawnCentreMetres } from './levels/arena.ts';
 import { validateLevel } from './levels/format.ts';
 
@@ -35,20 +42,6 @@ const DEMO_DUMMY = { xMetres: 18, zMetres: 18, hullYawDegrees: 45 } as const;
 const TRAINING_DUMMY = { xMetres: 12, zMetres: 6, hullYawDegrees: 90 } as const;
 const DEMO_BREACH_CELL = { x: 7, z: 7 } as const;
 
-/** A tank transform after interpolation. The render layer maps this to a group. */
-export interface TankRenderFrame {
-  readonly id: number;
-  readonly teamId: number;
-  readonly x: number;
-  readonly z: number;
-  readonly hullYawDegrees: number;
-  readonly turretYawDegrees: number;
-  readonly aimPitchDegrees: number;
-  readonly hp: number;
-  readonly maxHp: number;
-  readonly alive: boolean;
-}
-
 export interface PlayableSessionOptions {
   /** Build the deterministic combat screenshot scenario: a demo breach and no input. */
   readonly demo?: boolean;
@@ -57,37 +50,6 @@ export interface PlayableSessionOptions {
 const PLAYER_TANK_ID = 0;
 const DUMMY_TANK_ID = 1;
 const LEVEL_SEED = 0xa3c_d0e1;
-
-function snapshot(state: MatchState): Map<number, TankRenderFrame> {
-  const frames = new Map<number, TankRenderFrame>();
-  for (const tank of state.tanks) {
-    frames.set(tank.id, {
-      id: tank.id,
-      teamId: tank.teamId,
-      x: tank.x,
-      z: tank.z,
-      hullYawDegrees: tank.hullYawDegrees,
-      turretYawDegrees: tank.turretYawDegrees,
-      aimPitchDegrees: tank.aimPitchDegrees,
-      hp: tank.hp,
-      maxHp: tank.maxHp,
-      alive: tank.alive,
-    });
-  }
-  return frames;
-}
-
-function shortestAngleDelta(from: number, to: number): number {
-  return ((((to - from + 180) % 360) + 360) % 360) - 180;
-}
-
-function lerp(from: number, to: number, alpha: number): number {
-  return from + (to - from) * alpha;
-}
-
-function lerpAngle(from: number, to: number, alpha: number): number {
-  return from + shortestAngleDelta(from, to) * alpha;
-}
 
 /** Opens the demo's visible ambush-pillar breach through the real destruction seams. */
 function carveDemoBreach(world: World): void {
@@ -135,8 +97,8 @@ export class PlayableSession {
     if (demo) {
       carveDemoBreach(this.state.world);
     }
-    this.current = snapshot(this.state);
-    this.previous = snapshot(this.state);
+    this.current = snapshotTanks(this.state);
+    this.previous = snapshotTanks(this.state);
     this.fixed = new FixedStep();
   }
 
@@ -194,7 +156,7 @@ export class PlayableSession {
             : idleTankCommand(tank.turretYawDegrees, tank.aimPitchDegrees),
       }));
     stepMatch(this.state, orders);
-    this.current = snapshot(this.state);
+    this.current = snapshotTanks(this.state);
   }
 
   /**
@@ -224,29 +186,11 @@ export class PlayableSession {
     }
     this.demoFrozen = true;
     this.fixed.reset();
-    this.previous = snapshot(this.state);
+    this.previous = snapshotTanks(this.state);
   }
 
   interpolatedTanks(alpha: number): readonly TankRenderFrame[] {
-    if (!Number.isFinite(alpha)) {
-      throw new Error(`session: alpha must be finite, got ${alpha}`);
-    }
-    const t = Math.max(0, Math.min(1, alpha));
-    const frames: TankRenderFrame[] = [];
-    for (const current of this.current.values()) {
-      const previous = this.previous.get(current.id) ?? current;
-      frames.push({
-        ...current,
-        x: lerp(previous.x, current.x, t),
-        z: lerp(previous.z, current.z, t),
-        hullYawDegrees: lerpAngle(previous.hullYawDegrees, current.hullYawDegrees, t),
-        turretYawDegrees: lerpAngle(previous.turretYawDegrees, current.turretYawDegrees, t),
-        aimPitchDegrees: lerp(previous.aimPitchDegrees, current.aimPitchDegrees, t),
-      });
-    }
-    // A stable id order keeps the view/dispose order independent of Map insertion.
-    frames.sort((a, b) => a.id - b.id);
-    return frames;
+    return interpolateTanks(this.previous, this.current, alpha);
   }
 
   private requireCurrent(tankId: number): TankRenderFrame {

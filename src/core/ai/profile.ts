@@ -48,7 +48,7 @@ function weights(values: Partial<Record<AIGoal, number>>): AIWeights {
 }
 
 /** The brawler from B1b: close, strafe, fire. */
-export const VANGUARD_PROFILE: AIProfile = Object.freeze({
+export const VANGUARD_PROFILE: AIProfile = validateAIProfile({
   name: 'vanguard',
   weights: weights({
     'gain-line-of-sight': 1,
@@ -67,7 +67,7 @@ export const VANGUARD_PROFILE: AIProfile = Object.freeze({
 });
 
 /** A long-sightline specialist: holds ~36 m and refuses to close inside 26 m. */
-export const SNIPER_PROFILE: AIProfile = Object.freeze({
+export const SNIPER_PROFILE: AIProfile = validateAIProfile({
   name: 'sniper',
   weights: weights({
     'gain-line-of-sight': 1,
@@ -88,7 +88,7 @@ export const SNIPER_PROFILE: AIProfile = Object.freeze({
 });
 
 /** A chokepoint holder: hides, waits, fires once, then relocates. */
-export const AMBUSHER_PROFILE: AIProfile = Object.freeze({
+export const AMBUSHER_PROFILE: AIProfile = validateAIProfile({
   name: 'ambusher',
   weights: weights({
     'gain-line-of-sight': 1,
@@ -110,7 +110,7 @@ export const AMBUSHER_PROFILE: AIProfile = Object.freeze({
 });
 
 /** A wall-breaker: when the route blocks, shoots the blocking cell and advances. */
-export const BRUTE_PROFILE: AIProfile = Object.freeze({
+export const BRUTE_PROFILE: AIProfile = validateAIProfile({
   name: 'brute',
   weights: weights({
     'gain-line-of-sight': 0.8,

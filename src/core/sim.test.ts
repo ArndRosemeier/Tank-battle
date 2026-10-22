@@ -374,6 +374,27 @@ describe('the combat core', () => {
     expect(state.stats.shotsFired).toBe(1);
   });
 
+  it('attributes a destroyed cell to the team that fired the shell', () => {
+    const state = duel({
+      world: level({ placements: [{ x: 2, z: 5, material: 'wall', heightMetres: 3 }] }),
+      shooter: { xMetres: 5, zMetres: 16, hullYawDegrees: 0, turretYawDegrees: 0 },
+    });
+    // Leave the wall at one HP; the next shell is the destroying shot.
+    damageCell(state.world, 2, 5, 1, createRng(7));
+    expect(cellAt(state.world, 2, 5).hp).toBe(1);
+    expect(state.stats.worldDestructionByTeam[0]).toBe(0);
+    expect(state.stats.worldDestructionByTeam[1]).toBe(0);
+
+    step(state, onlyOverrides([[0, { fire: true }]]));
+    for (let tick = 0; tick < 20 && state.shells.length > 0; tick += 1) {
+      step(state);
+    }
+
+    expect(cellState(cellAt(state.world, 2, 5))).toBe('hole');
+    expect(state.stats.worldDestructionByTeam[0]).toBe(1);
+    expect(state.stats.worldDestructionByTeam[1]).toBe(0);
+  });
+
   it('a shell that strikes a big block damages it', () => {
     const state = duel({
       world: level({ placements: [{ x: 2, z: 5, material: 'wall', heightMetres: 3 }] }),

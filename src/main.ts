@@ -5,6 +5,7 @@ import {
   Color,
   Fog,
   OrthographicCamera,
+  PerspectiveCamera,
   ACESFilmicToneMapping,
   SRGBColorSpace,
 } from 'three';
@@ -16,9 +17,14 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { requireElement } from './entry/dom.ts';
 import { createHud } from './entry/hud.ts';
 import { CameraRig } from './render/cameraRig.ts';
-import { isCameraPoseName, type CameraPoseName } from './render/cameraMath.ts';
+import {
+  isCameraPoseName,
+  spectatorPose,
+  type CameraPoseName,
+} from './render/cameraMath.ts';
 import {
   BLOOM,
+  CAMERA,
   DPR_CAP,
   FOG,
   PALETTE,
@@ -34,6 +40,7 @@ import { createBrowserInput } from './game/browserInput.ts';
 import { RELOAD_TICKS } from './core/sim.ts';
 import { ARENA, ARENA_BOUNDS } from './game/levels/arena.ts';
 import { PlayableSession } from './game/session.ts';
+import { SpectatorSession } from './game/spectator.ts';
 
 /**
  * Slice A3c's wiring: the real MatchState on a fixed 60 Hz bridge, two sim tanks, a
@@ -62,18 +69,33 @@ function reportError(cause: unknown): void {
 window.addEventListener('error', (event) => reportError(event.error ?? event.message));
 window.addEventListener('unhandledrejection', (event) => reportError(event.reason));
 
-type RenderPoseName = CameraPoseName | 'top';
+type RenderPoseName = CameraPoseName | 'top' | 'spectate';
+type LaunchMode = 'play' | 'spectate';
 
 interface LaunchOptions {
+  readonly mode: LaunchMode;
   readonly detail: number | null;
   readonly pose: RenderPoseName | null;
   readonly demo: boolean;
-  readonly ticks: number;
+  /** Demo defaults to 122; spectator has no pre-run unless `?ticks=` is supplied. */
+  readonly ticks: number | null;
+  readonly teams: number;
+  readonly tanksPerTeam: number;
+  readonly seed: number;
 }
 
-/** `?detail=0…1&pose=…&demo=duel&ticks=122`. Unknown values fail visibly. */
+/** `?detail=0…1&pose=…&demo=duel&ticks=122` or `?mode=spectate&…`. Unknown values fail visibly. */
 function readLaunchOptions(): LaunchOptions {
   const query = new URLSearchParams(window.location.search);
+
+  const modeText = query.get('mode');
+  let mode: LaunchMode = 'play';
+  if (modeText !== null) {
+    if (modeText !== 'spectate') {
+      throw new Error(`launch: unknown ?mode "${modeText}" — expected spectate`);
+    }
+    mode = 'spectate';
+  }
 
   const detailText = query.get('detail');
   let detail: number | null = null;
@@ -87,36 +109,57 @@ function readLaunchOptions(): LaunchOptions {
   const poseText = query.get('pose');
   let pose: RenderPoseName | null = null;
   if (poseText !== null) {
-    if (poseText === 'top') {
+    if (poseText === 'top' && mode === 'play') {
       pose = 'top';
-    } else if (isCameraPoseName(poseText)) {
+    } else if (poseText === 'spectate' && mode === 'spectate') {
+      pose = 'spectate';
+    } else if (isCameraPoseName(poseText) && mode === 'play') {
       pose = poseText;
     } else {
       throw new Error(
-        `launch: unknown ?pose "${poseText}" — expected wide, tank, first, combat or top`,
+        `launch: unknown ?pose "${poseText}" for mode "${mode}" — expected ` +
+          (mode === 'play' ? 'wide, tank, first, combat or top' : 'spectate'),
       );
     }
   }
 
   const demoText = query.get('demo');
   const demo = demoText !== null;
-  if (demo && demoText !== 'duel') {
-    throw new Error(`launch: unknown ?demo "${demoText}" — expected duel`);
+  if (demo && (demoText !== 'duel' || mode !== 'play')) {
+    throw new Error(`launch: ?demo="${demoText}" is only valid as ?demo=duel in play mode`);
   }
 
   const ticksText = query.get('ticks');
-  let ticks = 122;
+  let ticks: number | null = demo ? 122 : null;
   if (ticksText !== null) {
     ticks = Number(ticksText);
     if (!Number.isInteger(ticks) || ticks < 0 || ticks > 10000) {
       throw new Error(`launch: ?ticks must be an integer within 0…10000, got "${ticksText}"`);
     }
-    if (!demo) {
-      throw new Error('launch: ?ticks is only valid with ?demo=duel');
+    if (!demo && mode !== 'spectate') {
+      throw new Error('launch: ?ticks is only valid with ?demo=duel or ?mode=spectate');
     }
   }
 
-  return { detail, pose, demo, ticks };
+  const teamsText = query.get('teams');
+  const teams = teamsText === null ? 4 : Number(teamsText);
+  if (!Number.isInteger(teams) || teams < 2 || teams > 4) {
+    throw new Error(`launch: ?teams must be an integer 2…4, got "${teamsText ?? teams}"`);
+  }
+  const tanksText = query.get('tanksPerTeam');
+  const tanksPerTeam = tanksText === null ? 4 : Number(tanksText);
+  if (!Number.isInteger(tanksPerTeam) || tanksPerTeam < 1 || tanksPerTeam > 4) {
+    throw new Error(
+      `launch: ?tanksPerTeam must be an integer 1…4, got "${tanksText ?? tanksPerTeam}"`,
+    );
+  }
+  const seedText = query.get('seed');
+  const seed = seedText === null ? 1 : Number(seedText);
+  if (!Number.isInteger(seed) || seed < 0) {
+    throw new Error(`launch: ?seed must be a non-negative integer, got "${seedText ?? seed}"`);
+  }
+
+  return { mode, detail, pose, demo, ticks, teams, tanksPerTeam, seed };
 }
 
 const VIGNETTE_SHADER = {
@@ -147,8 +190,185 @@ const VIGNETTE_SHADER = {
   `,
 };
 
+/** The all-AI spectator entry: no HUD, no player input, director camera. */
+function bootSpectate(launch: LaunchOptions): (nowMilliseconds: number) => void {
+  document.body.style.background = PALETTE.background;
+  const spectator = new SpectatorSession({
+    teams: launch.teams,
+    tanksPerTeam: launch.tanksPerTeam,
+    seed: launch.seed,
+  });
+  if (launch.ticks !== null) {
+    spectator.runTicks(launch.ticks);
+  }
+  const initialFocus = spectator.followedTankId ?? spectator.state.tanks[0]?.id;
+  if (initialFocus === undefined) throw new Error('spectate: the match has no tanks');
+  const scene = createPlayableScene(spectator.state, { focusTankId: initialFocus });
+  const sceneStats = measureScene(scene.group);
+  console.log(
+    `[tank-battle] spectator scene: ${sceneStats.drawObjects} draw objects · ` +
+      `${sceneStats.triangles} triangles · ${sceneStats.vertices} vertices · ` +
+      `${spectator.characters.join('/')}`,
+  );
+
+  const renderer = new WebGLRenderer({
+    canvas,
+    antialias: true,
+    alpha: false,
+    stencil: false,
+    powerPreference: 'high-performance',
+  });
+  renderer.setClearColor(new Color(PALETTE.background), 1);
+  renderer.toneMapping = ACESFilmicToneMapping;
+  renderer.toneMappingExposure = POST.exposure * CAMERA.spectatorExposureScale;
+  renderer.outputColorSpace = SRGBColorSpace;
+  renderer.info.autoReset = false;
+
+  const threeScene = new Scene();
+  threeScene.background = new Color(PALETTE.background);
+  threeScene.fog = new Fog(PALETTE.background, FOG.nearMetres, FOG.farMetres);
+  threeScene.add(scene.group);
+
+  const camera = new PerspectiveCamera(CAMERA.fovDegrees, 1, CAMERA.nearMetres, CAMERA.farMetres);
+  camera.name = 'spectator-camera';
+
+  const composer = new EffectComposer(renderer);
+  const renderPass = new RenderPass(threeScene, camera);
+  composer.addPass(renderPass);
+  const bloomPass = new UnrealBloomPass(
+    new Vector2(1, 1),
+    BLOOM.strength,
+    BLOOM.radius,
+    BLOOM.threshold,
+  );
+  composer.addPass(bloomPass);
+  composer.addPass(new ShaderPass(VIGNETTE_SHADER));
+  composer.addPass(new OutputPass());
+
+  const hud = requireElement('hud', HTMLElement, 'hud');
+  hud.style.display = 'none';
+  const topLegend = requireElement('top-legend', HTMLElement, 'top legend');
+  topLegend.style.display = 'none';
+
+  let lastFps = 0;
+  let framesInWindow = 0;
+  let windowStartMilliseconds = 0;
+  let drawCalls = 0;
+  let lastSeconds: number | null = null;
+
+  function applyCamera(): void {
+    const shot = spectator.directorShot();
+    const pose = spectatorPose({
+      centerX: shot.centerX,
+      centerZ: shot.centerZ,
+      floorY: spectator.floorY,
+      yawDegrees: shot.yawDegrees,
+      distanceMetres: shot.distanceMetres,
+      pitchDegrees: shot.pitchDegrees,
+    });
+    camera.position.set(pose.position.x, pose.position.y, pose.position.z);
+    camera.up.set(pose.up.x, pose.up.y, pose.up.z);
+    camera.lookAt(pose.target.x, pose.target.y, pose.target.z);
+    camera.updateMatrixWorld();
+    scene.updateCamera(camera.position);
+  }
+
+  function resize(): void {
+    const width = Math.max(window.innerWidth, 1);
+    const height = Math.max(window.innerHeight, 1);
+    const pixelRatio = Math.min(window.devicePixelRatio || 1, DPR_CAP);
+    renderer.setPixelRatio(pixelRatio);
+    renderer.setSize(width, height);
+    camera.aspect = width / height;
+    camera.updateProjectionMatrix();
+    composer.setPixelRatio(pixelRatio);
+    composer.setSize(width, height);
+    bloomPass.setSize(
+      Math.max(1, Math.floor(width * pixelRatio * BLOOM.resolutionScale)),
+      Math.max(1, Math.floor(height * pixelRatio * BLOOM.resolutionScale)),
+    );
+  }
+
+  function frame(nowMilliseconds: number): void {
+    try {
+      const nowSeconds = nowMilliseconds / 1000;
+      if (lastSeconds === null) {
+        lastSeconds = nowSeconds;
+        windowStartMilliseconds = nowMilliseconds;
+      }
+      const frameSeconds = nowSeconds - lastSeconds;
+      lastSeconds = nowSeconds;
+
+      if (!spectator.frozenFrame) {
+        spectator.advance(frameSeconds);
+      }
+      const frames = spectator.interpolatedTanks(spectator.alpha);
+      scene.setTanks(frames);
+      scene.setShells(spectator.state.shells);
+      scene.syncWorld();
+      applyCamera();
+
+      renderer.info.reset();
+      composer.render();
+      drawCalls = renderer.info.render.calls;
+      canvas.dataset.drawCalls = String(drawCalls);
+      canvas.dataset.spectatorTicks = String(spectator.state.tick);
+      canvas.dataset.spectatorFocus = String(spectator.followedTankId ?? -1);
+
+      framesInWindow += 1;
+      const windowSeconds = (nowMilliseconds - windowStartMilliseconds) / 1000;
+      if (windowSeconds >= 1) {
+        lastFps = framesInWindow / windowSeconds;
+        framesInWindow = 0;
+        windowStartMilliseconds = nowMilliseconds;
+        console.log(
+          `[tank-battle] spectate ${lastFps.toFixed(1)} fps · ` +
+            `${renderer.domElement.width}×${renderer.domElement.height} · ${drawCalls} draw calls · ` +
+            `tick ${spectator.state.tick} · focus ${spectator.followedTankId ?? '-'} · ` +
+            `auto ${spectator.autoDirector ? 'on' : 'off'}`,
+        );
+      }
+      if (!Number.isFinite(lastFps)) throw new Error('main: spectator fps became non-finite');
+      requestAnimationFrame(frame);
+    } catch (cause) {
+      reportError(cause);
+    }
+  }
+
+  window.addEventListener('resize', resize);
+  window.addEventListener('keydown', (event) => {
+    if (event.repeat) return;
+    if (event.code === 'KeyN') {
+      spectator.nextTank();
+    } else if (event.code === 'KeyA') {
+      spectator.resumeAutoDirector();
+    }
+  });
+
+  const debugApi = {
+    fps: () => lastFps,
+    drawCalls: () => drawCalls,
+    pixels: () => ({ width: renderer.domElement.width, height: renderer.domElement.height }),
+    ticks: () => spectator.state.tick,
+    teams: () => spectator.state.teams.length,
+    tanks: () => spectator.state.tanks.length,
+    focus: () => spectator.followedTankId,
+    auto: () => spectator.autoDirector,
+    shot: () => spectator.directorShot(),
+    sceneStats: () => sceneStats,
+  };
+  (window as Window & { __TANK_BATTLE__?: typeof debugApi }).__TANK_BATTLE__ = debugApi;
+
+  resize();
+  applyCamera();
+  return frame;
+}
+
 function boot(): (nowMilliseconds: number) => void {
   const launch = readLaunchOptions();
+  if (launch.mode === 'spectate') {
+    return bootSpectate(launch);
+  }
   if (launch.detail !== null) {
     setSurfaceDetail(launch.detail);
   }
@@ -158,7 +378,7 @@ function boot(): (nowMilliseconds: number) => void {
   // the final deterministic state, not an intermediate tick.
   const session = new PlayableSession({ demo: launch.demo });
   if (launch.demo) {
-    session.runDemo(launch.ticks);
+    session.runDemo(launch.ticks ?? 122);
   }
 
   const scene = createPlayableScene(session.state, {
@@ -203,7 +423,7 @@ function boot(): (nowMilliseconds: number) => void {
       position: { x: initialPlayer.x, y: session.floorY, z: initialPlayer.z },
       yawDegrees: initialPlayer.hullYawDegrees,
     },
-    pose: isTop ? null : launch.pose,
+    pose: isTop ? null : (launch.pose as CameraPoseName | null),
   });
 
   const topCamera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 200);

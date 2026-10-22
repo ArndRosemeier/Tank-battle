@@ -12,3 +12,4 @@ export * from './ai/navigation.ts';
 export * from './ai/profile.ts';
 export * from './ai/controller.ts';
 export * from './ai/batch.ts';
+export * from './ai/teamBatch.ts';

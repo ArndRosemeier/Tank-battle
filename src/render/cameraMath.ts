@@ -140,6 +140,61 @@ export function orbitPose(input: OrbitPoseInput): CameraPose {
   return { position, target, up: UP };
 }
 
+export interface SpectatorPoseInput {
+  readonly centerX: number;
+  readonly centerZ: number;
+  readonly floorY: number;
+  readonly yawDegrees: number;
+  readonly distanceMetres: number;
+  readonly pitchDegrees: number;
+}
+
+/**
+ * The spectator director's framing pose. Unlike the player's orbit arm it is allowed to
+ * pull back past the zoom clamp, because the director frames two tanks plus the nearby
+ * teams rather than following one hull. It is renderer-free and pinned by the pure
+ * camera tests.
+ */
+export function spectatorPose(input: SpectatorPoseInput): CameraPose {
+  for (const [value, label] of [
+    [input.centerX, 'centerX'],
+    [input.centerZ, 'centerZ'],
+    [input.floorY, 'floorY'],
+    [input.yawDegrees, 'yawDegrees'],
+    [input.distanceMetres, 'distanceMetres'],
+    [input.pitchDegrees, 'pitchDegrees'],
+  ] as const) {
+    requireFinite(value, label);
+  }
+  if (
+    input.distanceMetres < CAMERA.spectatorMinDistanceMetres ||
+    input.distanceMetres > CAMERA.spectatorMaxDistanceMetres
+  ) {
+    throw new Error(
+      `cameraMath: spectator distance ${input.distanceMetres} is outside ` +
+        `${CAMERA.spectatorMinDistanceMetres}…${CAMERA.spectatorMaxDistanceMetres}`,
+    );
+  }
+  if (input.pitchDegrees <= 0 || input.pitchDegrees >= 80) {
+    throw new Error(`cameraMath: spectator pitch must be within 0…80 degrees, got ${input.pitchDegrees}`);
+  }
+  const forward = forwardFromYawDegrees(input.yawDegrees);
+  const focusY = input.floorY + CAMERA.focusHeightMetres;
+  const pitchRadians = (input.pitchDegrees * Math.PI) / 180;
+  const back = input.distanceMetres * Math.cos(pitchRadians);
+  const up = input.distanceMetres * Math.sin(pitchRadians);
+  const focus: Vec3 = { x: input.centerX, y: focusY, z: input.centerZ };
+  return {
+    position: {
+      x: focus.x - forward.x * back,
+      y: focus.y + up,
+      z: focus.z - forward.z * back,
+    },
+    target: focus,
+    up: UP,
+  };
+}
+
 export interface CameraPoseRequest {
   readonly name: CameraPoseName;
   readonly arena: ArenaBounds;

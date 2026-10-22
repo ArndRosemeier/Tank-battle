@@ -284,6 +284,11 @@ export const CAMERA = {
   maxDistanceMetres: 16,
   /** Inside this arm length the camera is first person and the hull is hidden. */
   firstPersonDistanceMetres: 2,
+  /** The spectator director's wider framing range (it is not the player's zoom arm). */
+  spectatorMinDistanceMetres: 12,
+  spectatorMaxDistanceMetres: 44,
+  /** The spectator overview is deliberately a little darker so 16 hulls + walls stay in budget. */
+  spectatorExposureScale: 0.8,
   /** How far ahead the first-person camera looks as the arm collapses (in metres). */
   firstPersonLookAheadMetres: 8,
   /** The fixed `first` screenshot pose's eye height above the floor. */

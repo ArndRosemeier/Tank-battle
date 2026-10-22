@@ -5,6 +5,7 @@ import {
   clampDistance,
   isFirstPerson,
   orbitPose,
+  spectatorPose,
   zoomDistance,
 } from './cameraMath.ts';
 
@@ -12,6 +13,29 @@ const ARENA = { minX: 0, maxX: 64, minZ: 0, maxZ: 48 };
 const FOCUS = { x: 21, y: 0.2, z: 37 };
 
 describe('cameraMath', () => {
+  it('frames the spectator action from a wider arm and rejects an out-of-range distance', () => {
+    const pose = spectatorPose({
+      centerX: 24,
+      centerZ: 24,
+      floorY: 0.2,
+      yawDegrees: 0,
+      distanceMetres: 24,
+      pitchDegrees: 34,
+    });
+    expect(pose.target).toEqual({ x: 24, y: 0.2 + CAMERA.focusHeightMetres, z: 24 });
+    expect(pose.position.z).toBeGreaterThan(24);
+    expect(() =>
+      spectatorPose({
+        centerX: 24,
+        centerZ: 24,
+        floorY: 0.2,
+        yawDegrees: 0,
+        distanceMetres: CAMERA.spectatorMaxDistanceMetres + 1,
+        pitchDegrees: 34,
+      }),
+    ).toThrow(/spectator distance/);
+  });
+
   it('the camera zoom is clamped and first person is entered at the documented distance', () => {
     // The clamp is the document: one wheel event cannot leave the arm outside it.
     expect(clampDistance(-1000)).toBe(CAMERA.minDistanceMetres);

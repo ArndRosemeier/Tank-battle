@@ -10,7 +10,7 @@ Dependencies point **downward only**; nothing below a layer may import from abov
 | **entry · DOM** | `src/entry/dom.ts` | The one way to obtain a DOM node the app cannot run without, with the narrowed type. |
 | **core** | `src/core/*.ts` | Pure simulation: no DOM, no time source, no globals. Takes numbers in, returns numbers out, so it tests in `node`. |
 | **core · sim** | `src/core/sim/*.ts`, entrance `src/core/sim.ts` | The combat layer over A1: builds a match from teams/spawns, validates commands, advances one fixed tick (drive with tank bodies, turret/pitch, world, bleed, swept-muzzle fire, shells), resolves 3D shell collisions, owns last-team/tick-cap outcomes and stats, and exposes the `Controller` seam and the match hash. **No renderer, DOM, input, AI, host clock or per-tank `isPlayer`.** |
-| **core · ai** | `src/core/ai/*.ts`, entrance `src/core/ai.ts` | Perception (height-aware 3D sightline + last-seen memory), A* navigation with a `world.revision`/goal cache and body-clear smoothing, four validated character profiles (vanguard, sniper, ambusher, brute), the 10 Hz `AIController`, and the pure headless batch runner. Renderer-free, DOM-free and clock-free; it uses only world and sim APIs. **No live spectator, HUD or game-layer import.** |
+| **core · ai** | `src/core/ai/*.ts`, entrance `src/core/ai.ts` | Perception (height-aware 3D sightline + last-seen memory), A* navigation with a `world.revision`/goal cache and body-clear smoothing, four eagerly validated character profiles (vanguard, sniper, ambusher, brute), the 10 Hz `AIController`, the pure headless 1v1 and team batch runners, and the spectator session/director. Renderer-free, DOM-free and clock-free; it uses only world and sim APIs. **No live spectator, HUD or game-layer import.** |
 | **game** | `src/game/*.ts`, `src/game/levels/*.ts` | The app's pure game layer ABOVE the core: the authored `ARENA` data plus `validateLevel`, the pure pointer/keys→`TankCommand` mapping, browser event gathering, and the `PlayableSession` bridge (FixedStep + MatchState + interpolation + demo seeding). `input.ts`, `levels/format.ts`, `levels/arena.ts` and `session.ts` are renderer-free/clock-free and node-tested; `browserInput.ts` is the only DOM reader. |
 | **core · world** | `src/core/world/*.ts`, entrance `src/core/world.ts` | The world model: cells with height, destruction, two debris tiers, slow regeneration with displacement, and the state hash. Pure data and functions — it has **no tank, shell or AI concept**; tanks arrive as occupant positions and shells as damage calls. |
 | **render · tuning** | `src/render/config.ts` | The ONE tuning module: palette, team-luma gains, HDR gains, §9 albedo band, neutral rim tint, bloom, post, fog, camera distances, grid presentation, surface seams, scene budget, `SURFACE_DETAIL`; the shared cell size is imported from `src/core/world.ts`. Every render constant lives here; a source scan fails on a hex colour anywhere else. |
@@ -80,11 +80,18 @@ running headless in `node`.
 | an AI sightline | `hasLineOfSight(world, from, to)` · `visibleEnemies(state, tank)` | `src/core/ai/perception.ts:49` · `src/core/ai/perception.ts:77` | Samples a 3D segment through `isSolidAt` at eye height (`floor + 1.6 m`) to the target's turret point (`floor + 1.0 m`); a 1.2 m barrier is below the line, a 4.8 m wall blocks it. Team-aware, no shell resolver. |
 | short enemy memory | `PerceptionMemory.update(state, tank)` · `.latest()` | `src/core/ai/perception.ts:99` | Remembers the last seen position/tick per enemy for the profile's `memoryTicks`; memory is for navigation, never for firing. |
 | AI navigation | `NavigationCache.findPath(...)` · `reachablePointNear(...)` | `src/core/ai/navigation.ts:120` · `src/core/ai/navigation.ts:209` | A* over four-neighbour body-free cell centres; the cache recomputes only on `world.revision` or a new goal CELL. Smoothing uses a sampled body-clear line. Boundary rows with zero clearance are rejected so a tank cannot wedge on an arena edge. |
-| AI character data | `validateAIProfile(input)` · `AI_PROFILES` | `src/core/ai/profile.ts:143` · `src/core/ai/profile.ts:132` | The only profile boundary: all eight goal keys (`gain-line-of-sight`, `approach-preferred-range`, `fire-in-cone`, `hold-cover`, `flank`, `ambush-chokepoint`, `breach-wall`, `wounded-retreat`) must be present and in 0…1; per-profile range, cone, memory, aim, ambush-hold and breach-range fields are validated numbers; unknown keys and invalid ranges throw. The four profiles are data, not classes. |
+| AI character data | `validateAIProfile(input)` · `AI_PROFILES` | `src/core/ai/profile.ts:143` · `src/core/ai/profile.ts:132` | The only profile boundary: all eight goal keys (`gain-line-of-sight`, `approach-preferred-range`, `fire-in-cone`, `hold-cover`, `flank`, `ambush-chokepoint`, `breach-wall`, `wounded-retreat`) must be present and in 0…1; per-profile range, cone, memory, aim, ambush-hold and breach-range fields are validated numbers; unknown keys and invalid ranges throw. The four profiles are data, not classes and are passed through `validateAIProfile` at module load, so an invalid shipped weight fails the import; a test imports and re-validates all four. |
 | an AI decision | `AIController.commandFor(state, tankId)` | `src/core/ai/controller.ts:170` | One controller per tank; decides on the first call and every 6 ticks (default phase 0), holds the SAME command object in between, and never reads a clock. The profile goal weights select the mode: vanguard strafes and fires; sniper holds a long sightline and retreats inside `minRangeMetres`; ambusher walks to a reachable no-LOS cell, holds for `ambushHoldTicks`, then relocates; brute breaches a blocking or nearby cover cell, then brawls. Profiles with `wounded-retreat` add the retreat goal. |
 | a batch of AI matches | `runBatchMatches(setup, options)` · `pnpm batch` | `src/core/ai/batch.ts:125` · `scripts/batch.ts:1` | Real `createMatch`/`stepMatch`/`hashMatch` on a supplied level, one vanguard tank per team. Writes `reports/batch.json` and one seed's JSONL trace; `reports/` is gitignored. Summary keeps mean/median length, cap hits, accuracy, TTK from first shot, mean speed and deaths by cause. |
+| a 4-team AI batch | `runTeamBatch(setup, options)` · `pnpm batch --teams 4 --tanks-per-team 4` | `src/core/ai/teamBatch.ts` · `scripts/batch.ts:1` | Same real match seam, up to 4 teams ×4 tanks with the same character cast by slot. Reports per-team and per-corner win splits, length distribution, cap hits, shots/hits, kills, damage, deaths by cause, and per-character survival/damage taken. Writes `reports/team-batch.json`; the 1v1 `reports/batch.json` and trace shape are unchanged. The team-to-corner assignment rotates by seed and the team AI uses `aimErrorScale: 0.1` (see §4). |
+| the team staging | `arenaTeamSetup(teams, tanksPerTeam)` | `src/game/aiBatch.ts` | Four pads in each corner's outer gate, all facing east, with the same cast by slot. The authored 2×2 rings leave the tank-body navigation graph in four disconnected 78-cell components, so team matches use `TEAM_ARENA` (below) and these pads rather than the 1v1 duel staging. |
+| the team arena variant | `TEAM_ARENA` | `src/game/levels/arena.ts` | The same 48 m, four-fold authored arena with the eight ring corners opened from 2×2 to 5×5 windows. This turns the body-free graph into one 404-cell component; the playable `ARENA` and its 2×2 gates are unchanged. |
 | the character round robin | `runRoundRobin(seedsPerPairing)` · `pnpm round-robin` | `src/game/aiBatch.ts:236` · `scripts/round-robin.ts:1` | Every unordered character pairing, both orientations, `seedsPerPairing/2` seeds each way: 6 × 2 × 100 = **1200 matches** at the default 200. Runs the real `createMatch`/`stepMatch` and reports the win matrix, per-character overall win rate, and four signatures against the field median: engagement distance while in LOS, world destruction (cells destroyed + big blocks broken), out-of-LOS share, and mean speed. Writes `reports/round-robin.json` (gitignored). |
 | the 1v1 duel staging | `arenaDuelSetup()` | `src/game/aiBatch.ts:12` | The 2-team batch starts on the open north margin at (18, 6) and (30, 6), a mirror pair, now pinned by `src/game/aiBatch.test.ts`. Adjacent authored corner spawns are NOT a symmetry pair: their exits face different directions, so a 1v1 started there has an unavoidable spatial/cover bias. The four corner spawns remain the >2-team/arena layout. |
+| the spectator match | `SpectatorSession` | `src/game/spectator.ts` | Every tank is an `AIController`; no player input. Deterministic seed, team-mode controller seeds/phases, fixed step, shared `tankFrames` interpolation. Teams and tanks per team are URL options (`?mode=spectate&teams=4&tanksPerTeam=4&seed=…`). |
+| the auto-director | `SpectatorSession.directorShot()` · `updateDirector` | `src/game/spectator.ts` | Cuts every 180 ticks and when a shell appears. While 10+ tanks and four teams are alive it frames a four-team overview; otherwise it scores alive enemy pairs with line of sight, preferring shells in flight and nearby teams. `N` cycles to the next living tank and locks a follow; `A` resumes automatic cuts. |
+| the spectator camera | `spectatorPose(input)` · `CAMERA.spectator*` | `src/render/cameraMath.ts` · `src/render/config.ts` | The director's wider arm, 12–44 m and 34–55° pitch, outside the player's 16 m zoom clamp. The spectator renderer uses `CAMERA.spectatorExposureScale` 0.8; the playable exposure is untouched. |
+| the spectate screenshot | `bash scripts/shot.sh spectate [detail] [out]` | `scripts/shot.sh:1` | Builds, serves `dist`, and loads `?mode=spectate&teams=4&tanksPerTeam=4&seed=7&pose=spectate&ticks=300`. The fixed tick is deterministic; the four-team overview frame passes the look budget including the 24×14 tile gate. |
 | a fair decision phase | batch's `decisionPhaseTicks` | `src/core/ai/batch.ts:203` | The phase is balanced by TEAM: `(seed + 3·teamId) mod 6`. Deriving it from tank id made tank 0 always three ticks ahead of tank 1 (the B1a 85/15 finding); the phase must not be correlated with the id that also fixes action order. |
 | AI aim spread and dodge | profile `aimErrorBaseDegrees` / `aimErrorPerMetre` · `startDodge` · `strafePoint` | `src/core/ai/profile.ts:36` · `src/core/ai/controller.ts:273` · `src/core/ai/controller.ts:405` | Every profile supplies its own seeded range-scaled yaw/pitch spread (vanguard **10° + 1.8°/m**; the sniper is tighter, the brute 4° + 0.6°/m); `AI_AIM_ERROR_*` is fallback only. A deliberate wall breach uses a tight fixed spread because the target is stationary. Every profile strafes in contact, and every profile dodges for 60 ticks after a shot or a hit; the effective shot interval stays 285 ticks. These are the pacing levers, kept out of the sim's global `RELOAD_TICKS`. |
 | the vanguard's shot interval | `AI_FIRE_INTERVAL_TICKS` | `src/core/ai/constants.ts:15` | The sim reload stays 60 ticks; the AI deliberately waits 285 ticks before its next trigger. This is the pacing lever that produced the 900–1800-tick band without changing the player's fire rate. |
@@ -101,7 +108,7 @@ running headless in `node`.
 | the combat screenshot pose | `cameraPose('combat', ...)` | `src/render/cameraMath.ts:228` | Deterministic behind/above player frame for the demo breach, target and in-flight shell. Added to `CAMERA_POSE_NAMES`; `shot.sh combat` selects it. |
 | a low shoot-over barrier | `isLowCover(heightMetres)` · `LOW_COVER_MAX_HEIGHT_METRES` | `src/render/config.ts:193` | ONE predicate/height threshold distinguishes low cover from tall architecture in both the 3D edge hue (`worldMesh`) and the plan fill (`topPlan`); the A1 height model remains the collision authority. |
 | the spatial look budget | `tile_p90(luminance)` | `scripts/look-budget.py:97` | Splits a frame into 24×14 tiles, takes each tile median, and requires p90 ≤ 30.6 L (12 %); alongside the existing whole-frame gates. Proof injection reaches 255 L / 100 % and FAILS. |
-| the screenshot command | `scripts/shot.sh [pose] [detail] [out]` | `scripts/shot.sh:1` | Accepts `wide \| tank \| first \| combat \| top`; `combat` appends `&demo=duel&ticks=122`, `top` selects the plan, every run executes the look budget, and the trapped Chrome tree is reaped (`chrome processes after cleanup: 0`). |
+| the screenshot command | `scripts/shot.sh [pose] [detail] [out]` | `scripts/shot.sh:1` | Accepts `wide \| tank \| first \| combat \| top \| spectate`; `combat` appends `&demo=duel&ticks=122`, `top` selects the plan, every run executes the look budget, and the trapped Chrome tree is reaped (`chrome processes after cleanup: 0`). |
 | a canonical core hash | `fnv1a(text)` | `src/core/fnv1a.ts:14` | The ONE FNV-1a implementation; both `hashState` (world) and `hashMatch` (combat) feed it. Do not copy the offset basis/prime into a third hasher. |
 | seeded randomness in the simulation | `createRng(seed)` | `src/core/rng.ts:35` | The ONLY draw source under `src/core`: integer-only mulberry32, so a seed reproduces its sequence on every engine. A source scan (`src/core/purity.test.ts`) fails the build on `Math.random`. |
 | building the world | `createWorld(spec)` | `src/core/world/state.ts:108` | Validates the spec loudly (integer dimensions, a height above the floor plane, no double placement) and builds the row-major grid. Level data fills the same shape. |
@@ -156,6 +163,33 @@ is the median of the four per-character means; each signature's delta is normali
 the absolute median. The acceptance test is a measurement, not a hardcoded pass:
 30–70 % overall win rate per character, and at least 20 % away from the field median on
 that character's own signature.
+
+### Team battles and the spectator (B2)
+
+The authored arena's 2×2 ring gateways are wide enough for the eye but not for the
+tank body: the body-free navigation grid splits into **four 78-cell components**, so
+four teams starting at the corners can never meet. `TEAM_ARENA` is a data variant of
+the same four-fold arena with the eight corner windows opened from 2×2 to **5×5**;
+that yields one **404-cell** component. `ARENA` (playable) and its gates are unchanged.
+The team pads sit in each corner's outer gate, four tanks each, all facing east, and the
+team-to-corner assignment rotates with the seed.
+
+`runTeamBatch` uses the real simulation and the same character cast by slot. The team
+table keeps the 1v1 report shape and adds per-team and per-corner win splits and a
+per-character survival/damage-taken breakdown. On 200 seeds (4×4) it reported
+**1.40 matches/s**, median **3836.5 ticks**, **12.0 %** cap hits, **41.6 %** accuracy
+and **1.29 m/s** mean speed. The team AI uses **`aimErrorScale: 0.1`** (the 1v1 value
+is 1) because sixteen tanks shooting across 48 m otherwise spend the tick cap hitting
+walls; that is a mode tuning, not a player balance change.
+
+`SpectatorSession` runs that same match with no input: deterministic seed, four AI
+controllers per team, the shared fixed step and `tankFrames` interpolation. The
+director cuts on a 180-tick interval (and when a shell appears). With 10+ tanks and
+four teams alive it frames a **four-team overview**; later it scores visible enemy
+pairs, preferring shells in flight and nearby teams. `N` selects the next living tank
+and locks a follow camera; `A` resumes automatic cuts. The screenshot pose is
+`?mode=spectate&teams=4&tanksPerTeam=4&seed=7&pose=spectate&ticks=300`, a fixed
+four-team overview whose frame passes the look budget.
 
 ## 3 · Gotchas
 
@@ -390,8 +424,7 @@ that character's own signature.
 ## 4 · Known debt
 
 - **A4/B1a is still not the full game.** The app is a single playable duel on the
-  authored arena; B1a/B1c add the headless all-AI batch and the four-character cast, but not the live
-  spectator mode or a full HUD. A5 owns the interface. The A2
+  authored arena; B1a/B1c add the headless all-AI batch and the four-character cast; B2 adds the live spectator on the team arena, but not the full A5 HUD. A5 owns the interface. The A2
   showcase and its 16-tank budget fixture are retained only for the existing
   look/budget pins.
 - **The body is a circle but the hull is a 2.6 m box.** The width fits the 1 m radius
@@ -418,6 +451,20 @@ that character's own signature.
   and passes its stated acceptance, but the metric separates it from the median, not
   from the brute. Brute's win rate is at the 30 % floor, and the round robin uses the
   same pinned short duel staging as B1b.
+- **B2's per-team split hides a corner bias.** The 200-seed 4×4 table passes the
+  per-team 15–35 % band (vanguard 28.0 %, sniper 20.5 %, ambusher 19.0 %, brute
+  21.5 %) because the team-to-corner assignment rotates by seed. The corner-normalised
+  table does **not** pass: **NW 39 %, NE 1 %, SE 26 %, SW 23 %**. `TEAM_ARENA` is
+  validated as four-fold symmetric, so this is not a level-data asymmetry; it is the
+  remaining AI/action/formation bias from the fixed east-facing pads and team order.
+  It is recorded as debt, not averaged away.
+- **B2's 4×4 batch is close to the cap, but not cap-dominated.** 200 matches: 24 cap
+  hits (**12.0 %**), 22 draws, median 3836.5 ticks, max 18000. The team mode uses
+  `aimErrorScale: 0.1`; the 1v1 profiles stay at 1. The 16-tank spectator frame
+  measured **119 renderer draw calls** on the screenshot frame and **113** in the live
+  overview (budget ≤ 200); the overview frame passes the look budget. The live
+  16-tank overview measured **4.41 fps** in ANGLE SwiftShader at 1920×1080 (this host's
+  only WebGL backend), a regression number, not a 60 fps claim.
 - **The AI-level mirror is still owed.** The existing mirror pin is scripted at the
   simulation level (original team 0 wins at tick 7; mirrored team 1 wins at tick 7).
   An AI match is deterministic-chaotic under a mirror, so the fairness fix is measured

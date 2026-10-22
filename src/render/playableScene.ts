@@ -17,8 +17,12 @@ import { createWorldMesh, type WorldMesh } from './worldMesh.ts';
 import type { TankRenderFrame } from '../game/session.ts';
 
 export interface PlayableSceneOptions {
-  readonly playerTankId: number;
-  readonly dummyTankId: number;
+  /** The player's tank in the playable session; omitted by the spectator. */
+  readonly playerTankId?: number;
+  /** The training dummy; omitted by the spectator. */
+  readonly dummyTankId?: number;
+  /** The tank the scene exposes as its focus; defaults to `playerTankId`. */
+  readonly focusTankId?: number;
 }
 
 export interface PlayableScene {
@@ -57,11 +61,15 @@ export function createPlayableScene(
     tanks.set(tank.id, view);
     group.add(view.group);
   }
-  const focusTank = tanks.get(options.playerTankId);
-  if (!focusTank) {
-    throw new Error(`playableScene: player tank ${options.playerTankId} has no view`);
+  const focusId = options.focusTankId ?? options.playerTankId;
+  if (focusId === undefined) {
+    throw new Error('playableScene: a focusTankId or playerTankId is required');
   }
-  if (!tanks.get(options.dummyTankId)) {
+  const focusTank = tanks.get(focusId);
+  if (!focusTank) {
+    throw new Error(`playableScene: focus tank ${focusId} has no view`);
+  }
+  if (options.dummyTankId !== undefined && !tanks.get(options.dummyTankId)) {
     throw new Error(`playableScene: dummy tank ${options.dummyTankId} has no view`);
   }
 

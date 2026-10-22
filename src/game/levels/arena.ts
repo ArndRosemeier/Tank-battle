@@ -11,6 +11,7 @@ import { CELL_SIZE_METRES, type CellMaterial, type CellPlacement } from '../../c
 import type { LevelDefinition, LevelSpawn } from './format.ts';
 
 const N = 24;
+const ARENA_NAME = 'Fourfold Crucible';
 const FLOOR = 0.2;
 const OUTER_START = 5;
 const OUTER_END = 18;
@@ -156,6 +157,28 @@ for (const [x, z] of [
   addSymmetric(x, z, 'wall', LOW_COVER_HEIGHT);
 }
 
+// B2's team mode opens the ring corners wider than the authored 2×2 gate. With a
+// 2 m tank body the authored gate graph splits into four disconnected components, so
+// sixteen tanks never meet. These windows stay four-fold symmetric; the playable
+// arena above deliberately keeps the tighter authored gates.
+const TEAM_GATE_CENTRES = [
+  [6, 6],
+  [6, 17],
+  [17, 6],
+  [17, 17],
+  [9, 9],
+  [9, 14],
+  [14, 9],
+  [14, 14],
+] as const;
+const teamPlacements = placements.filter(
+  (placement) =>
+    !TEAM_GATE_CENTRES.some(
+      ([centreX, centreZ]) =>
+        Math.abs(placement.x - centreX) <= 2 && Math.abs(placement.z - centreZ) <= 2,
+    ),
+);
+
 const cells = {
   columns: N,
   rows: N,
@@ -171,8 +194,21 @@ export const ARENA_BOUNDS = {
   maxZ: N * CELL_SIZE_METRES,
 } as const;
 
+export const TEAM_ARENA: LevelDefinition = {
+  name: `${ARENA_NAME} — Team Gate`,
+  intent:
+    'The same four-fold arena with the ring corners opened to a body-width gate ' +
+    'window: four teams of four can reach each other instead of starting in four ' +
+    'sealed quadrants. The corner spawns, rings, centre objective and low cover are unchanged.',
+  cells: {
+    ...cells,
+    placements: teamPlacements,
+  },
+  spawns,
+};
+
 export const ARENA: LevelDefinition = {
-  name: 'Fourfold Crucible',
+  name: ARENA_NAME,
   intent:
     'Four corner spawns in a pinwheel, each behind a short screened dogleg exit that turns into its nearest outer gateway, so no spawn looks straight at another; concentric rings whose corner gateways make the diagonals the two long lanes; a breakable centre cluster as the objective; low cover along the cardinal lanes; ambush pockets beside each gate. Every spawn is connected on foot at start.',
   cells,

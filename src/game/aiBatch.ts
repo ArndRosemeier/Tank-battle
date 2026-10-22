@@ -19,8 +19,9 @@ import {
   getAIProfile,
   AI_PROFILES,
 } from '../core/ai.ts';
-import type { BatchSetup } from '../core/ai.ts';
-import { ARENA, spawnCentreMetres } from './levels/arena.ts';
+import type { BatchSetup, TeamSetup } from '../core/ai.ts';
+import { ARENA, TEAM_ARENA, spawnCentreMetres } from './levels/arena.ts';
+import { CELL_SIZE_METRES } from '../core/world.ts';
 import { validateLevel } from './levels/format.ts';
 
 /** A symmetric 1v1 duel staging on the arena's open north margin. */
@@ -33,6 +34,48 @@ export function arenaDuelSetup(): BatchSetup {
       { teamId: 1, spawn: { xMetres: 30, zMetres: 6, hullYawDegrees: 90 } },
     ],
   };
+}
+
+/**
+ * The authored-corner team setup. Each team gets the same four tank slots in the outer
+ * gateway at its corner, so a 90° rotation maps one team's pads onto the next. All tanks
+ * face east; a fixed corner yaw made the NE/SW pads lose nearly every match.
+ */
+export function arenaTeamSetup(teams = 4, tanksPerTeam = 4): TeamSetup {
+  validateLevel(TEAM_ARENA);
+  if (!Number.isInteger(teams) || teams < 2 || teams > 4) {
+    throw new Error(`arenaTeamSetup: teams must be 2…4, got ${String(teams)}`);
+  }
+  if (!Number.isInteger(tanksPerTeam) || tanksPerTeam < 1 || tanksPerTeam > 4) {
+    throw new Error(`arenaTeamSetup: tanksPerTeam must be 1…4, got ${String(tanksPerTeam)}`);
+  }
+  // The authored 2×2 rooms cannot hold four tanks and their doglegs are a single-file
+  // exit. The team pads sit in the adjacent outer corner gateway, which the team arena
+  // opens to a body-width window. All tanks face east: a four-team run showed that
+  // mixing corner yaws produced a persistent NE/SW navigation disadvantage.
+  const pads: readonly (readonly [number, number])[] = [
+    [5, 5],
+    [6, 5],
+    [5, 6],
+    [6, 6],
+  ];
+  const selected = [...TEAM_ARENA.spawns].sort((a, b) => a.teamId - b.teamId).slice(0, teams);
+  const groups = selected.map((spawn) => {
+    const used = pads.slice(0, tanksPerTeam);
+    let cells = used.map(([x, z]) => ({ x, z }));
+    for (let turn = 0; turn < spawn.teamId; turn += 1) {
+      cells = cells.map(({ x, z }) => ({ x: 23 - z, z: x }));
+    }
+    return {
+      teamId: spawn.teamId,
+      spawns: cells.map(({ x, z }) => ({
+        xMetres: (x + 0.5) * CELL_SIZE_METRES,
+        zMetres: (z + 0.5) * CELL_SIZE_METRES,
+        hullYawDegrees: -90,
+      })),
+    };
+  });
+  return { level: TEAM_ARENA.cells, teams: groups };
 }
 
 /** Validates the arena and returns one one-tank spawn per authored team. */

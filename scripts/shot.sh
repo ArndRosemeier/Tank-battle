@@ -3,7 +3,7 @@
 # shot.sh — THE one screenshot command for Tank Battle.
 #
 #   bash scripts/shot.sh [pose] [detail] [output.png]
-#   pose:   wide | tank | first | combat | top (default wide)
+#   pose:   wide | tank | first | combat | top | spectate (default wide)
 #   detail: 0 … 1                        (default 0.3, the SURFACE_DETAIL default)
 #   output: default .gate-logs/shots/<pose>-detail-<detail>.png
 #
@@ -40,9 +40,9 @@ case "$OUT_ABS" in
 esac
 
 case "$POSE" in
-  wide | tank | first | combat | top) ;;
+  wide | tank | first | combat | top | spectate) ;;
   *)
-    echo "shot: unknown pose '$POSE' — expected wide, tank, first, combat or top" >&2
+    echo "shot: unknown pose '$POSE' — expected wide, tank, first, combat, top or spectate" >&2
     exit 2
     ;;
 esac
@@ -138,6 +138,8 @@ fi
 DEMO_QUERY=""
 if [ "$POSE" = "combat" ]; then
   DEMO_QUERY="&demo=duel&ticks=122"
+elif [ "$POSE" = "spectate" ]; then
+  DEMO_QUERY="&mode=spectate&teams=4&tanksPerTeam=4&seed=7&ticks=${SPECTATE_TICKS:-300}"
 fi
 URL="http://127.0.0.1:$PORT/?pose=$POSE&detail=$DETAIL$DEMO_QUERY"
 BASE_ARGS=(

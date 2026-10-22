@@ -109,8 +109,16 @@ never "it passed".
 
 | A mirrored script produces the mirrored winner, length and causes | `a mirrored script produces the mirrored winner, length and causes` | `src/game/mirror.test.ts` | swap a tank/team mapping in the script or break the z mirror → the original team-0 win/7-tick/shell result no longer maps to mirrored team 1 |
 | The duel spawns are an exact mirror pair | `pins the two spawns as an exact mirror pair across the arena centre` | `src/game/aiBatch.test.ts` | move one spawn, or flip one hull yaw, and the explicit-coordinate/symmetry assertions red |
+| Every shipped AI profile validates at module load | `validates every shipped profile at module load` | `src/core/ai/profile.test.ts` | make the sniper's `hold-cover` weight 9 → the module import throws before any test body; the test also fails if a fifth profile is unvalidated |
+| A destroyed cell is attributed to the firing team | `attributes a destroyed cell to the team that fired the shell` | `src/core/sim.test.ts` | attribute world destruction to the wrong team, or skip `destroyedNow` → team 0's count is 0 and the pin reds |
+| The 4×4 and 2×2 team stagings create 16/4 non-overlapping tanks | `builds the 4×4 and 2×2 authored team stagings without overlapping tanks` | `src/game/aiBatch.test.ts` | overlap one gate pad, or return one spawn per team → match creation / count assertions red |
+| The 4×4 team batch runs a real table | `runs the authored 4×4 team table without sharing a corner` | `src/game/aiBatch.test.ts` | drop `runTeamBatch`'s corner map or a team's spawns → character/corner count reds |
+| The spectator match is deterministic and has a director shot | `runs a deterministic four-team match and exposes a director shot` | `src/game/spectator.test.ts` | seed a controller from `Math.random`, or skip the overview/engagement cut → hashes/shots diverge or focus is dead |
+| N locks a manual follow and auto resumes | `next-tank locks a manual follow and auto can be resumed` | `src/game/spectator.test.ts` | make next-tank a no-op or ignore the manual flag → `autoDirector`/reason assertions red |
+| Four-team targeting is not permanently locked to one enemy | `does not leave a tank permanently locked on one enemy` | `src/core/ai/teamTargeting.test.ts` | freeze the target to the first visible enemy → each tank's target set shrinks below 2 |
+| The spectator camera is a wider arm and rejects an out-of-range distance | `frames the spectator action from a wider arm and rejects an out-of-range distance` | `src/render/cameraMath.test.ts` | clamp spectator distance to the player's 16 m arm, or drop the range check → the pose/throw assertion reds |
 
-The A3a block (20 rows), the A3b block (7 rows) and the A3c block (11 rows) are direct assertions; A4 adds seven level-validation pins; B1a adds the two A4 gap pins and eleven AI pins; B1b adds the scripted mirror pin; B1c adds the staging-symmetry pin (100/100 tests in 22 files). **No mutation differential was run for A3a/A3b/A3c/A4/B1a/B1b/B1c**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
+The A3a block (20 rows), the A3b block (7 rows) and the A3c block (11 rows) are direct assertions; A4 adds seven level-validation pins; B1a adds the two A4 gap pins and eleven AI pins; B1b adds the scripted mirror pin; B1c adds the staging-symmetry pin; B2 adds the eager-profile, destruction-attribution, team-staging, team-batch, spectator and spectator-camera pins (**108/108 tests in 24 files**). **No mutation differential was run for A3a/A3b/A3c/A4/B1a/B1b/B1c/B2**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
 
 The differential harness is a local artifact at `.gate-logs/differential.py` (row 26)
 and `.gate-logs/differential.sh` (row 0) — both gitignored; the mutations are described
@@ -830,6 +838,84 @@ only in trim lines and small lights. The team-trim diagnostic on `wide` is orang
 - **Not run:** a live all-AI spectator, an AI-level mirror beyond the scripted pin, a
   mutation differential for B1c, a 16-tank/4-team round robin, and GPU frame rate. The
   round-robin acceptance is a CLI measurement; it is not a vitest pass/fail pin.
+
+### row 51 — Slice B2 (team battles and the spectator)
+
+- **Full gate:** `bash scripts/gate.sh` → exit **`0`**; suite **108/108 in 24 files**
+  (vitest 5.0.5). Raw log `.gate-logs/gate.log` (gitignored).
+- **Pins added:** eager profile validation; destruction attribution; 4×4/2×2 staging
+  creation; 4×4 team batch; spectator determinism/director; next-tank/manual follow;
+  spectator camera range; four-team target diversity. The B1c pins stay green.
+- **4×4 team table** (`pnpm batch --seeds 200 --teams 4 --tanks-per-team 4`; 200
+  matches, real simulation, `reports/team-batch.json`):
+
+  | metric | value |
+  | --- | ---: |
+  | matches / draws | 200 / 22 |
+  | team win split | **28.0 / 20.5 / 19.0 / 21.5 %** |
+  | corner win split | **39.0 / 1.0 / 26.0 / 23.0 %** |
+  | mean / median length | **5449.6 / 3836.5 ticks** |
+  | length p25 / p75 / min / max | 3217 / 4483 / 1869 / 18000 |
+  | cap hits | **24/200 (12.0 %)** |
+  | shots / hits / accuracy | 17345 / 7207 / **41.6 %** |
+  | kills / damage | **1937 / 7207** |
+  | deaths by cause | **shell 1937 / clock 986** |
+  | mean speed while alive | **1.29 m/s** |
+  | headless throughput | **1.40 matches/s** |
+
+  Per-character table: vanguard 800 tanks, 793 deaths (725 shell/68 clock),
+  2.98 damage taken/tank, 0.02 HP left; sniper 615 deaths (294/321), 2.45, 0.55; ambusher
+  740 (329/411), 2.83, 0.17; brute 775 (589/186), 2.94, 0.06.
+- **Team split vs corner split — the honest result.** The **team** rates are inside the
+  requested 15–35 % each. The **corner-normalised** rates are not: **NW 39 %, NE 1 %,
+  SE 26 %, SW 23 %**. The team-to-corner assignment rotates with the seed, so the
+  per-team table is fair by construction; the corner table exposes the remaining
+  AI/action/formation bias. `TEAM_ARENA` is validated four-fold symmetric, so this is
+  **not a level-data asymmetry**; the precise controller/action-order cause is not fixed
+  and is recorded in ARCHITECTURE §4. Reporting only the team split would hide it.
+- **2×2 smaller case** (`--seeds 200 --teams 2 --tanks-per-team 2`): 200 matches,
+  8 draws, team split **44.0 / 52.0 %**, corner split 63/33, median **1819 ticks**,
+  cap **8/200 (4.0 %)**, accuracy **52.4 %**, kills 331, **6.94 matches/s**. This is a
+  two-team case, so the four-team 15–35 % band does not apply; it is reported to show
+  the smaller same-cast match completes quickly.
+- **Spectate screenshot** (`.gate-logs/shots/spectate.png`, 1920×1080; pose
+  `?mode=spectate&teams=4&tanksPerTeam=4&seed=7&pose=spectate&ticks=300`):
+
+  | look metric | value | verdict |
+  | --- | ---: | --- |
+  | void | 42.9 % | INFO |
+  | surface median | 15 L (5.9 %) | PASS ≤22 |
+  | mid-band 26–51 | 9.7 % | PASS ≤25 % |
+  | line p99 | 192 | PASS ≥150 |
+  | contrast | 12.80 | PASS ≥6 |
+  | tile p90 (24×14) | **28 L (11.0 %)** | **PASS ≤30.6 L / 12 %** |
+
+  The image shows all four team colours, live shells and the open team arena. The
+  spectator renderer measured **119 draw calls** on this frame and **113** on the live
+  16-tank overview; the live overview ran at **4.41 fps** in ANGLE SwiftShader
+  (Vulkan 1.3.0 SwiftShader, 1920×1080). That is a regression number; 60 fps remains
+  unmeasurable on this host.
+- **First-run reds, recorded:**
+  - The first 2×2 run on the authored 2×2 corner rooms was **100 % cap, 0 hits,
+    median 18000 ticks**; the tanks filled the room and the body-free navigation graph
+    had four 78-cell components. A second 4×4 room run was also cap-bound.
+  - The authored 5×5 corner opening (`TEAM_ARENA`) made one 404-cell component. With
+    the gate pads and the 1v1 aim error it still reached 8 kills but left two ambushers
+    in a 18000-tick stalemate; **aimErrorScale 0.1** in team mode was the final lever
+    that made 4×4 decisive (12 % cap, 22 draws).
+  - The first fixed spectate screenshot at tick 1800 showed only two tanks and no
+    action; tick 600 failed the look gate (**tile p90 52 L / 20.4 %**); the first
+    overview was also over budget (**tile p90 36 L / 14.1 %**). Tick 300 plus the
+    0.8 spectator exposure and the 40 m overview pass at **28 L / 11.0 %**.
+  - The first team split looked fair at 28/20.5/19/21.5 %, but the corner table showed
+    **NE 1 %**. Rotating the team-to-corner assignment does not repair that; it only
+    prevents one team from being permanently assigned the bad corner.
+  - The 4×4 test initially timed out at Vitest's 5 s default; it now carries a 20 s
+    per-test timeout because one real 16-tank match takes ~5.5 s.
+- **Not run:** a GPU frame rate (SwiftShader only), a 4-team mirror pin, a live
+  observer watching a human-selected battle, an AI-level mirror, a mutation
+  differential for B2, and any A5 HUD work. The screenshot is a fixed deterministic
+  frame, not a pause feature.
 
 ## Honest records
 
