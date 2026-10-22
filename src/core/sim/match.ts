@@ -112,6 +112,11 @@ export interface MatchTeam {
   readonly tanks: readonly Tank[];
 }
 
+export type PresentationEvent =
+  | { readonly type: 'fire'; readonly tankId: number; readonly teamId: number; readonly x: number; readonly y: number; readonly z: number; readonly dx: number; readonly dy: number; readonly dz: number }
+  | { readonly type: 'impact'; readonly teamId: number; readonly x: number; readonly y: number; readonly z: number }
+  | { readonly type: 'hit' | 'death'; readonly tankId: number; readonly teamId: number; readonly x: number; readonly y: number; readonly z: number };
+
 export type MatchStatus = 'active' | 'ended';
 
 /** The whole simulation state. Mutated by `stepMatch`; hash it with `hashMatch`. */
@@ -123,6 +128,9 @@ export interface MatchState {
   readonly teams: readonly MatchTeam[];
   readonly tanks: Tank[];
   readonly shells: Shell[];
+  /** Optional presentation-only event capture, enabled by a live scene. */
+  capturePresentationEvents?: boolean;
+  presentationEvents?: PresentationEvent[];
   tick: number;
   nextShellId: number;
   status: MatchStatus;

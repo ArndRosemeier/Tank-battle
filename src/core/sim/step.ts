@@ -66,11 +66,17 @@ import {
   segmentCylinderIntersection,
   type Vec3,
 } from './geometry.ts';
-import { isTankPositionFree, type MatchState, type Shell, type Tank } from './match.ts';
+import { isTankPositionFree, type MatchState, type Shell, type Tank, type PresentationEvent } from './match.ts';
 import type { MatchOutcome } from './stats.ts';
 import { teamTurnOrder } from './turnOrder.ts';
 
 const EPSILON = 1e-9;
+function emit(state: MatchState, event: PresentationEvent): void {
+  if (state.capturePresentationEvents) (state.presentationEvents ??= []).push(event);
+}
+function impact(state: MatchState, shell: Shell): void {
+  emit(state, { type: 'impact', teamId: shell.ownerTeamId, x: shell.x, y: shell.y, z: shell.z });
+}
 
 /** Advances the match exactly one tick. Mutates and returns `state`. */
 export function stepMatch(state: MatchState, orders: readonly TankCommandOrder[]): MatchState {
@@ -349,6 +355,8 @@ function advanceShells(state: MatchState, turnOrder: readonly number[]): void {
   for (const shell of shells) {
     if (advanceShell(state, shell)) {
       survivors.push(shell);
+    } else {
+      impact(state, shell);
     }
   }
   state.shells.splice(0, state.shells.length, ...survivors);
@@ -635,6 +643,7 @@ function damageEnemyTank(state: MatchState, tank: Tank, ownerTeamId: number): vo
   if (!tank.alive) {
     throw new Error(`sim: a shell tried to damage dead tank ${tank.id}`);
   }
+  emit(state, { type: 'hit', tankId: tank.id, teamId: tank.teamId, x: tank.x, y: state.world.floorSurfaceHeightMetres + 1.1, z: tank.z });
   state.stats.hits += 1;
   const applied = Math.min(SHELL_DAMAGE, tank.hp);
   tank.hp -= applied;
@@ -653,6 +662,7 @@ function killTank(
   cause: 'shell' | 'clock',
   killerTeamId: number | null,
 ): void {
+  emit(state, { type: 'death', tankId: tank.id, teamId: tank.teamId, x: tank.x, y: state.world.floorSurfaceHeightMetres + 0.8, z: tank.z });
   tank.alive = false;
   tank.hp = 0;
   tank.bleedTicksRemaining = 0;
@@ -697,6 +707,11 @@ function fireShells(state: MatchState, commands: ReadonlyMap<number, TankCommand
 
     state.stats.shotsFired += 1;
     tank.reloadTicksRemaining = RELOAD_TICKS;
+    emit(state, {
+      type: 'fire', tankId: tank.id, teamId: tank.teamId,
+      x: muzzle.x, y: muzzle.y, z: muzzle.z,
+      dx: direction.x, dy: direction.y, dz: direction.z,
+    });
 
     const obstruction = earliestCollision(state, origin, muzzle, tank.id);
     if (obstruction) {

@@ -98,10 +98,14 @@ export function createPlayableScene(
   let playerHidden = false;
   let disposed = false;
   const events: SceneEvent[] = [];
+  // A live renderer observes every sim tick, including shots that last < one frame.
+  // Headless batch runs never enable capture and therefore allocate no event queue.
+  state.capturePresentationEvents = true;
+  state.presentationEvents = [];
 
   // VFX snapshots. They start at the CURRENT state, so a scene built after a demo
   // pre-run does not replay deaths/destruction that happened before it existed.
-  const previousShells = new Map<number, { x: number; y: number; z: number; teamId: number }>();
+  let shellInitialized = false;
   const previousHp = new Map<number, number>();
   const previousAlive = new Map<number, boolean>();
   for (const tank of state.tanks) {
@@ -234,7 +238,7 @@ export function createPlayableScene(
           frame.aimPitchDegrees,
         );
         const previousHpForTank = previousHp.get(frame.id);
-        if (previousHpForTank !== undefined && frame.hp < previousHpForTank) {
+        if (!state.capturePresentationEvents && previousHpForTank !== undefined && frame.hp < previousHpForTank) {
           if (previousAlive.get(frame.id) === true && !frame.alive) {
             effects.death(
               frame.x,
@@ -274,52 +278,40 @@ export function createPlayableScene(
       }
     },
     setShells(shellsState: MatchState['shells']): void {
-      const current = new Map<number, { x: number; y: number; z: number; teamId: number }>();
-      for (const shell of shellsState) {
-        current.set(shell.id, {
-          x: shell.x,
-          y: shell.y,
-          z: shell.z,
-          teamId: shell.ownerTeamId,
-        });
-        if (!previousShells.has(shell.id)) {
-          // A scene built after a demo pre-run sees every in-flight shell as "new".
-          // Only a shell still at its owner's muzzle is a shot this frame; a shell
-          // already downrange must not get a false muzzle flash in mid-air.
+      const pending = state.presentationEvents?.splice(0) ?? [];
+      for (const event of pending) {
+        if (event.type === 'fire') {
+          events.push({ type: 'fire', tankId: event.tankId, teamId: event.teamId, x: event.x, y: event.y, z: event.z });
+          events.push({ type: 'reload', tankId: event.tankId, teamId: event.teamId });
+          effects.muzzle(event.x, event.y, event.z, { x: event.dx, y: event.dy, z: event.dz }, teamColor(event.teamId));
+        } else if (event.type === 'impact') {
+          effects.impact(event.x, event.y, event.z, teamColor(event.teamId));
+          events.push(event);
+        } else if (event.type === 'hit') {
+          effects.hit(event.x, event.y, event.z, teamColor(event.teamId));
+          events.push(event);
+        } else if (event.type === 'death') {
+          effects.death(event.x, event.y, event.z, teamColor(event.teamId));
+          events.push(event);
+        }
+      }
+      // When the scene starts AFTER a pre-run demo, no events were captured.
+      // Seed the first frame's existing muzzle shells only in that case.
+      if (!shellInitialized) {
+        shellInitialized = true;
+        for (const shell of shellsState) {
+          if (pending.length !== 0) break;
           const owner = state.tanks.find((tank) => tank.id === shell.ownerTankId);
-          if (owner) {
-            const forward = forwardFromYaw(owner.turretYawDegrees);
-            const muzzleX = owner.x + forward.x * MUZZLE_FORWARD_METRES;
-            const muzzleZ = owner.z + forward.z * MUZZLE_FORWARD_METRES;
-            if (Math.hypot(shell.x - muzzleX, shell.z - muzzleZ) <= 4.5) {
-              events.push({
-                type: 'fire',
-                tankId: owner.id,
-                teamId: owner.teamId,
-                x: shell.x,
-                y: shell.y,
-                z: shell.z,
-              });
-              events.push({ type: 'reload', tankId: owner.id, teamId: owner.teamId });
-              effects.muzzle(
-                shell.x,
-                shell.y,
-                shell.z,
-                { x: shell.dx, y: shell.dy, z: shell.dz },
-                teamColor(shell.ownerTeamId),
-              );
-            }
-          }
+          if (!owner) continue;
+          const forward = forwardFromYaw(owner.turretYawDegrees);
+          const x = owner.x + forward.x * MUZZLE_FORWARD_METRES;
+          const z = owner.z + forward.z * MUZZLE_FORWARD_METRES;
+          if (Math.hypot(shell.x - x, shell.z - z) > 4.5) continue;
+          events.push({ type: 'fire', tankId: owner.id, teamId: owner.teamId, x: shell.x, y: shell.y, z: shell.z });
+          events.push({ type: 'reload', tankId: owner.id, teamId: owner.teamId });
+          effects.muzzle(shell.x, shell.y, shell.z, { x: shell.dx, y: shell.dy, z: shell.dz }, teamColor(owner.teamId));
         }
       }
-      for (const [id, last] of previousShells) {
-        if (!current.has(id)) {
-          effects.impact(last.x, last.y, last.z, teamColor(last.teamId));
-          events.push({ type: 'impact', teamId: last.teamId, x: last.x, y: last.y, z: last.z });
-        }
-      }
-      previousShells.clear();
-      for (const [id, shell] of current) previousShells.set(id, shell);
       shells.update(shellsState);
     },
     updateEffects(dtSeconds: number): void {
@@ -347,6 +339,8 @@ export function createPlayableScene(
     dispose(): void {
       if (disposed) return;
       disposed = true;
+      state.capturePresentationEvents = false;
+      state.presentationEvents = [];
       effects.dispose();
       shells.dispose();
       debris.dispose();
