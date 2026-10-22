@@ -37,9 +37,10 @@
 
 ## Next action (one)
 
-**A3b is in flight**: tank-tank collision, a swept muzzle (no shooting through cover),
-the cap-tie pin, and folding the duplicated 2 m cell size into one seam. Then A3c wires
-input + the renderer so the game is playable and watchable.
+**A3c is in flight**: make it playable — sim↔render bridge with interpolation, keyboard/
+mouse commands, a dummy target, a world revision counter, hull aligned to the body,
+the look-budget tile metric, and the missing circle-overlap pin. Then Slice B (AI +
+batch rig) so battles can be watched.
 
 ## Open questions for the owner
 

@@ -540,3 +540,19 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
 - **Accepted debt, blocking for teams:** no tank-tank collision; a point muzzle 3 m ahead;
   an unpinned cap tie; the 2 m cell size duplicated across render and sim. All four are
   A3b (ledger row 38), before wiring the renderer.
+
+### row 39 — the dispatcher's own verification (ee4050f)
+
+- Integrated gate 66/66, exit 0.
+- **Arms:** `bodies-dont-block` → RED on `a tank cannot drive through another tank`;
+  `muzzle-sweep-skipped` → RED on the sweep pin and the spawn-inside-solid pin;
+  `spawn-overlap-allowed` (`minimumDistance` → 0) → **GREEN**.
+- **The green arm is the finding:** the same-cell rejection fires before the circle check,
+  so `minimumDistance` can be zeroed without any test noticing. The **circle-overlap**
+  half of "reject overlapping spawns" is therefore unpinned. Required pin for A3c: two
+  tanks in *adjacent* cells whose circles overlap must be rejected.
+- **Body vs hull:** radius 1 m (2 m diameter) against a 3.4 × 2.5 m rendered hull — the
+  writer reported it, and it will be visible. A3c aligns the hull to the body; capsule or
+  oriented bodies stay on the debt list.
+- The duel trace is unchanged by A3b (shots 1/61/121, kill 124), so body blocking did not
+  perturb the baseline scenario.
