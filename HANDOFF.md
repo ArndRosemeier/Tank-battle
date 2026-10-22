@@ -37,10 +37,11 @@
 
 ## Next action (one)
 
-**P3 is in flight**: the front door (title screen, Tron-drawn settings, pause), the audio
-seam wired to the generated score, and the hull-brightness fix so the **live** camera view
-passes the look gate (it currently fails at 29 %). Then republish and re-verify live.
-Debts: the 4x4 cap ~11 %, the seed-148 parked duel, and the ambusher/brute naming swap.
+**P4 is in flight**: audio unlocks on the first pointer/key gesture so the title has its
+music and a match crossfades to combat; then a single DoD verification pass that reports
+every clause with its number. Live build is P3
+(`https://apps.futuremagic.de/tank-battle/`, entry `index-O9fOOoAc.js`). Debts: 4x4 cap
+~11 %, seed-148 parked duel, ambusher/brute naming swap.
 
 ## Open questions for the owner
 

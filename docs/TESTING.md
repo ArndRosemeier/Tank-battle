@@ -1576,3 +1576,15 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
   genuinely bright hull, not line density. Metric change reverted; P3 fixes the hull and
   must pass the gate on the **live** pose.
 - **Published:** P2 live (`index-CKl6ehX2.js`), public page verified by content, chrome 0.
+
+### row 63 — the dispatcher's own verification (50606c8)
+
+- Integrated gate 134/134, exit 0.
+- **Live pose re-measured by me:** surface median 3.1 %, tile p90 **5.9 %** (was 29.4 %),
+  contrast 25.4 — PASS. The hull fix works on the camera the player actually uses.
+- **Frames read:** title (wordmark, four panels, controls, credit, "click to enable sound");
+  settings (drawn neon sliders with diamond handles, no HTML inputs).
+- **Arm:** an unlisted `assets/audio/orphan.mp3` reds the manifest pin and names the file.
+- **Published:** P3 live (`index-O9fOOoAc.js`), public page verified by content, chrome 0.
+- **Debt:** the title is silent until the first gesture, and PLAY as that gesture skips the
+  menu loop. P4 unlocks audio on any first gesture.
