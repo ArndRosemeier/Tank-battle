@@ -13,8 +13,8 @@
 import {
   createMatch,
   stepMatch,
+  collectControllerOrders,
   type MatchRules,
-  type TankCommandOrder,
   type MatchState,
   type TankSpawn,
   type TeamSpec,
@@ -81,6 +81,53 @@ export function seededAssignmentOrder<T extends { readonly teamId: number }>(
     [ordered[index], ordered[swap]] = [ordered[swap]!, ordered[index]!];
   }
   return ordered;
+}
+
+/** Shared staging for live teams, spectator, and the headless table. */
+export function createTeamMatch(
+  setup: TeamSetup,
+  seed: number,
+  rules: MatchRules = DEFAULT_MATCH_RULES,
+  order: 'stable' | 'seeded' = 'stable',
+): { readonly state: MatchState; readonly assignments: readonly TeamAssignment[] } {
+  validateSetup(setup);
+  const groups = [...setup.teams].sort((a, b) => a.teamId - b.teamId);
+  const assignments = rotateTeamAssignments(groups, seed);
+  const ordered = order === 'seeded' ? seededAssignmentOrder(assignments, seed) : assignments;
+  const patterns = setup.cornerYawPatterns;
+  if (patterns !== undefined && patterns.length === 0) {
+    throw new Error('createTeamMatch: cornerYawPatterns cannot be empty');
+  }
+  const yawPattern = patterns?.[seed % patterns.length];
+  const state = createMatch({
+    level: setup.level,
+    teams: ordered.map((assignment): TeamSpec => ({
+      id: assignment.teamId,
+      tanks: assignment.corner.spawns.map((spawn) => ({
+        ...spawn,
+        hullYawDegrees: yawPattern?.[assignment.corner.teamId] ?? spawn.hullYawDegrees,
+      })),
+    })),
+    seed,
+    rules,
+  });
+  return { state, assignments };
+}
+
+/** All modes derive AI seed, phase and profile from the same tank slot. */
+export function createTeamAIController(
+  tank: { readonly id: number; readonly teamId: number; readonly teamIndex: number },
+  profile: AIProfile,
+  seed: number,
+  aimErrorScale: number,
+): AIController {
+  return new AIController({
+    tankId: tank.id,
+    profile,
+    seed: teamControllerSeed(seed, tank.teamIndex),
+    decisionPhaseTicks: teamDecisionPhase(seed, tank.teamId, tank.teamIndex),
+    aimErrorScale,
+  });
 }
 
 export interface TeamBatchOptions {
@@ -294,21 +341,7 @@ export function runTeamBatch(setup: TeamSetup, options: TeamBatchOptions): TeamB
     // corner pair win nearly every match in the first four-team runs; rotating keeps
     // each team on each corner over a seed set while the corner table still exposes a
     // genuinely favoured corner.
-    const assignments = rotateTeamAssignments(teams, seed);
-    const yawPattern = setup.cornerYawPatterns?.[seed % setup.cornerYawPatterns.length];
-    const orderedAssignments = seededAssignmentOrder(assignments, seed);
-    const state = createMatch({
-      level: setup.level,
-      teams: orderedAssignments.map((assignment): TeamSpec => ({
-        id: assignment.teamId,
-        tanks: assignment.corner.spawns.map((spawn) => ({
-          ...spawn,
-          hullYawDegrees: yawPattern?.[assignment.corner.teamId] ?? spawn.hullYawDegrees,
-        })),
-      })),
-      seed,
-      rules,
-    });
+    const { state, assignments } = createTeamMatch(setup, seed, rules, 'seeded');
     options.onMatchCreated?.(state);
     const controllers = new Map<number, AIController>();
     for (const tank of state.tanks) {
@@ -318,16 +351,7 @@ export function runTeamBatch(setup: TeamSetup, options: TeamBatchOptions): TeamB
           `runTeamBatch: no character for team ${tank.teamId} slot ${tank.teamIndex}`,
         );
       }
-      controllers.set(
-        tank.id,
-        new AIController({
-          tankId: tank.id,
-          profile,
-          seed: teamControllerSeed(seed, tank.teamIndex),
-          decisionPhaseTicks: teamDecisionPhase(seed, tank.teamId, tank.teamIndex),
-          aimErrorScale,
-        }),
-      );
+      controllers.set(tank.id, createTeamAIController(tank, profile, seed, aimErrorScale));
     }
 
     const previousHp = new Map<number, number>();
@@ -349,14 +373,7 @@ export function runTeamBatch(setup: TeamSetup, options: TeamBatchOptions): TeamB
       const before = state.tanks
         .filter((tank) => tank.alive)
         .map((tank) => ({ id: tank.id, x: tank.x, z: tank.z }));
-      const orders: TankCommandOrder[] = [];
-      for (const tank of state.tanks) {
-        if (!tank.alive) continue;
-        const controller = controllers.get(tank.id);
-        if (!controller) throw new Error(`runTeamBatch: no controller for tank ${tank.id}`);
-        orders.push({ tankId: tank.id, command: controller.commandFor(state, tank.id) });
-      }
-      stepMatch(state, orders);
+      stepMatch(state, collectControllerOrders(state, controllers, 'runTeamBatch'));
       for (const start of before) {
         const tank = state.tanks.find((candidate) => candidate.id === start.id);
         if (!tank) continue;

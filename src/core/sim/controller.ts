@@ -5,7 +5,7 @@
  * this interface. There is deliberately no `isPlayer` anywhere in the core.
  */
 
-import type { TankCommand } from './commands.ts';
+import type { TankCommand, TankCommandOrder } from './commands.ts';
 import type { MatchState } from './match.ts';
 
 /** One command for one tank for the current tick. */
@@ -18,6 +18,21 @@ export interface Controller {
  * deterministic driver for tests and replays. A missing command is a loud error: a
  * test must not silently idle a tank it meant to script.
  */
+export function collectControllerOrders(
+  state: MatchState,
+  controllers: ReadonlyMap<number, Controller>,
+  context: string,
+): TankCommandOrder[] {
+  const orders: TankCommandOrder[] = [];
+  for (const tank of state.tanks) {
+    if (!tank.alive) continue;
+    const controller = controllers.get(tank.id);
+    if (!controller) throw new Error(`${context}: no controller for tank ${tank.id}`);
+    orders.push({ tankId: tank.id, command: controller.commandFor(state, tank.id) });
+  }
+  return orders;
+}
+
 export class ScriptedController implements Controller {
   private readonly commandsByTank: ReadonlyMap<number, readonly TankCommand[]>;
 

@@ -18,16 +18,14 @@ import {
 import { FixedStep } from '../core/timestep.ts';
 import {
   DEFAULT_MATCH_RULES,
-  createMatch,
+  collectControllerOrders,
   stepMatch,
   type MatchState,
   type Tank,
-  type TankCommandOrder,
 } from '../core/sim.ts';
 import {
-  rotateTeamAssignments,
-  teamControllerSeed,
-  teamDecisionPhase,
+  createTeamMatch,
+  createTeamAIController,
 } from '../core/ai/teamBatch.ts';
 import { arenaTeamSetup, TEAM_MODE_AIM_ERROR_SCALE } from './aiBatch.ts';
 import { ARENA } from './levels/arena.ts';
@@ -122,22 +120,7 @@ export class SpectatorSession {
     this.directorIntervalTicks = directorIntervalTicks;
     const profiles = this.characters.map((name) => getAIProfile(name));
 
-    const setup = arenaTeamSetup(teams, tanksPerTeam);
-    const groups = [...setup.teams].sort((a, b) => a.teamId - b.teamId);
-    const assignments = rotateTeamAssignments(groups, seed);
-    const yawPattern = setup.cornerYawPatterns?.[seed % setup.cornerYawPatterns.length];
-    this.state = createMatch({
-      level: setup.level,
-      teams: assignments.map((assignment) => ({
-        id: assignment.teamId,
-        tanks: assignment.corner.spawns.map((spawn) => ({
-          ...spawn,
-          hullYawDegrees: yawPattern?.[assignment.corner.teamId] ?? spawn.hullYawDegrees,
-        })),
-      })),
-      seed,
-      rules: DEFAULT_MATCH_RULES,
-    });
+    this.state = createTeamMatch(arenaTeamSetup(teams, tanksPerTeam), seed, DEFAULT_MATCH_RULES).state;
     for (const tank of this.state.tanks) {
       const profile = profiles[tank.teamIndex];
       if (!profile) {
@@ -145,13 +128,7 @@ export class SpectatorSession {
       }
       this.controllers.set(
         tank.id,
-        new AIController({
-          tankId: tank.id,
-          profile,
-          seed: teamControllerSeed(seed, tank.teamIndex),
-          decisionPhaseTicks: teamDecisionPhase(seed, tank.teamId, tank.teamIndex),
-          aimErrorScale: SPECTATOR_TEAM_AIM_ERROR_SCALE,
-        }),
+        createTeamAIController(tank, profile, seed, SPECTATOR_TEAM_AIM_ERROR_SCALE),
       );
     }
     this.previous = snapshotTanks(this.state);
@@ -239,14 +216,7 @@ export class SpectatorSession {
 
   private stepOnce(): void {
     this.previous = this.current;
-    const orders: TankCommandOrder[] = [];
-    for (const tank of this.state.tanks) {
-      if (!tank.alive) continue;
-      const controller = this.controllers.get(tank.id);
-      if (!controller) throw new Error(`spectator: no controller for tank ${tank.id}`);
-      orders.push({ tankId: tank.id, command: controller.commandFor(this.state, tank.id) });
-    }
-    stepMatch(this.state, orders);
+    stepMatch(this.state, collectControllerOrders(this.state, this.controllers, 'spectator'));
     this.current = snapshotTanks(this.state);
     this.updateDirector(false);
   }

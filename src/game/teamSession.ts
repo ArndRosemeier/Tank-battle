@@ -18,11 +18,11 @@ import {
   getAIProfile,
   type AIProfile,
 } from '../core/ai.ts';
-import { rotateTeamAssignments, teamControllerSeed, teamDecisionPhase } from '../core/ai/teamBatch.ts';
+import { createTeamMatch, createTeamAIController } from '../core/ai/teamBatch.ts';
 import { FixedStep } from '../core/timestep.ts';
 import {
   DEFAULT_MATCH_RULES,
-  createMatch,
+  collectControllerOrders,
   hashMatch,
   normaliseDegrees,
   stepMatch,
@@ -31,7 +31,6 @@ import {
   type MatchState,
   type Tank,
   type TankCommand,
-  type TankCommandOrder,
 } from '../core/sim.ts';
 import { arenaTeamSetup, TEAM_MODE_AIM_ERROR_SCALE } from './aiBatch.ts';
 import { ARENA, ARENA_BOUNDS } from './levels/arena.ts';
@@ -90,13 +89,12 @@ export function createVanguardStandIn(
   seed: number,
   aimErrorScale = TEAM_MODE_AIM_ERROR_SCALE,
 ): AIController {
-  return new AIController({
-    tankId: PLAYER_TANK_ID,
-    profile: getAIProfile('vanguard'),
-    seed: teamControllerSeed(seed, 0),
-    decisionPhaseTicks: teamDecisionPhase(seed, PLAYER_TEAM_ID, 0),
+  return createTeamAIController(
+    { id: PLAYER_TANK_ID, teamId: PLAYER_TEAM_ID, teamIndex: 0 },
+    getAIProfile('vanguard'),
+    seed,
     aimErrorScale,
-  });
+  );
 }
 
 export class TeamSession {
@@ -129,22 +127,7 @@ export class TeamSession {
     this.characters.forEach((name) => getAIProfile(name));
     const profiles: readonly AIProfile[] = this.characters.map((name) => getAIProfile(name));
 
-    const setup = arenaTeamSetup(TEAM_COUNT, TEAM_SIZE);
-    const groups = [...setup.teams].sort((a, b) => a.teamId - b.teamId);
-    const assignments = rotateTeamAssignments(groups, seed);
-    const yawPattern = setup.cornerYawPatterns?.[seed % setup.cornerYawPatterns.length];
-    this.state = createMatch({
-      level: setup.level,
-      teams: assignments.map((assignment) => ({
-        id: assignment.teamId,
-        tanks: assignment.corner.spawns.map((spawn) => ({
-          ...spawn,
-          hullYawDegrees: yawPattern?.[assignment.corner.teamId] ?? spawn.hullYawDegrees,
-        })),
-      })),
-      seed,
-      rules: options.rules ?? DEFAULT_MATCH_RULES,
-    });
+    this.state = createTeamMatch(arenaTeamSetup(TEAM_COUNT, TEAM_SIZE), seed, options.rules ?? DEFAULT_MATCH_RULES).state;
     const playerSpawn = this.state.tanks[PLAYER_TANK_ID];
     if (playerSpawn?.teamId !== PLAYER_TEAM_ID) {
       throw new Error('teamSession: tank id 0 is not on team 0');
@@ -173,13 +156,7 @@ export class TeamSession {
       }
       this.controllers.set(
         tank.id,
-        new AIController({
-          tankId: tank.id,
-          profile,
-          seed: teamControllerSeed(seed, tank.teamIndex),
-          decisionPhaseTicks: teamDecisionPhase(seed, tank.teamId, tank.teamIndex),
-          aimErrorScale: TEAM_MODE_AIM_ERROR_SCALE,
-        }),
+        createTeamAIController(tank, profile, seed, TEAM_MODE_AIM_ERROR_SCALE),
       );
     }
 
@@ -259,18 +236,7 @@ export class TeamSession {
 
   private stepOnce(): void {
     this.previous = this.current;
-    const orders: TankCommandOrder[] = [];
-    for (const tank of this.state.tanks) {
-      if (!tank.alive) {
-        continue;
-      }
-      const controller = this.controllers.get(tank.id);
-      if (!controller) {
-        throw new Error(`teamSession: no controller for tank ${tank.id}`);
-      }
-      orders.push({ tankId: tank.id, command: controller.commandFor(this.state, tank.id) });
-    }
-    stepMatch(this.state, orders);
+    stepMatch(this.state, collectControllerOrders(this.state, this.controllers, 'teamSession'));
     this.current = snapshotTanks(this.state);
   }
 

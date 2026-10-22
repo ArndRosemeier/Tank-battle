@@ -13,9 +13,9 @@ import {
   createMatch,
   hashMatch,
   stepMatch,
+  collectControllerOrders,
   type MatchRules,
   type MatchState,
-  type TankCommandOrder,
   type TankSpawn,
   type TeamSpec,
 } from '../sim.ts';
@@ -187,16 +187,7 @@ export function runBatchMatches(setup: BatchSetup, options: BatchOptions): Batch
       const before = match.tanks
         .filter((tank) => tank.alive)
         .map((tank) => ({ id: tank.id, x: tank.x, z: tank.z }));
-      const orders: TankCommandOrder[] = [];
-      for (const tank of match.tanks) {
-        if (!tank.alive) continue;
-        const controller = controllers.get(tank.id);
-        if (!controller) {
-          throw new Error(`runBatchMatches: no controller for tank ${tank.id}`);
-        }
-        orders.push({ tankId: tank.id, command: controller.commandFor(match, tank.id) });
-      }
-      stepMatch(match, orders);
+      stepMatch(match, collectControllerOrders(match, controllers, 'runBatchMatches'));
       for (const start of before) {
         const tank = match.tanks.find((candidate) => candidate.id === start.id);
         if (!tank) continue;
