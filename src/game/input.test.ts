@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
   AIM_PITCH_MAX_DEGREES,
   AIM_PITCH_MIN_DEGREES,
+  directionFromAim,
+  forwardFromYaw,
 } from '../core/sim.ts';
 import {
   AIM_YAW_OFFSET_MAX_DEGREES,
   commandFromInput,
   idlePlayerInput,
+  normalisePointerAxis,
   scalePlayerInput,
   type PlayerInput,
 } from './input.ts';
@@ -26,18 +29,45 @@ describe('the pure input mapping', () => {
     expect(commandFromInput(input({ left: true, right: true }), 0).steer).toBe(0);
   });
 
-  it('turns the turret RELATIVE to the hull and clamps the offset', () => {
-    const right = commandFromInput(input({ pointerX: 1 }), 40);
-    expect(right.aimYaw).toBe(40 + AIM_YAW_OFFSET_MAX_DEGREES);
-    const left = commandFromInput(input({ pointerX: -1 }), 40);
-    expect(left.aimYaw).toBe(40 - AIM_YAW_OFFSET_MAX_DEGREES);
-    expect(commandFromInput(input({ pointerX: 9 }), 0).aimYaw).toBe(AIM_YAW_OFFSET_MAX_DEGREES);
-    expect(commandFromInput(input({ pointerX: -9 }), 0).aimYaw).toBe(-AIM_YAW_OFFSET_MAX_DEGREES);
-    // Yaw wraps, not clamps: 170° + 60° is -130° in the simulation's canonical range.
-    expect(commandFromInput(input({ pointerX: 1 }), 170).aimYaw).toBe(-130);
+  it('moving the pointer RIGHT aims RIGHT, and the offset is clamped at +-60 degrees', () => {
+    // Semantic, not arithmetic: this is the direction a player feels. Positive yaw turns
+    // LEFT in this simulation, so a right-hand pointer must DECREASE the aim yaw.
+    const aimedRight = commandFromInput(input({ pointerX: 0.5 }), 0);
+    const rightForward = forwardFromYaw(aimedRight.aimYaw);
+    expect(rightForward.x).toBeGreaterThan(0.4); // points to +X, i.e. right of -Z
+    expect(rightForward.z).toBeLessThan(-0.8); // and still forward, not sideways
+
+    const aimedLeft = commandFromInput(input({ pointerX: -0.5 }), 0);
+    const leftForward = forwardFromYaw(aimedLeft.aimYaw);
+    expect(leftForward.x).toBeLessThan(-0.4);
+    expect(leftForward.z).toBeLessThan(-0.8);
+
+    // The offset is relative to the hull: half-right at hull 0 is half-left in yaw terms.
+    expect(commandFromInput(input({ pointerX: 0.5 }), 0).aimYaw).toBe(-AIM_YAW_OFFSET_MAX_DEGREES / 2);
+    // And it is an offset, not an absolute angle: the same pointer follows the hull.
+    expect(commandFromInput(input({ pointerX: 0.5 }), 40).aimYaw).toBe(40 - AIM_YAW_OFFSET_MAX_DEGREES / 2);
+
+    // Clamped at the frame edges, whatever the pointer reports.
+    expect(commandFromInput(input({ pointerX: 9 }), 0).aimYaw).toBe(-AIM_YAW_OFFSET_MAX_DEGREES);
+    expect(commandFromInput(input({ pointerX: -9 }), 0).aimYaw).toBe(AIM_YAW_OFFSET_MAX_DEGREES);
+    // Yaw wraps, not clamps: 170 deg minus 60 deg stays 110 deg in the canonical range.
+    expect(commandFromInput(input({ pointerX: 1 }), 170).aimYaw).toBe(110);
   });
 
-  it('maps pointer height to a clamped pitch, with centre = zero', () => {
+  it('normalises a client pointer so the right half is positive x and the top half is negative y', () => {
+    expect(normalisePointerAxis(150, 100, 100)).toBe(0);
+    expect(normalisePointerAxis(199, 100, 100)).toBeGreaterThan(0.9); // right edge
+    expect(normalisePointerAxis(100, 100, 100)).toBe(-1); // left edge
+    expect(normalisePointerAxis(-50, 100, 100)).toBe(-1); // clamped outside
+    expect(normalisePointerAxis(400, 100, 100)).toBe(1); // clamped outside
+    expect(() => normalisePointerAxis(10, 0, 0)).toThrow(/size/);
+  });
+
+  it('moving the pointer UP aims UP (positive pitch), with centre = zero', () => {
+    const up = commandFromInput(input({ pointerY: -1 }), 0);
+    expect(directionFromAim(up.aimYaw, up.aimPitch).y).toBeGreaterThan(0.3);
+    const down = commandFromInput(input({ pointerY: 1 }), 0);
+    expect(directionFromAim(down.aimYaw, down.aimPitch).y).toBeLessThan(-0.3);
     expect(commandFromInput(input({ pointerY: 0 }), 0).aimPitch).toBe(0);
     expect(commandFromInput(input({ pointerY: -1 }), 0).aimPitch).toBe(AIM_PITCH_MAX_DEGREES);
     expect(commandFromInput(input({ pointerY: 1 }), 0).aimPitch).toBe(AIM_PITCH_MIN_DEGREES);

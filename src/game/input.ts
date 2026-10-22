@@ -49,6 +49,21 @@ export function scalePlayerInput(input: PlayerInput, sensitivity: number): Playe
   };
 }
 
+/**
+ * Normalises a client coordinate against an element's left/top edge and size to [-1, 1].
+ * A pointer at the RIGHT edge is +1 and at the TOP edge is -1; that is the convention
+ * `commandFromInput` relies on. Pure on purpose: the browser half of the aim chain is
+ * pinned in `node`, not discovered by the owner.
+ */
+export function normalisePointerAxis(client: number, edge: number, size: number): number {
+  requireFinite(client, 'client coordinate');
+  requireFinite(edge, 'element edge');
+  if (!Number.isFinite(size) || size <= 0) {
+    throw new Error(`sim.input: element size must be finite and > 0, got ${String(size)}`);
+  }
+  return clampUnit(((client - edge) / size) * 2 - 1);
+}
+
 export function idlePlayerInput(): PlayerInput {
   return {
     forward: false,
@@ -85,7 +100,10 @@ export function commandFromInput(input: PlayerInput, hullYawDegrees: number): Ta
   const throttle = Number(input.forward) - Number(input.backward);
   // Positive sim steer turns LEFT, so A adds and D subtracts.
   const steer = Number(input.left) - Number(input.right);
-  const aimYaw = normaliseDegrees(hullYawDegrees + pointerX * AIM_YAW_OFFSET_MAX_DEGREES);
+  // POSITIVE YAW IS LEFT in this simulation (`forwardFromYaw` returns `x = -sin(yaw)`),
+  // so a pointer to the RIGHT must SUBTRACT from the yaw. The owner found this the hard
+  // way: the first version added, and moving the mouse left swung the turret right.
+  const aimYaw = normaliseDegrees(hullYawDegrees - pointerX * AIM_YAW_OFFSET_MAX_DEGREES);
   const aimPitch =
     pointerY === 0
       ? 0

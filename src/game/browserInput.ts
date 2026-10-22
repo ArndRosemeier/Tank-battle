@@ -7,7 +7,7 @@
  * and no Escape handling. Clicking the canvas fires and also focuses it.
  */
 
-import type { PlayerInput } from './input.ts';
+import { normalisePointerAxis, type PlayerInput } from './input.ts';
 
 const KEY_CODES = {
   forward: ['KeyW', 'ArrowUp'],
@@ -52,8 +52,9 @@ export function createBrowserInput(canvas: HTMLCanvasElement): BrowserInput {
       pointerY = 0;
       return;
     }
-    pointerX = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    pointerY = ((event.clientY - rect.top) / rect.height) * 2 - 1;
+    // The ONE normalisation seam, pinned in node: right of centre is +x, above is -y.
+    pointerX = normalisePointerAxis(event.clientX, rect.left, rect.width);
+    pointerY = normalisePointerAxis(event.clientY, rect.top, rect.height);
   };
   const onPointerDown = (event: PointerEvent): void => {
     if (event.button !== 0) return;

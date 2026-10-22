@@ -1738,3 +1738,20 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
   contrast 23.4 — PASS on the camera the player actually uses.
 - `publish.sh` now runs both as required steps and exits **3** when the bytes are live but the
   page fails, so "published" cannot be confused with "working".
+
+### aim inversion — reproduced on the deployed build, then fixed
+
+- **Symptom (owner):** moving the mouse left swung the turret right.
+- **Cause:** `hullYaw + pointerX * 60` while positive yaw is LEFT in this simulation
+  (`forwardFromYaw` = `(-sin yaw, 0, -cos yaw)`).
+- **Why the suite missed it:** the existing pin asserted the implementation's arithmetic
+  (`40 + 60` for a right-hand pointer), so it pinned the bug. Direction pins are now semantic:
+  a right-hand pointer must give a forward vector with `x > 0`, a left-hand pointer `x < 0`.
+- **Both halves pinned:** `commandFromInput` (world-space direction) and
+  `normalisePointerAxis` (client coordinate → [-1, 1], right of centre is +x, above is −y).
+  Restoring the old sign reds the command pin (`expected -0.5 to be greater than 0.4`).
+- **End-to-end, on the deployed page:** the live smoke moves the pointer to the right quarter,
+  then the left, and requires the projected `#aim-reticle` to move right with it.
+  Before the fix it reported **pointer right → reticle x 464, pointer left → 817** and exited
+  1; after the fix and publish it passes.
+- **Not verified:** vertical aim in the browser (semantic pins only), and the owner's feel.

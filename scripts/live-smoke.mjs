@@ -93,6 +93,28 @@ try {
   const titleGone = !(await page.locator('#title-screen').isVisible().catch(() => false));
   if (!titleGone) note('the title screen is still covering the game after Play');
 
+  // AIM DIRECTION, end to end, on the deployed build. The owner found this inverted once
+  // (pointer left swung the turret right), and unit pins only cover the two halves of the
+  // chain. Move the pointer to the right quarter, then the left quarter, and require the
+  // projected reticle to move right with it.
+  const size = page.viewportSize() ?? { width: 1280, height: 800 };
+  const reticleX = async () => {
+    const box = await page.locator('#aim-reticle').boundingBox().catch(() => null);
+    if (!box) return null;
+    return box.x + box.width / 2;
+  };
+  await page.mouse.move(Math.round(size.width * 0.75), Math.round(size.height * 0.5));
+  await page.waitForTimeout(500);
+  const aimRight = await reticleX();
+  await page.mouse.move(Math.round(size.width * 0.25), Math.round(size.height * 0.5));
+  await page.waitForTimeout(500);
+  const aimLeft = await reticleX();
+  if (aimRight === null || aimLeft === null) {
+    note('the aim reticle is not visible, so aim direction could not be checked');
+  } else if (!(aimRight > aimLeft + 40)) {
+    note(`aim is INVERTED or unresponsive: pointer right -> reticle x ${Math.round(aimRight)}, pointer left -> ${Math.round(aimLeft)}`);
+  }
+
   // The audio assets the page asks for must exist.
   for (const path of ['assets/manifest.json', 'assets/audio/menu.mp3']) {
     const url = new URL(path, URL_TO_CHECK).href;
