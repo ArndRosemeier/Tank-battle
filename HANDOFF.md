@@ -37,11 +37,12 @@
 
 ## Next action (one)
 
-**P1 is in flight**: the player team (human + 3 AI squadmates vs 3 AI teams of 4), one
-reload rule shared by player and AI, a Tron squad readout, a `?mode=team` selector and a
-screenshot scenario, with a scripted stand-in measuring the mode. Then P2 presentation
-(combat VFX + TRON HUD) and P3 publish. Debt to revisit: the ambusher and brute behaviours
-are swapped relative to their names (numbers in ledger row 55).
+**P2 is in flight**: the player's screen — reticle on the shell path with an off-screen
+indicator, a camera that follows aim, a legible inset HUD (hull segments, reload ring,
+squad panel, kill feed, damage vignette), an attached gun and muzzle flash, and combat VFX
+inside the surface budget. Then P3: publish to the static host and the final verification.
+Debt: the 1v1 parked duel at seed 148, the 4x4 cap at 10.5 %, and the ambusher/brute
+behaviour swap (ledger rows 55, 57).
 
 ## Open questions for the owner
 
