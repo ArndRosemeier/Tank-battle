@@ -31,11 +31,12 @@ export function createBrowserInput(canvas: HTMLCanvasElement): BrowserInput {
 
   const onKeyDown = (event: KeyboardEvent): void => {
     if (
-      event.code === 'Space' ||
+      document.activeElement === canvas &&
+      (event.code === 'Space' ||
       event.code === 'ArrowUp' ||
       event.code === 'ArrowDown' ||
       event.code === 'ArrowLeft' ||
-      event.code === 'ArrowRight'
+      event.code === 'ArrowRight')
     ) {
       event.preventDefault();
     }
@@ -74,7 +75,8 @@ export function createBrowserInput(canvas: HTMLCanvasElement): BrowserInput {
   canvas.addEventListener('pointermove', updatePointer);
   canvas.addEventListener('pointerdown', onPointerDown);
   window.addEventListener('pointerup', onPointerUp);
-  canvas.addEventListener('contextmenu', (event) => event.preventDefault());
+  const onContextMenu = (event: MouseEvent): void => event.preventDefault();
+  canvas.addEventListener('contextmenu', onContextMenu);
 
   let disposed = false;
   return {
@@ -98,6 +100,7 @@ export function createBrowserInput(canvas: HTMLCanvasElement): BrowserInput {
       canvas.removeEventListener('pointermove', updatePointer);
       canvas.removeEventListener('pointerdown', onPointerDown);
       window.removeEventListener('pointerup', onPointerUp);
+      canvas.removeEventListener('contextmenu', onContextMenu);
     },
   };
 }

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { SCENE_BUDGET } from './config.ts';
 import { buildArenaScene } from './sceneAssembly.ts';
+import { createPlayableScene } from './playableScene.ts';
+import { SpectatorSession } from '../game/spectator.ts';
+import { measureScene } from './sceneStats.ts';
 
 /**
  * The GPU-independent budget (ledger row 31): this host has no accessible GPU, so a
@@ -29,5 +32,23 @@ describe('scene budget', () => {
     expect(stats.vertices).toBeLessThanOrEqual(SCENE_BUDGET.maxVertices);
 
     arena.dispose();
+  });
+
+  it('budgets the actual live 4x4 scene before and after play', () => {
+    const match = new SpectatorSession({ seed: 7, teams: 4, tanksPerTeam: 4 });
+    const scene = createPlayableScene(match.state, { focusTankId: match.state.tanks[0]!.id });
+    try {
+      for (let step = 0; step < 2; step += 1) {
+        if (step) match.advance(1);
+        scene.setTanks(match.interpolatedTanks(match.alpha));
+        scene.setShells(match.state.shells);
+        scene.syncWorld();
+        const stats = measureScene(scene.group);
+        expect(stats.drawObjects).toBeGreaterThan(0);
+        expect(stats.drawObjects).toBeLessThanOrEqual(SCENE_BUDGET.absoluteMaxDrawObjects);
+      }
+    } finally {
+      scene.dispose();
+    }
   });
 });
