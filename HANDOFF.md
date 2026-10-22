@@ -37,11 +37,10 @@
 
 ## Next action (one)
 
-**A4 is in flight**: the authored 48×48 m arena (4-fold symmetry, ring walls with four
-gateways, a breakable central cluster, low shoot-over barriers, diagonal sniper lanes,
-ambush pockets), validated at load and reviewed from a top-down debug pose. Then B1 —
-the AI core, four character profiles and the headless batch rig, so battles can be
-watched and judged.
+**B1a is in flight**: AI perception + navigation + one "vanguard" profile + the headless
+batch rig (`node --experimental-strip-types scripts/batch.ts`), plus the two A4 validator
+gaps. Then B1b: the four-character cast and the distinctness numbers; then the live
+all-AI spectator mode.
 
 ## Open questions for the owner
 

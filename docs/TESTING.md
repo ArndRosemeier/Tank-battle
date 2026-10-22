@@ -731,3 +731,17 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
   The arena, however, is an **empty hall** with no cover or lanes, which is why the
   authored arena (A4) precedes the AI. The placeholder HUD labels are clipped at the frame
   edge; that is A5's problem, recorded here so it is not lost.
+
+### row 43 — the dispatcher's own verification (5e04e9e)
+
+- Integrated gate 85/85, exit 0.
+- **Arms:** symmetry-180 → RED on the 90° invariance pin (and 6 downstream, because the
+  demo scenario depends on the layout); gateways-closed → RED on the demo, **but the
+  connectivity pin stayed green**; low-cover-reclassified (1.5 → 0.5 m) → **GREEN**.
+- **Findings handed to B1a:** the validator proves spawn-to-spawn connectivity only, so a
+  level whose *centre* is sealed still loads — add centre reachability; and the low-cover
+  classification needs a pin (a 1.2 m barrier is low, a 4.8 m wall is not), otherwise the
+  plan and mesh can mislead about what you can shoot over.
+- **Layout:** judged from `top.png` — screened corner spawns with dogleg exits, two rings
+  with corner gateways, breakable centre, staged low cover, 4-fold symmetry. The top plan
+  caught two spawns facing each other down a margin before it was visible in 3D.
