@@ -30,9 +30,15 @@ say() { printf '%s\n' "$*"; }
 die() { printf 'PUBLISH FAILED: %s\n' "$*" >&2; exit 1; }
 
 # --- 1. build -----------------------------------------------------------------
+STAGE="$ROOT/.gate-logs/publish-dist"
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
-  say "build: base=${BASE}"
-  ( cd "$ROOT" && TANK_BATTLE_BASE="$BASE" pnpm build ) || die "the build failed"
+  say "build: base=${BASE} (staged in .gate-logs/publish-dist)"
+  rm -rf "$STAGE"
+  ( cd "$ROOT" && pnpm exec tsc --noEmit && TANK_BATTLE_BASE="$BASE" pnpm exec vite build --outDir "$STAGE" --emptyOutDir ) || die "the build failed"
+  # MERGE, never wipe: the CDN caches the fixed-name index.html for four hours, so an
+  # older page can still be served and must find the asset hashes it references.
+  mkdir -p "$DIST"
+  cp -a "$STAGE"/. "$DIST"/ || die "could not merge the build into dist"
 fi
 [ -f "$DIST/index.html" ] || die "no dist/index.html — did the build run?"
 
@@ -85,5 +91,7 @@ BODY="$(curl -s "${PUBLIC_HOST}?cb=${NONCE}")" || die "the public URL did not an
 if ! printf '%s' "$BODY" | grep -q "$(basename "$ENTRY_JS")"; then
   die "the public entry does not reference $ENTRY_JS yet (CDN may still serve the old page; retry with another nonce or purge)"
 fi
-say "public: 200 and the served page references $ENTRY_JS"
+PUBLIC_ASSET_CODE="$(curl -s -o /dev/null -w '%{http_code}' "${PUBLIC_HOST}${ENTRY_JS}?cb=${NONCE}")"
+[ "$PUBLIC_ASSET_CODE" = "200" ] || die "the public asset ${PUBLIC_HOST}${ENTRY_JS} answered $PUBLIC_ASSET_CODE"
+say "public: 200, the page references $ENTRY_JS and the asset itself answers 200"
 say "PUBLISHED: https://apps.futuremagic.de/${SLUG}/"

@@ -111,11 +111,18 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "shot: building"
-pnpm build
+# NEVER build into $ROOT/dist. That directory is what the public host serves (a
+# symlink from ~/apps/tank-battle), and a screenshot build with the root base once
+# replaced the published subpath build — the live page then asked for /assets/... and
+# 404'd, so every button was dead. Screenshots build into their own scratch directory.
+SHOT_DIST="$ROOT/.gate-logs/shot-dist"
+echo "shot: building into $SHOT_DIST (the live dist is never touched)"
+rm -rf "$SHOT_DIST"
+pnpm exec tsc --noEmit
+TANK_BATTLE_BASE=/ pnpm exec vite build --outDir "$SHOT_DIST" --emptyOutDir
 
-echo "shot: serving $ROOT/dist on 127.0.0.1:$PORT"
-python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$ROOT/dist" >"$SERVER_LOG" 2>&1 &
+echo "shot: serving $SHOT_DIST on 127.0.0.1:$PORT"
+python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$SHOT_DIST" >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 
 server_ready=0

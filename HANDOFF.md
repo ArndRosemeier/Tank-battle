@@ -37,11 +37,11 @@
 
 ## Next action (one)
 
-**P4 is in flight**: audio unlocks on the first pointer/key gesture so the title has its
-music and a match crossfades to combat; then a single DoD verification pass that reports
-every clause with its number. Live build is P3
-(`https://apps.futuremagic.de/tank-battle/`, entry `index-O9fOOoAc.js`). Debts: 4x4 cap
-~11 %, seed-148 parked duel, ambusher/brute naming swap.
+**Wait for the owner's play report** (he has the live P3 build at
+`https://apps.futuremagic.de/tank-battle/`, entry `index-O9fOOoAc.js`; a hard refresh is
+needed once, because the broken page is client-cached for four hours). Then P4: audio
+unlock on the first gesture, and a single DoD verification pass with numbers. Debts: 4x4
+cap ~11 %, seed-148 parked duel, ambusher/brute naming.
 
 ## Open questions for the owner
 

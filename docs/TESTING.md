@@ -1588,3 +1588,18 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
 - **Published:** P3 live (`index-O9fOOoAc.js`), public page verified by content, chrome 0.
 - **Debt:** the title is silent until the first gesture, and PLAY as that gesture skips the
   menu loop. P4 unlocks audio on any first gesture.
+
+### P3 publish incident — the screenshot tool broke the live app
+
+- **Symptom (owner):** title rendered, buttons dead, console 404 on the entry bundle.
+- **Cause:** `shot.sh` ran `pnpm build` (base `/`) into the main `dist/`, which
+  `~/apps/tank-battle` symlinks. The live page then requested `/assets/index-*.js`, a 404
+  under `/tank-battle/`. Nothing loaded.
+- **Repair:** republished with the subpath base; page and asset both 200.
+- **Prevention, verified here:**
+  - `shot.sh` builds into `.gate-logs/shot-dist`; `dist/index.html` hash was **identical
+    before and after** a screenshot run, and the asset count was unchanged.
+  - `publish.sh` stages and **merges** (never wipes) so a CDN-cached HTML keeps its assets.
+  - `publish.sh` fetches the **public asset** and requires 200.
+- **Browser-side:** the HTML carries a 4-hour client cache, so a browser that loaded the
+  broken page needs a hard refresh (or a `?v=` URL) to see the fix.
