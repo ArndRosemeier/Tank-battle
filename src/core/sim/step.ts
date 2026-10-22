@@ -392,9 +392,13 @@ function advanceShell(state: MatchState, shell: Shell): boolean {
 
     if (hit.kind === 'world') {
       if (hit.block) {
-        damageBlock(state.world, hit.cellX, hit.cellZ, SHELL_DAMAGE);
+        const result = damageBlock(state.world, hit.cellX, hit.cellZ, SHELL_DAMAGE);
+        state.stats.worldDamageByTeam[shell.ownerTeamId] = (state.stats.worldDamageByTeam[shell.ownerTeamId] ?? 0) + result.damageApplied;
+        if (result.destroyedNow) state.stats.worldDestructionByTeam[shell.ownerTeamId] = (state.stats.worldDestructionByTeam[shell.ownerTeamId] ?? 0) + 1;
       } else {
-        damageCell(state.world, hit.cellX, hit.cellZ, SHELL_DAMAGE, state.rng);
+        const result = damageCell(state.world, hit.cellX, hit.cellZ, SHELL_DAMAGE, state.rng);
+        state.stats.worldDamageByTeam[shell.ownerTeamId] = (state.stats.worldDamageByTeam[shell.ownerTeamId] ?? 0) + result.damageApplied;
+        if (result.destroyedNow) state.stats.worldDestructionByTeam[shell.ownerTeamId] = (state.stats.worldDestructionByTeam[shell.ownerTeamId] ?? 0) + 1;
       }
       return false;
     }
@@ -713,9 +717,13 @@ function fireShells(state: MatchState, commands: ReadonlyMap<number, TankCommand
 function resolveMuzzleHit(state: MatchState, owner: Tank, hit: ShellHit): void {
   if (hit.kind === 'world') {
     if (hit.block) {
-      damageBlock(state.world, hit.cellX, hit.cellZ, SHELL_DAMAGE);
+      const result = damageBlock(state.world, hit.cellX, hit.cellZ, SHELL_DAMAGE);
+      state.stats.worldDamageByTeam[owner.teamId] = (state.stats.worldDamageByTeam[owner.teamId] ?? 0) + result.damageApplied;
+      if (result.destroyedNow) state.stats.worldDestructionByTeam[owner.teamId] = (state.stats.worldDestructionByTeam[owner.teamId] ?? 0) + 1;
     } else {
-      damageCell(state.world, hit.cellX, hit.cellZ, SHELL_DAMAGE, state.rng);
+      const result = damageCell(state.world, hit.cellX, hit.cellZ, SHELL_DAMAGE, state.rng);
+      state.stats.worldDamageByTeam[owner.teamId] = (state.stats.worldDamageByTeam[owner.teamId] ?? 0) + result.damageApplied;
+      if (result.destroyedNow) state.stats.worldDestructionByTeam[owner.teamId] = (state.stats.worldDestructionByTeam[owner.teamId] ?? 0) + 1;
     }
     return;
   }

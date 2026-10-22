@@ -29,6 +29,10 @@ export interface MatchStats {
   ticks: number;
   /** Deaths by cause. `shell + clock` equals the number of dead tanks. */
   readonly causes: Record<DeathCause, number>;
+  /** World cells/block HP removed, attributed to the firing team. */
+  readonly worldDamageByTeam: Record<number, number>;
+  /** Cells destroyed plus big blocks broken, by firing team. */
+  readonly worldDestructionByTeam: Record<number, number>;
   winnerTeamId: number | null;
   outcome: MatchOutcome | null;
 }
@@ -42,6 +46,8 @@ export function createMatchStats(): MatchStats {
     damageDealt: 0,
     ticks: 0,
     causes: { shell: 0, clock: 0 },
+    worldDamageByTeam: { 0: 0, 1: 0, 2: 0, 3: 0 },
+    worldDestructionByTeam: { 0: 0, 1: 0, 2: 0, 3: 0 },
     winnerTeamId: null,
     outcome: null,
   };

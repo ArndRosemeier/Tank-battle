@@ -10,7 +10,7 @@ Dependencies point **downward only**; nothing below a layer may import from abov
 | **entry · DOM** | `src/entry/dom.ts` | The one way to obtain a DOM node the app cannot run without, with the narrowed type. |
 | **core** | `src/core/*.ts` | Pure simulation: no DOM, no time source, no globals. Takes numbers in, returns numbers out, so it tests in `node`. |
 | **core · sim** | `src/core/sim/*.ts`, entrance `src/core/sim.ts` | The combat layer over A1: builds a match from teams/spawns, validates commands, advances one fixed tick (drive with tank bodies, turret/pitch, world, bleed, swept-muzzle fire, shells), resolves 3D shell collisions, owns last-team/tick-cap outcomes and stats, and exposes the `Controller` seam and the match hash. **No renderer, DOM, input, AI, host clock or per-tank `isPlayer`.** |
-| **core · ai** | `src/core/ai/*.ts`, entrance `src/core/ai.ts` | Perception (height-aware 3D sightline + last-seen memory), A* navigation with a `world.revision`/goal cache and body-clear smoothing, the validated vanguard profile, the 10 Hz `AIController`, and the pure headless batch runner. Renderer-free, DOM-free and clock-free; it uses only world and sim APIs. **No live spectator, HUD or game-layer import.** |
+| **core · ai** | `src/core/ai/*.ts`, entrance `src/core/ai.ts` | Perception (height-aware 3D sightline + last-seen memory), A* navigation with a `world.revision`/goal cache and body-clear smoothing, four validated character profiles (vanguard, sniper, ambusher, brute), the 10 Hz `AIController`, and the pure headless batch runner. Renderer-free, DOM-free and clock-free; it uses only world and sim APIs. **No live spectator, HUD or game-layer import.** |
 | **game** | `src/game/*.ts`, `src/game/levels/*.ts` | The app's pure game layer ABOVE the core: the authored `ARENA` data plus `validateLevel`, the pure pointer/keys→`TankCommand` mapping, browser event gathering, and the `PlayableSession` bridge (FixedStep + MatchState + interpolation + demo seeding). `input.ts`, `levels/format.ts`, `levels/arena.ts` and `session.ts` are renderer-free/clock-free and node-tested; `browserInput.ts` is the only DOM reader. |
 | **core · world** | `src/core/world/*.ts`, entrance `src/core/world.ts` | The world model: cells with height, destruction, two debris tiers, slow regeneration with displacement, and the state hash. Pure data and functions — it has **no tank, shell or AI concept**; tanks arrive as occupant positions and shells as damage calls. |
 | **render · tuning** | `src/render/config.ts` | The ONE tuning module: palette, team-luma gains, HDR gains, §9 albedo band, neutral rim tint, bloom, post, fog, camera distances, grid presentation, surface seams, scene budget, `SURFACE_DETAIL`; the shared cell size is imported from `src/core/world.ts`. Every render constant lives here; a source scan fails on a hex colour anywhere else. |
@@ -80,12 +80,13 @@ running headless in `node`.
 | an AI sightline | `hasLineOfSight(world, from, to)` · `visibleEnemies(state, tank)` | `src/core/ai/perception.ts:49` · `src/core/ai/perception.ts:77` | Samples a 3D segment through `isSolidAt` at eye height (`floor + 1.6 m`) to the target's turret point (`floor + 1.0 m`); a 1.2 m barrier is below the line, a 4.8 m wall blocks it. Team-aware, no shell resolver. |
 | short enemy memory | `PerceptionMemory.update(state, tank)` · `.latest()` | `src/core/ai/perception.ts:99` | Remembers the last seen position/tick per enemy for the profile's `memoryTicks`; memory is for navigation, never for firing. |
 | AI navigation | `NavigationCache.findPath(...)` · `reachablePointNear(...)` | `src/core/ai/navigation.ts:120` · `src/core/ai/navigation.ts:209` | A* over four-neighbour body-free cell centres; the cache recomputes only on `world.revision` or a new goal CELL. Smoothing uses a sampled body-clear line. Boundary rows with zero clearance are rejected so a tank cannot wedge on an arena edge. |
-| AI character data | `validateAIProfile(input)` · `VANGUARD_PROFILE` | `src/core/ai/profile.ts:44` · `src/core/ai/profile.ts:32` | The only profile boundary: all three goal weights (`gain-line-of-sight`, `approach-preferred-range`, `fire-in-cone`) must be present and in 0…1; unknown keys and invalid ranges throw. |
-| an AI decision | `AIController.commandFor(state, tankId)` | `src/core/ai/controller.ts:119` | One controller per tank; decides on the first call and every 6 ticks (default phase 0), holds the SAME command object in between, and never reads a clock. The controller options can set the cadence/phase in tests; the vanguard weighs LOS, approach and fire. |
+| AI character data | `validateAIProfile(input)` · `AI_PROFILES` | `src/core/ai/profile.ts:143` · `src/core/ai/profile.ts:132` | The only profile boundary: all eight goal keys (`gain-line-of-sight`, `approach-preferred-range`, `fire-in-cone`, `hold-cover`, `flank`, `ambush-chokepoint`, `breach-wall`, `wounded-retreat`) must be present and in 0…1; per-profile range, cone, memory, aim, ambush-hold and breach-range fields are validated numbers; unknown keys and invalid ranges throw. The four profiles are data, not classes. |
+| an AI decision | `AIController.commandFor(state, tankId)` | `src/core/ai/controller.ts:170` | One controller per tank; decides on the first call and every 6 ticks (default phase 0), holds the SAME command object in between, and never reads a clock. The profile goal weights select the mode: vanguard strafes and fires; sniper holds a long sightline and retreats inside `minRangeMetres`; ambusher walks to a reachable no-LOS cell, holds for `ambushHoldTicks`, then relocates; brute breaches a blocking or nearby cover cell, then brawls. Profiles with `wounded-retreat` add the retreat goal. |
 | a batch of AI matches | `runBatchMatches(setup, options)` · `pnpm batch` | `src/core/ai/batch.ts:125` · `scripts/batch.ts:1` | Real `createMatch`/`stepMatch`/`hashMatch` on a supplied level, one vanguard tank per team. Writes `reports/batch.json` and one seed's JSONL trace; `reports/` is gitignored. Summary keeps mean/median length, cap hits, accuracy, TTK from first shot, mean speed and deaths by cause. |
-| the 1v1 duel staging | `arenaDuelSetup()` | `src/game/aiBatch.ts:12` | The 2-team batch starts on the open north margin at (18, 6) and (30, 6), a mirror pair. Adjacent authored corner spawns are NOT a symmetry pair: their exits face different directions, so a 1v1 started there has an unavoidable spatial/cover bias. The four corner spawns remain the >2-team/arena layout. |
+| the character round robin | `runRoundRobin(seedsPerPairing)` · `pnpm round-robin` | `src/game/aiBatch.ts:236` · `scripts/round-robin.ts:1` | Every unordered character pairing, both orientations, `seedsPerPairing/2` seeds each way: 6 × 2 × 100 = **1200 matches** at the default 200. Runs the real `createMatch`/`stepMatch` and reports the win matrix, per-character overall win rate, and four signatures against the field median: engagement distance while in LOS, world destruction (cells destroyed + big blocks broken), out-of-LOS share, and mean speed. Writes `reports/round-robin.json` (gitignored). |
+| the 1v1 duel staging | `arenaDuelSetup()` | `src/game/aiBatch.ts:12` | The 2-team batch starts on the open north margin at (18, 6) and (30, 6), a mirror pair, now pinned by `src/game/aiBatch.test.ts`. Adjacent authored corner spawns are NOT a symmetry pair: their exits face different directions, so a 1v1 started there has an unavoidable spatial/cover bias. The four corner spawns remain the >2-team/arena layout. |
 | a fair decision phase | batch's `decisionPhaseTicks` | `src/core/ai/batch.ts:203` | The phase is balanced by TEAM: `(seed + 3·teamId) mod 6`. Deriving it from tank id made tank 0 always three ticks ahead of tank 1 (the B1a 85/15 finding); the phase must not be correlated with the id that also fixes action order. |
-| AI aim spread and dodge | `AI_AIM_ERROR_*` · `startDodge` · `strafePoint` | `src/core/ai/constants.ts:21` · `src/core/ai/controller.ts:286` · `src/core/ai/controller.ts:300` | The vanguard adds a seeded yaw/pitch error scaled by range (10° + 1.8°/m for B1b), strafes continuously in contact, and dodges for 60 ticks after a shot or a hit; the effective shot interval is 285 ticks. These are the pacing levers, kept out of the sim's global `RELOAD_TICKS` so the A3c app/demo is not retuned. |
+| AI aim spread and dodge | profile `aimErrorBaseDegrees` / `aimErrorPerMetre` · `startDodge` · `strafePoint` | `src/core/ai/profile.ts:36` · `src/core/ai/controller.ts:273` · `src/core/ai/controller.ts:405` | Every profile supplies its own seeded range-scaled yaw/pitch spread (vanguard **10° + 1.8°/m**; the sniper is tighter, the brute 4° + 0.6°/m); `AI_AIM_ERROR_*` is fallback only. A deliberate wall breach uses a tight fixed spread because the target is stationary. Every profile strafes in contact, and every profile dodges for 60 ticks after a shot or a hit; the effective shot interval stays 285 ticks. These are the pacing levers, kept out of the sim's global `RELOAD_TICKS`. |
 | the vanguard's shot interval | `AI_FIRE_INTERVAL_TICKS` | `src/core/ai/constants.ts:15` | The sim reload stays 60 ticks; the AI deliberately waits 285 ticks before its next trigger. This is the pacing lever that produced the 900–1800-tick band without changing the player's fire rate. |
 | the wound clock | `BLEED_INTERVAL_TICKS` · `MatchRules.bleedIntervalTicks` | `src/core/sim/constants.ts:75` | B1b raised the default from 600 to 900 ticks so a 3-HP duel can last the required 15–30 s while the clock still kills wounded tanks in a measurable share. The value remains a `MatchRules` override, so a test/app can still use 600. |
 | the authored level | `ARENA` · `spawnCentreMetres(spawn)` | `src/game/levels/arena.ts:1` | The ONE 48×48 m, 24×24-cell, 4-fold arena: four 2×2 corner spawn rooms with screened dogleg exits, outer/inner square rings with 2×2 corner gateways, breakable central pillar block, ambush pockets and low coverage. `session.ts` is the only app caller. |
@@ -120,6 +121,41 @@ running headless in `node`.
 | the shared cell size | `CELL_SIZE_METRES` | `src/core/world/constants.ts:18` | The ONE 2 m definition, exported by `src/core/world.ts:51` and re-exported by `src/core/sim/constants.ts:22`. `src/render/config.ts` imports it from the world entrance; the source-scan pin fails if a second `CELL_SIZE_METRES = 2` definition appears. |
 | the world's numbers | `MATERIAL_PROFILES` · `SHARD_CAP` · `CELL_SIZE_METRES` · `secondsToTicks` | `src/core/world/constants.ts:46` | The ONE world tuning module. `secondsToTicks` (`src/core/world/constants.ts:79`) is the only seconds→ticks conversion, and a tick IS `STEP_SECONDS`. |
 | the world's public surface | `src/core/world.ts` | `src/core/world.ts:1` | The ONE entrance: the model's doc, its types and its seams, re-exported. Callers outside the world package import from here, never from `world/*.ts`. |
+
+### The cast and its signatures (B1c)
+
+`AIProfile` is the one data shape. It carries eight goal weights and the numeric
+parameters those goals need — preferred/minimum range, fire cone, memory, aim error,
+ambush hold, breach range. `validateAIProfile` is the load boundary; the controller
+never carries a character name. The modes are selected from the data:
+
+- **vanguard** — strafe, close, fire (the B1b pilot).
+- **sniper** — hold a long sightline; retreat when the enemy is inside `minRangeMetres`.
+- **ambusher** — choose a body-free hidden cell that is actually reachable, hold it for
+  `ambushHoldTicks`, fire, then relocate.
+- **brute** — when a shot or route is blocked, fire the blocking cell; otherwise make
+  one nearby cover breach, then brawl with the vanguard's strafe behaviour.
+
+The weights are consumed, not decorative. `hold-cover` gates the sniper's stationary
+hold and the ambusher's hidden hold; `flank` enables the lateral strafe branch for the
+vanguard, the sniper's fallback when it is not holding, and the brute after its breach;
+`wounded-retreat` adds the retreat goal; the rest gate the mode itself.
+
+The round-robin signatures are defined at the same seam as the batch stats:
+
+- **engagement distance** — mean distance to the nearest live enemy over ticks where
+  the tank has line of sight; `null` when it never had one.
+- **world damage** — `worldDestructionByTeam`: cells destroyed plus big blocks broken,
+  attributed to the firing team. It is not tank HP.
+- **out-of-LOS share** — alive ticks with no live enemy in line of sight, divided by
+  alive ticks.
+- **mean speed** — distance moved divided by alive time (`STEP_SECONDS`).
+
+`runRoundRobin` runs all six unordered pairings in both orientations. The field median
+is the median of the four per-character means; each signature's delta is normalised by
+the absolute median. The acceptance test is a measurement, not a hardcoded pass:
+30–70 % overall win rate per character, and at least 20 % away from the field median on
+that character's own signature.
 
 ## 3 · Gotchas
 
@@ -354,8 +390,8 @@ running headless in `node`.
 ## 4 · Known debt
 
 - **A4/B1a is still not the full game.** The app is a single playable duel on the
-  authored arena; B1a adds the headless all-AI batch and one pilot, but not the live
-  spectator mode, the four-character cast or a full HUD. A5 owns the interface. The A2
+  authored arena; B1a/B1c add the headless all-AI batch and the four-character cast, but not the live
+  spectator mode or a full HUD. A5 owns the interface. The A2
   showcase and its 16-tank budget fixture are retained only for the existing
   look/budget pins.
 - **The body is a circle but the hull is a 2.6 m box.** The width fits the 1 m radius
@@ -366,16 +402,29 @@ running headless in `node`.
   fixture measures `buildArenaScene` (16 showcase tanks), while the A4 playable scene
   measured **16 draw objects / 5,808 triangles / 17,432 vertices** and **31 renderer
   calls** in a headless 1920×937 probe. Keep the old pin as a ceiling, not an app claim.
-- **B1b's vanguard is still a simple pilot.** It has no cover-seeking, flanking or
-  breaching. It strafes/dodges and fires within an aim cone; when no ground route exists
-  it moves directly toward its goal and relies on body collision. The 200-seed acceptance
-  batch is **99/101 (49.5/50.5)**, median **934 ticks (15.6 s)**, accuracy **52.0 %**,
-  cap **0/200**, **7.38** shots per match, **2.24 m/s** mean speed and **87/200** matches
-  with a clock death. Adjacent authored corner spawns were not a fair 1v1 pair; the 2-team
-  batch now uses a symmetric duel staging on the arena, with team-balanced decision phases.
-  The mirror pin is SCRIPTED at the sim level (original team 0 wins at tick 7, mirrored
-  team 1 wins at tick 7, shell death both); an AI-level mirror is still not exact because
-  continuous aim/dodge is deterministic-chaotic. This is known debt for B1c/B2.
+- **B1c's cast is data-driven, but the mode dispatch is a threshold.** All four profiles
+  pass through one `AIController`; the mode is selected from profile weights
+  (`ambush-chokepoint > 0.5`, `breach-wall > 0.5`, `minRangeMetres > 0`) and profile
+  fields. That keeps one core and four data profiles, but a future profile that mixes
+  those goals below the thresholds falls through to vanguard. It is not a general
+  planner and must not become per-character strategy classes.
+- **B1c's signatures clear the 20 % bar against the field median, not against each
+  other.** Final 200-seed round robin (1200 matches, 21 draws): wins vanguard **58.5 %**,
+  sniper **55.7 %**, ambusher **50.0 %**, brute **32.3 %** (all inside 30–70 %); deltas
+  from the field median are sniper engagement **+26.8 %**, vanguard speed **+75.6 %**,
+  ambusher out-of-LOS **+32.4 %**, brute world destruction **+92.1 %**. But the brute's
+  out-of-LOS share (**49.0 %**) is slightly above the ambusher's (**46.7 %**) because the
+  breach detour is exposed; the ambusher is not the unique no-LOS leader. It still hides
+  and passes its stated acceptance, but the metric separates it from the median, not
+  from the brute. Brute's win rate is at the 30 % floor, and the round robin uses the
+  same pinned short duel staging as B1b.
+- **The AI-level mirror is still owed.** The existing mirror pin is scripted at the
+  simulation level (original team 0 wins at tick 7; mirrored team 1 wins at tick 7).
+  An AI match is deterministic-chaotic under a mirror, so the fairness fix is measured
+  and its staging coordinates are pinned, not proven by an AI-level mirror.
+- **The AI-only fire interval is still single-player debt.** The 285-tick
+  `AI_FIRE_INTERVAL_TICKS` remains separate from the global `RELOAD_TICKS=60`; before
+  player-vs-AI ships it must become one rule. B1c deliberately did not fix it.
 - **Perception is sampled at 10 cm.** It uses `isSolidAt` and not the shell resolver;
   this is a sightline, not a guarantee that a shell clears low cover. The vanguard
   deliberately aims at the turret centre and does not plan a shoot-over arc.

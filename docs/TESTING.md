@@ -108,8 +108,9 @@ never "it passed".
 | A three-seed batch is reproducible | `reproduces the same three-seed result and trace` | `src/game/aiBatch.test.ts` | use a different controller seed derivation or drop the seed → hashes/trace differ |
 
 | A mirrored script produces the mirrored winner, length and causes | `a mirrored script produces the mirrored winner, length and causes` | `src/game/mirror.test.ts` | swap a tank/team mapping in the script or break the z mirror → the original team-0 win/7-tick/shell result no longer maps to mirrored team 1 |
+| The duel spawns are an exact mirror pair | `pins the two spawns as an exact mirror pair across the arena centre` | `src/game/aiBatch.test.ts` | move one spawn, or flip one hull yaw, and the explicit-coordinate/symmetry assertions red |
 
-The A3a block (20 rows), the A3b block (7 rows) and the A3c block (11 rows) are direct assertions; A4 adds seven level-validation pins; B1a adds the two A4 gap pins and eleven AI pins; B1b adds the scripted mirror pin. **No mutation differential was run for A3a/A3b/A3c/A4/B1a/B1b**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
+The A3a block (20 rows), the A3b block (7 rows) and the A3c block (11 rows) are direct assertions; A4 adds seven level-validation pins; B1a adds the two A4 gap pins and eleven AI pins; B1b adds the scripted mirror pin; B1c adds the staging-symmetry pin (100/100 tests in 22 files). **No mutation differential was run for A3a/A3b/A3c/A4/B1a/B1b/B1c**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
 
 The differential harness is a local artifact at `.gate-logs/differential.py` (row 26)
 and `.gate-logs/differential.sh` (row 0) — both gitignored; the mutations are described
@@ -752,9 +753,83 @@ only in trim lines and small lights. The team-trim diagnostic on `wide` is orang
   returned null and the controller stopped, fixed with direct fallback movement; the
   first mirror probe with AI failed on lengths and causes, which is why the pin is
   scripted and the AI mirror is recorded as debt.
-- **Not run:** a live all-AI spectator, a four-character cast, an AI-level mirror,
-  a GPU frame-rate claim, or a mutation differential. The 900-tick clock is a deliberate
+- **Not run:** a live all-AI spectator, an AI-level mirror, a GPU frame-rate claim,
+  or a mutation differential. The 900-tick clock is a deliberate
   pacing trade, not a claim that the A3c 10-second clock was wrong.
+
+### row 49 — Slice B1c (the cast and the signature round robin)
+
+- **Full gate:** `bash scripts/gate.sh` → exit **`0`**; suite **100/100 in 22 files**
+  (vitest 5.0.5). Raw log at `.gate-logs/gate.log` (gitignored).
+- **Round robin:** `pnpm round-robin --seeds 200` (the script also runs as
+  `node --experimental-strip-types scripts/round-robin.ts --seeds 200`): **1200 matches**
+  (6 pairings × 2 orientations × 100 seeds), **21 draws**. Final report is
+  `reports/round-robin.json` (gitignored).
+
+  | row \ column | vanguard | sniper | ambusher | brute |
+  | --- | ---: | ---: | ---: | ---: |
+  | vanguard | — | 91 / 200 | 111 / 199 | 149 / 198 |
+  | sniper | 109 / 200 | — | 117 / 200 | 108 / 199 |
+  | ambusher | 88 / 199 | 83 / 200 | — | 129 / 183 |
+  | brute | 49 / 198 | 91 / 199 | 54 / 183 | — |
+
+  | character | wins | matches | win % |
+  | --- | ---: | ---: | ---: |
+  | vanguard | 351 | 600 | **58.5 %** |
+  | sniper | 334 | 600 | **55.7 %** |
+  | ambusher | 300 | 600 | **50.0 %** |
+  | brute | 194 | 600 | **32.3 %** |
+
+  All four overall rates are inside the required **30–70 %**; brute is the floor
+  case (2.3 points of headroom).
+- **Signatures (mean over 600 matches each; median over the four means):**
+
+  | character | engagement m | world damage | out-of-LOS | speed m/s |
+  | --- | ---: | ---: | ---: | ---: |
+  | vanguard | 7.2 | 0.26 | 19.8 % | **2.03** |
+  | sniper | **15.2** | 0.57 | 23.9 % | 1.11 |
+  | ambusher | 13.2 | 0.54 | **46.7 %** | 0.74 |
+  | brute | 10.7 | **1.06** | **49.0 %** | 1.20 |
+  | field median | 12.0 | 0.55 | 35.3 % | 1.16 |
+
+  Deltas against the field median on each profile's own signature: sniper engagement
+  **+26.8 %**, vanguard speed **+75.6 %**, ambusher out-of-LOS **+32.4 %**, brute
+  world destruction **+92.1 %**. All four clear the required **≥20 %**.
+  **Honest limit:** the ambusher is not the field's highest out-of-LOS character — the
+  brute's breach detour measures **49.0 %** against the ambusher's **46.7 %**. The
+  ambusher's signature separates it from the median, not from the brute.
+- **Pins added/updated:** `the duel staging … exact mirror pair across the arena
+  centre` in `src/game/aiBatch.test.ts` pins (18, 6)/(30, 6) and the ±90° yaw as an
+  x-mirror through the 48 m centre. `profile.test.ts` now uses a genuinely unknown goal
+  key (`marksman`), because `flank` became a valid key in B1c. The three-seed batch
+  reproducibility pin is unchanged.
+- **First-run reds, recorded:**
+  - The first B1c vitest run was **1 failed / 100 passed**: the old profile test still
+    treated `flank` as unknown. It was updated to `marksman`; the new staging pin then
+    passed.
+  - A 20-seed smoke had **ambusher 75.0 % / brute 25.0 %** overall; ambusher
+    out-of-LOS was **13.4 % vs median 14.9 %** and brute world damage **0.38 vs 0.47**.
+    Sniper engagement **15.0 vs 12.0 (+25 %)** and vanguard speed **2.20 vs 1.30
+    (+69 %)** already passed.
+  - The ambusher's hidden-cell picker chose body-free cells inside sealed pockets; a
+    sampled match measured **0 %** actual out-of-LOS while it tried to reach one. The
+    fix checks `findPath` reachability (up to the 12 nearest hidden cells) before
+    holding; the 200-seed share rose to **46.7 %**.
+  - Seed 3 of vanguard vs brute crashed at **tick 432** with
+    `command.aimYaw must be finite, got NaN`: a stale breach cell was aimed at while the
+    target was hidden, so the old range-scaled spread used `distance = Infinity`. Breach
+    aim now uses the actual `aimDistance` and a tight fixed spread.
+  - A one-line mistake that reset `breachedCell` at the start of every decision made the
+    brute inert: its win rate collapsed to **1.7 %** and its world-destruction number
+    swung to **3.92**. Removing the reset (and persisting the target until the cell is
+    destroyed) restored the intended behaviour; the wrong number is not in the final
+    report.
+  - The first full 200-seed run with brute aim **8° + 1.0°/m** left brute at **24.5 %**
+    overall. Tightening to **4° + 0.6°/m** raised it to **32.3 %**; the breach-wall aim
+    is a separate tight spread, so the world signature stayed at **+92.1 %**.
+- **Not run:** a live all-AI spectator, an AI-level mirror beyond the scripted pin, a
+  mutation differential for B1c, a 16-tank/4-team round robin, and GPU frame rate. The
+  round-robin acceptance is a CLI measurement; it is not a vitest pass/fail pin.
 
 ## Honest records
 
@@ -918,7 +993,7 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
   formula did not cause the 85/15; the unfair adjacent-spawn pairing did. The arm is
   recorded as VOID (it could not test what it was aimed at) and the cause is corrected in
   the ledger.
-- **Owed:** a staging-symmetry pin (the duel spawns are a mirror pair) — the fairness fix
-  is currently evidenced only by the 200-seed measurement.
+- **Owed and now paid in B1c:** the staging-symmetry pin (`src/game/aiBatch.test.ts`);
+  B1b's fairness fix previously rested only on the 200-seed measurement.
 - **New debt:** the AI's 285-tick fire interval is AI-only while the global reload stays
   60 ticks, so the player would fire ~4.75× faster. One rule before player-vs-AI ships.

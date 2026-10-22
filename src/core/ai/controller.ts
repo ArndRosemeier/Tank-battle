@@ -18,6 +18,7 @@ import {
   TANK_TURN_RATE_DEGREES_PER_SECOND,
   clamp,
   forwardFromYaw,
+  isTankPositionFree,
   normaliseDegrees,
   shortestAngleDelta,
   type Controller,
@@ -25,18 +26,16 @@ import {
   type Tank,
   type TankCommand,
 } from '../sim.ts';
-import { CELL_SIZE_METRES } from '../world.ts';
+import { CELL_SIZE_METRES, cellAt, isSolidAt } from '../world.ts';
 import {
   AI_DECISION_INTERVAL_TICKS,
-  AI_AIM_ERROR_BASE_DEGREES,
-  AI_AIM_ERROR_PER_METRE,
   AI_DODGE_TICKS,
   AI_FIRE_INTERVAL_TICKS,
   AI_TARGET_CENTRE_HEIGHT_METRES,
   AI_WAYPOINT_REACHED_METRES,
 } from './constants.ts';
-import { PerceptionMemory, hasShotLine } from './perception.ts';
-import { NavigationCache, reachablePointNear, type GridPoint } from './navigation.ts';
+import { PerceptionMemory, hasLineOfSight, hasShotLine, targetCentre } from './perception.ts';
+import { NavigationCache, findPath, reachablePointNear, type GridPoint } from './navigation.ts';
 import {
   frameForPose,
   frameToWorld,
@@ -112,6 +111,10 @@ export class AIController implements Controller {
   private strafeSign: 1 | -1 = 1;
   private nextStrafeFlip = 0;
   private movementGoal: { x: number; z: number } | null = null;
+  private ambushSpot: { x: number; z: number } | null = null;
+  private ambushUntilTick = 0;
+  private breachedCell: { x: number; z: number } | null = null;
+  private bruteBreachDone = false;
 
   constructor(options: AIControllerOptions) {
     if (!Number.isInteger(options.tankId) || options.tankId < 0) {
@@ -236,12 +239,49 @@ export class AIController implements Controller {
       this.startDodge(state.tick);
     }
 
-    const aimPoint = target ? { x: target.x, z: target.z } : null;
+    const mode = this.mode();
+    if (this.breachedCell && mode === 'brute') {
+      const cell = cellAt(state.world, this.breachedCell.x, this.breachedCell.z);
+      if (cell.material === 'floor' || cell.hp === 0) {
+        this.bruteBreachDone = true;
+        this.breachedCell = null;
+      }
+    }
+    if (
+      mode === 'brute' &&
+      target &&
+      target.visible &&
+      target.tank &&
+      !this.breachedCell &&
+      (!this.bruteBreachDone || !shotClear)
+    ) {
+      this.breachedCell =
+        this.blockingCell(state, tank, target.tank) ??
+        (this.bruteBreachDone ? null : this.coverCell(state, tank));
+    }
+    const breachPoint = this.breachedCell
+      ? {
+          x: (this.breachedCell.x + 0.5) * CELL_SIZE_METRES,
+          z: (this.breachedCell.z + 0.5) * CELL_SIZE_METRES,
+        }
+      : null;
+    const aimPoint = breachPoint ?? (target ? { x: target.x, z: target.z } : null);
     const aim = aimPoint
-      ? aimAt(state, tank, aimPoint.x, aimPoint.z)
+      ? aimAt(state, tank, aimPoint.x, aimPoint.z, breachPoint ? state.world.floorSurfaceHeightMetres + 0.6 : undefined)
       : { yaw: tank.turretYawDegrees, pitch: tank.aimPitchDegrees };
     if (aimPoint) {
-      const spread = (AI_AIM_ERROR_BASE_DEGREES + distance * AI_AIM_ERROR_PER_METRE) * this.aimErrorScale;
+      const aimDistance = Math.hypot(aimPoint.x - tank.x, aimPoint.z - tank.z);
+      // A deliberate breach shot is aimed at a stationary wall cell, so it uses the
+      // tight end of the profile's spread instead of the moving-target value.
+      const spread = breachPoint
+        ? Math.min(
+            1,
+            (this.profile.aimErrorBaseDegrees * 0.08 +
+              aimDistance * this.profile.aimErrorPerMetre * 0.03) *
+              this.aimErrorScale,
+          )
+        : (this.profile.aimErrorBaseDegrees + aimDistance * this.profile.aimErrorPerMetre) *
+          this.aimErrorScale;
       const yawError = (this.rng.next() * 2 - 1) * spread;
       aim.yaw = normaliseDegrees(aim.yaw + yawError);
       // A smaller pitch error keeps shots in the tank's vertical body while still
@@ -252,7 +292,7 @@ export class AIController implements Controller {
     const pitchError = Math.abs(tank.aimPitchDegrees - aim.pitch);
     const fire =
       Boolean(target && target.visible) &&
-      shotClear &&
+      (shotClear || this.breachedCell !== null) &&
       this.profile.weights['fire-in-cone'] > 0 &&
       tank.reloadTicksRemaining === 0 &&
       state.tick - this.lastShotTick >= AI_FIRE_INTERVAL_TICKS &&
@@ -267,32 +307,86 @@ export class AIController implements Controller {
       this.strafeSign = this.rng.int(2) === 0 ? -1 : 1;
       this.nextStrafeFlip = state.tick + 36;
     }
+    const wounded =
+      this.profile.weights['wounded-retreat'] > 0 && tank.hp < tank.maxHp;
     const dodging = state.tick < this.dodgeUntilTick;
-    const wantsApproach =
-      target !== null &&
-      target.visible &&
-      distance > this.profile.preferredRangeMetres + standoffJitter &&
-      this.profile.weights['approach-preferred-range'] > 0;
-    const wantsSight =
-      target === null &&
-      this.profile.weights['gain-line-of-sight'] > 0;
-    const wantsRemembered =
-      target !== null &&
-      !target.visible &&
-      this.profile.weights['gain-line-of-sight'] > 0;
-    const needsReposition = Boolean(target && target.visible && !shotClear);
-    const goal =
-      target && target.visible
-        ? this.strafePoint(state, tank, targetPoint)
-        : dodging
-          ? this.dodgePoint(state, tank, targetPoint)
-          : wantsSight || wantsRemembered
-            ? targetPoint
-            : needsReposition
+    let goal: { x: number; z: number } | null = null;
+
+    if (wounded && target) {
+      goal = this.retreatPoint(state, tank, targetPoint);
+    } else if (mode === 'ambusher' && target) {
+      // A profile with hold-cover disabled never settles into the ambush pocket.
+      if (!this.ambushSpot && this.profile.weights['hold-cover'] > 0.5) {
+        this.ambushSpot = this.hiddenPoint(state, tank, targetPoint);
+        this.ambushUntilTick = state.tick + this.profile.ambushHoldTicks;
+      }
+      const holding = this.ambushSpot !== null && state.tick < this.ambushUntilTick;
+      if (holding) {
+        const atSpot = Math.hypot(tank.x - this.ambushSpot!.x, tank.z - this.ambushSpot!.z) < 1.2;
+        goal = atSpot ? null : this.ambushSpot;
+      } else {
+        goal = targetPoint;
+      }
+      if (fire) {
+        // Firing from ambush exposes the position: relocate after the shot.
+        this.ambushSpot = null;
+        this.ambushUntilTick = state.tick + this.profile.ambushHoldTicks;
+      }
+    } else if (mode === 'sniper' && target) {
+      if (target.visible && distance < this.profile.minRangeMetres) {
+        goal = this.retreatPoint(state, tank, targetPoint);
+      } else if (!target.visible) {
+        goal = targetPoint;
+      } else if (!shotClear) {
+        goal = targetPoint;
+      } else if (this.profile.weights['hold-cover'] > 0.5) {
+        // Holding cover is the default sniper goal, but it is a weighted choice.
+        goal = null;
+      } else {
+        goal = this.profile.weights['flank'] > 0
+          ? this.strafePoint(state, tank, targetPoint)
+          : targetPoint;
+      }
+    } else if (mode === 'brute') {
+      // The brute closes and lets the breach shot open the route; once the breach is
+      // done it brawls like the vanguard instead of walking straight down the muzzle.
+      const brawling =
+        target !== null &&
+        target.visible &&
+        shotClear &&
+        this.bruteBreachDone &&
+        !this.breachedCell &&
+        this.profile.weights['flank'] > 0;
+      goal = brawling && target ? this.strafePoint(state, tank, targetPoint) : target || dodging ? targetPoint : this.fallbackPoint(state, tank);
+      if (this.breachedCell) goal = breachPoint ?? targetPoint;
+      if (dodging && !this.breachedCell) goal = this.dodgePoint(state, tank, targetPoint);
+    } else {
+      const wantsApproach =
+        target !== null &&
+        target.visible &&
+        distance > this.profile.preferredRangeMetres + standoffJitter &&
+        this.profile.weights['approach-preferred-range'] > 0;
+      const wantsSight =
+        target === null &&
+        this.profile.weights['gain-line-of-sight'] > 0;
+      const wantsRemembered =
+        target !== null &&
+        !target.visible &&
+        this.profile.weights['gain-line-of-sight'] > 0;
+      const needsReposition = Boolean(target && target.visible && !shotClear);
+      // `flank` is the gate for the lateral strafe; with it off the profile closes
+      // directly instead of circling the target.
+      goal =
+        target && target.visible
+          ? this.profile.weights['flank'] > 0
+            ? this.strafePoint(state, tank, targetPoint)
+            : targetPoint
+          : dodging
+            ? this.dodgePoint(state, tank, targetPoint)
+            : wantsSight || wantsRemembered || needsReposition || wantsApproach
               ? targetPoint
-              : wantsApproach
-                ? targetPoint
-                : null;
+              : null;
+    }
 
     if (goal) {
       this.setPath(state, tank, goal);
@@ -357,6 +451,96 @@ export class AIController implements Controller {
       if (lateral <= 2.5) return true;
     }
     return false;
+  }
+
+  private mode(): 'vanguard' | 'sniper' | 'ambusher' | 'brute' {
+    if (this.profile.weights['ambush-chokepoint'] > 0.5) return 'ambusher';
+    if (this.profile.weights['breach-wall'] > 0.5) return 'brute';
+    if (this.profile.minRangeMetres > 0) return 'sniper';
+    return 'vanguard';
+  }
+
+  private retreatPoint(state: MatchState, tank: Tank, target: { x: number; z: number }): { x: number; z: number } {
+    const direction = yawTo(tank.x, tank.z, target.x, target.z) + 180;
+    const forward = forwardFromYaw(direction);
+    const width = state.world.columns * CELL_SIZE_METRES;
+    const height = state.world.rows * CELL_SIZE_METRES;
+    return {
+      x: clamp(tank.x + forward.x * 12, CELL_SIZE_METRES * 1.5, width - CELL_SIZE_METRES * 1.5),
+      z: clamp(tank.z + forward.z * 12, CELL_SIZE_METRES * 1.5, height - CELL_SIZE_METRES * 1.5),
+    };
+  }
+
+  private hiddenPoint(state: MatchState, tank: Tank, target: { x: number; z: number }): { x: number; z: number } | null {
+    const candidates: { x: number; z: number; distance: number }[] = [];
+    const eye = {
+      x: target.x,
+      y: state.world.floorSurfaceHeightMetres + 1.6,
+      z: target.z,
+    };
+    for (let z = 1; z < state.world.rows - 1; z += 1) {
+      for (let x = 1; x < state.world.columns - 1; x += 1) {
+        const wx = (x + 0.5) * CELL_SIZE_METRES;
+        const wz = (z + 0.5) * CELL_SIZE_METRES;
+        const distance = Math.hypot(wx - tank.x, wz - tank.z);
+        if (distance > 28) continue;
+        if (!isTankPositionFree(state.world, wx, wz)) continue;
+        if (hasLineOfSight(state.world, eye, { x: wx, y: state.world.floorSurfaceHeightMetres + 1, z: wz })) continue;
+        candidates.push({ x: wx, z: wz, distance });
+      }
+    }
+    candidates.sort((a, b) => a.distance - b.distance || a.x - b.x || a.z - b.z);
+    // A hidden cell is only useful if the tank can walk to it; sealed pockets behind
+    // the rings look hidden but leave the ambusher exposed while it fails to arrive.
+    for (const candidate of candidates.slice(0, 12)) {
+      if (findPath(state.world, tank.x, tank.z, candidate.x, candidate.z, this.frame ?? undefined) !== null) {
+        return { x: candidate.x, z: candidate.z };
+      }
+    }
+    return null;
+  }
+
+  private coverCell(state: MatchState, tank: Tank): { x: number; z: number } | null {
+    let best: { x: number; z: number } | null = null;
+    let bestDistance = Infinity;
+    for (let z = 1; z < state.world.rows - 1; z += 1) {
+      for (let x = 1; x < state.world.columns - 1; x += 1) {
+        const cell = cellAt(state.world, x, z);
+        if (cell.material === 'floor') continue;
+        const wx = (x + 0.5) * CELL_SIZE_METRES;
+        const wz = (z + 0.5) * CELL_SIZE_METRES;
+        const distance = Math.hypot(wx - tank.x, wz - tank.z);
+        if (distance > this.profile.breachRangeMetres || distance < 3) continue;
+        if (distance < bestDistance) {
+          best = { x, z };
+          bestDistance = distance;
+        }
+      }
+    }
+    return best;
+  }
+
+  private blockingCell(state: MatchState, tank: Tank, target: Tank): { x: number; z: number } | null {
+    const from = {
+      x: tank.x,
+      y: state.world.floorSurfaceHeightMetres + MUZZLE_HEIGHT_METRES,
+      z: tank.z,
+    };
+    const to = targetCentre(state.world, target);
+    const distance = Math.hypot(to.x - from.x, to.z - from.z);
+    const steps = Math.ceil(distance / 0.25);
+    for (let step = 1; step < steps; step += 1) {
+      const t = step / steps;
+      const x = from.x + (to.x - from.x) * t;
+      const y = from.y + (to.y - from.y) * t;
+      const z = from.z + (to.z - from.z) * t;
+      const cx = Math.floor(x / CELL_SIZE_METRES);
+      const cz = Math.floor(z / CELL_SIZE_METRES);
+      if (cx < 0 || cz < 0 || cx >= state.world.columns || cz >= state.world.rows) return null;
+      if (isSolidAt(state.world, cx, cz, y)) return { x: cx, z: cz };
+      if (Math.hypot(to.x - x, to.z - z) > this.profile.breachRangeMetres) return null;
+    }
+    return null;
   }
 
   private chooseTarget(tank: Tank, visible: readonly Tank[]): TargetChoice | null {
@@ -453,11 +637,11 @@ export class AIController implements Controller {
   }
 }
 
-function aimAt(state: MatchState, tank: Tank, x: number, z: number): { yaw: number; pitch: number } {
+function aimAt(state: MatchState, tank: Tank, x: number, z: number, targetYOverride?: number): { yaw: number; pitch: number } {
   const angle = yawTo(tank.x, tank.z, x, z);
   const horizontal = Math.hypot(x - tank.x, z - tank.z);
   const muzzleY = state.world.floorSurfaceHeightMetres + MUZZLE_HEIGHT_METRES;
-  const targetY = state.world.floorSurfaceHeightMetres + AI_TARGET_CENTRE_HEIGHT_METRES;
+  const targetY = targetYOverride ?? state.world.floorSurfaceHeightMetres + AI_TARGET_CENTRE_HEIGHT_METRES;
   const pitch = horizontal < 1e-9 ? 0 : (Math.atan2(targetY - muzzleY, horizontal) * 180) / Math.PI;
   return { yaw: normaliseDegrees(angle), pitch };
 }

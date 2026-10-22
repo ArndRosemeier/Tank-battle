@@ -8,7 +8,7 @@ describe('AI profile data', () => {
     expect(() =>
       validateAIProfile({
         ...VANGUARD_PROFILE,
-        weights: { ...VANGUARD_PROFILE.weights, flank: 0.5 },
+        weights: { ...VANGUARD_PROFILE.weights, marksman: 0.5 },
       }),
     ).toThrow(/unknown goal key/);
     expect(() =>
