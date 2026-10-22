@@ -3,10 +3,10 @@
 <!-- One screen, overwritten in place. The next session — DSH or Claude Code — reads
      this after AGENTS.md and docs/CROSS-TOOL.md, and must be able to act. -->
 
-- **by:** `dsh/chief-of-staff (goal-072ded4a)`
-- **at:** `2026-10-21T23:32Z`
-- **branch / worktree:** `main` · `/home/administrator/projects/Tank battle`
-- **last verified:** `LANDED row=0` in `docs/BOARD.md` · full gate `0` (8/8) · cheap
+- **by:** ChatGPT GitHub review (audit remediation)
+- **at:** 2026-10-22
+- **branch / worktree:** `improve/code-quality-audit-20261022` · GitHub-only, no local worktree
+- **last verified:** source reviewed; **not executed** locally. Await GitHub Actions result and human review.
   tier `2` before it
 
 ## Done
@@ -33,7 +33,11 @@
 
 ## In flight
 
-- Nothing. No writers, no probes, no branches.
+- Pull request for code-quality improvements (branch `improve/code-quality-audit-20261022`), not merged.
+- Regression fixes: AI character statistics use tank slots, Windows asset serving, title renderer failure cleanup, canvas-specific default-key suppression and context-menu cleanup.
+- Shared team match/AI setup and command collection. GitHub CI and browser smoke are newly introduced and not yet verified.
+- Remaining structural work: renderer setup unification and fully tick-driven presentation events (larger behavioral changes; defer until dedicated integration testing).
+- License is undecided; **do not assign a license without owner's choice**.
 
 ## Next action (one)
 

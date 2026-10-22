@@ -22,3 +22,6 @@ reports/
 
 # the published build (owned by scripts/publish.sh; dist/ is local only)
 release/
+
+# isolated Chromium smoke dependencies
+.browser-smoke/
