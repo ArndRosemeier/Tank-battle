@@ -1,19 +1,8 @@
-import { Vector2, Vector3 } from 'three';
+import { Vector3 } from 'three';
 import {
-  WebGLRenderer,
-  Scene,
-  Color,
-  Fog,
   OrthographicCamera,
   PerspectiveCamera,
-  ACESFilmicToneMapping,
-  SRGBColorSpace,
 } from 'three';
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { requireElement } from './entry/dom.ts';
 import { createAimHud, createHud, type HudState } from './entry/hud.ts';
 import { AudioEngine } from './entry/audio.ts';
@@ -21,18 +10,16 @@ import { createScreens, type Screens } from './entry/screens.ts';
 import { createTitleBackground, type TitleBackground } from './entry/titleBackground.ts';
 import { loadSettings, saveSettings, type GameSettings } from './entry/settings.ts';
 import { CameraRig } from './render/cameraRig.ts';
+import { createRenderStack } from './render/renderStack.ts';
 import {
   isCameraPoseName,
   spectatorPose,
   type CameraPoseName,
 } from './render/cameraMath.ts';
 import {
-  BLOOM,
   CAMERA,
   DPR_CAP,
-  FOG,
   PALETTE,
-  POST,
   SURFACE_DETAIL,
   TANK,
   teamColor,
@@ -278,39 +265,13 @@ function bootSpectate(launch: LaunchOptions, audio: AudioEngine): (nowMillisecon
       `${spectator.characters.join('/')}`,
   );
 
-  const renderer = new WebGLRenderer({
-    canvas,
-    antialias: true,
-    alpha: false,
-    stencil: false,
-    powerPreference: 'high-performance',
-  });
-  renderer.setClearColor(new Color(PALETTE.background), 1);
-  renderer.toneMapping = ACESFilmicToneMapping;
-  renderer.toneMappingExposure = POST.exposure * CAMERA.spectatorExposureScale;
-  renderer.outputColorSpace = SRGBColorSpace;
-  renderer.info.autoReset = false;
-
-  const threeScene = new Scene();
-  threeScene.background = new Color(PALETTE.background);
-  threeScene.fog = new Fog(PALETTE.background, FOG.nearMetres, FOG.farMetres);
-  threeScene.add(scene.group);
-
   const camera = new PerspectiveCamera(CAMERA.fovDegrees, 1, CAMERA.nearMetres, CAMERA.farMetres);
   camera.name = 'spectator-camera';
-
-  const composer = new EffectComposer(renderer);
-  const renderPass = new RenderPass(threeScene, camera);
-  composer.addPass(renderPass);
-  const bloomPass = new UnrealBloomPass(
-    new Vector2(1, 1),
-    BLOOM.strength,
-    BLOOM.radius,
-    BLOOM.threshold,
-  );
-  composer.addPass(bloomPass);
-  composer.addPass(new ShaderPass(VIGNETTE_SHADER));
-  composer.addPass(new OutputPass());
+  const { renderer, scene: threeScene, composer, bloomPass } = createRenderStack(canvas, camera, {
+    exposureScale: CAMERA.spectatorExposureScale,
+    vignetteShader: VIGNETTE_SHADER,
+  });
+  threeScene.add(scene.group);
 
   activeQuality = (settings) => {
     if (launch.detail === null) setSurfaceDetail(settings.quality);
@@ -662,29 +623,11 @@ function bootMatch(
       `hull half-width ${TANK_HALF_WIDTH_METRES.toFixed(2)} m`,
   );
 
-  const renderer = new WebGLRenderer({
-    canvas,
-    antialias: true,
-    alpha: false,
-    stencil: false,
-    powerPreference: 'high-performance',
-  });
-  renderer.setClearColor(new Color(PALETTE.background), 1);
-  renderer.toneMapping = ACESFilmicToneMapping;
-  renderer.toneMappingExposure = POST.exposure;
-  renderer.outputColorSpace = SRGBColorSpace;
-  renderer.info.autoReset = false;
-
-  const threeScene = new Scene();
-  threeScene.background = new Color(PALETTE.background);
-  threeScene.fog = new Fog(PALETTE.background, FOG.nearMetres, FOG.farMetres);
-  threeScene.add(scene.group);
+  // The renderer is created after the camera, below. The scene owns the rendered contents.
 
   const isTop = launch.pose === 'top';
   const topPlan = createTopPlan(ARENA);
   topPlan.setVisible(isTop);
-  threeScene.add(topPlan.group);
-
   const rigPose: CameraPoseName | null =
     launch.pose !== null && isCameraPoseName(launch.pose) ? launch.pose : null;
   const rig = new CameraRig({
@@ -710,18 +653,11 @@ function bootMatch(
   topCamera.name = 'top-orthographic-camera';
   topCamera.updateMatrixWorld();
 
-  const composer = new EffectComposer(renderer);
-  const renderPass = new RenderPass(threeScene, isTop ? topCamera : rig.camera);
-  composer.addPass(renderPass);
-  const bloomPass = new UnrealBloomPass(
-    new Vector2(1, 1),
-    BLOOM.strength,
-    BLOOM.radius,
-    BLOOM.threshold,
-  );
-  composer.addPass(bloomPass);
-  composer.addPass(new ShaderPass(VIGNETTE_SHADER));
-  composer.addPass(new OutputPass());
+  const { renderer, scene: threeScene, composer, bloomPass } = createRenderStack(canvas, isTop ? topCamera : rig.camera, {
+    vignetteShader: VIGNETTE_SHADER,
+  });
+  threeScene.add(scene.group);
+  threeScene.add(topPlan.group);
 
   activeQuality = (settings) => {
     if (launch.detail === null) setSurfaceDetail(settings.quality);

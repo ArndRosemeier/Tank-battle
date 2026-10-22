@@ -15,20 +15,10 @@
  */
 
 import {
-  ACESFilmicToneMapping,
-  Color,
-  Fog,
   PerspectiveCamera,
-  Scene,
-  SRGBColorSpace,
-  Vector2,
-  WebGLRenderer,
 } from 'three';
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { BLOOM, CAMERA, DPR_CAP, FOG, PALETTE, POST } from '../render/config.ts';
+import { BLOOM, CAMERA, DPR_CAP } from '../render/config.ts';
+import { createRenderStack } from '../render/renderStack.ts';
 import { spectatorPose } from '../render/cameraMath.ts';
 import { createPlayableScene, type PlayableScene } from '../render/playableScene.ts';
 import { TitleSession } from '../game/titleSession.ts';
@@ -62,37 +52,13 @@ export function createTitleBackground(options: TitleBackgroundOptions): TitleBac
   if (!(canvas instanceof HTMLCanvasElement)) {
     throw new Error('titleBackground: a canvas is required');
   }
-  const renderer = new WebGLRenderer({
-    canvas,
-    antialias: true,
-    alpha: false,
-    stencil: false,
-    powerPreference: 'high-performance',
-  });
-  renderer.setClearColor(new Color(PALETTE.background), 1);
-  renderer.toneMapping = ACESFilmicToneMapping;
-  renderer.toneMappingExposure = POST.exposure * TITLE_EXPOSURE_SCALE;
-  renderer.outputColorSpace = SRGBColorSpace;
-  renderer.info.autoReset = false;
-
-  const threeScene = new Scene();
-  threeScene.background = new Color(PALETTE.background);
-  threeScene.fog = new Fog(PALETTE.background, FOG.nearMetres, FOG.farMetres);
-
   const camera = new PerspectiveCamera(CAMERA.fovDegrees, 1, CAMERA.nearMetres, CAMERA.farMetres);
   camera.name = 'title-background-camera';
-
-  const composer = new EffectComposer(renderer);
-  const renderPass = new RenderPass(threeScene, camera);
-  composer.addPass(renderPass);
-  const bloomPass = new UnrealBloomPass(
-    new Vector2(1, 1),
-    BLOOM.strength * TITLE_BLOOM_SCALE,
-    BLOOM.radius,
-    BLOOM.threshold,
-  );
-  composer.addPass(bloomPass);
-  composer.addPass(new OutputPass());
+  const renderStack = createRenderStack(canvas, camera, {
+    exposureScale: TITLE_EXPOSURE_SCALE,
+    bloomScale: TITLE_BLOOM_SCALE,
+  });
+  const { renderer, scene: threeScene, composer, bloomPass } = renderStack;
 
   let seed = options.seed ?? 7;
   let session = new TitleSession({ seed, teams: options.teams, tanksPerTeam: options.tanksPerTeam });
@@ -213,11 +179,7 @@ export function createTitleBackground(options: TitleBackgroundOptions): TitleBac
     session.dispose();
     threeScene.remove(scene.group);
     scene.dispose();
-    bloomPass.dispose();
-    const composerWithDispose = composer as unknown as { dispose?: () => void };
-    composerWithDispose.dispose?.();
-    renderer.dispose();
-    renderer.forceContextLoss();
+    renderStack.dispose();
   };
 
   resize();
