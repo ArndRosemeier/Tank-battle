@@ -70,6 +70,8 @@ QUEUE | row=1 | AUTONOMOUS RUN — owner is away; pursue v1 to the recorded Defi
 
 QUEUE-CLOSED | row=2 | publish to the app host — DONE, live at apps.futuremagic.de/tank-battle/ (LANDED row 60)
 
+QUEUE | row=5 | **OWNER REPORT (2026-10-22, after opening the live build):** "Looks like there is no title screen, no music, no sounds and no settings yet." Confirmed true: no front door, no audio seam, no settings surface. Five generated audio files (cannon, wall-break, regen, engine-idle, a 76 s theme) sit unused in `.probe-assets/`. Queued as Slice P3 (the front door) after P2 lands | src=this row + ledger 61
+
 QUEUE | row=3 | owner (STANDING): hero-quality presentation — glow and pop, TRON HUD, nothing spreadsheet-shaped; judged as screenshots at A2 (the look) and A5 (the interface), and it outranks "it renders" | src=docs/DESIGN.md §9
 
 QUEUE | row=4 | owner (CAPABILITY): generated assets are allowed — music, SFX and 2D art via the OpenRouter creative key (`or`, skill loaded). Manifest + sha256 + prompt required; consumed at A2 (look), A3 (combat SFX), A5 (UI blips) | src=docs/DESIGN.md §10
