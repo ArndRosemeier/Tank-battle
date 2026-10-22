@@ -371,7 +371,7 @@ export function runTeamBatch(setup: TeamSetup, options: TeamBatchOptions): TeamB
         }
       }
       for (const tank of state.tanks) {
-        const character = characterStats.get(selectedProfiles[tank.teamId]!.name);
+        const character = characterStats.get(selectedProfiles[tank.teamIndex]!.name);
         if (!character) throw new Error('runTeamBatch: character stats disappeared');
         const oldHp = previousHp.get(tank.id);
         if (oldHp === undefined) throw new Error(`runTeamBatch: no previous HP for tank ${tank.id}`);
@@ -406,7 +406,7 @@ export function runTeamBatch(setup: TeamSetup, options: TeamBatchOptions): TeamB
     }
 
     for (const tank of state.tanks) {
-      const character = characterStats.get(selectedProfiles[tank.teamId]!.name);
+      const character = characterStats.get(selectedProfiles[tank.teamIndex]!.name);
       if (!character) throw new Error('runTeamBatch: character stats disappeared');
       character.tanks += 1;
       character.teamAppearances += 1;

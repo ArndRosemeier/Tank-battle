@@ -196,8 +196,8 @@ export function createTitleBackground(options: TitleBackgroundOptions): TitleBac
       }
       frameId = requestAnimationFrame(frame);
     } catch (error) {
-      disposed = true;
-      frameId = null;
+      // Go through the real cleanup path; setting disposed here would prevent it.
+      dispose();
       options.onError(error);
     }
   };

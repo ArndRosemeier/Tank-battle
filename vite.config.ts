@@ -1,5 +1,6 @@
 import { cpSync, existsSync, readFileSync, statSync } from 'node:fs';
-import { extname, join, normalize, resolve } from 'node:path';
+import { extname, join, resolve } from 'node:path';
+import { resolveAssetFile } from './scripts/assetPath.ts';
 import { defineConfig } from 'vitest/config';
 import type { Plugin } from 'vite';
 
@@ -23,9 +24,16 @@ function assetsBridge(): Plugin {
       server.middlewares.use((req, res, next) => {
         const url = req.url ?? '';
         if (!url.startsWith(`/${ASSETS}/`)) return next();
-        const relative = decodeURIComponent(url.slice(`/${ASSETS}/`.length).split('?')[0] ?? '');
-        const file = normalize(join(ASSETS, relative));
-        if (!file.startsWith(`${ASSETS}/`) || !existsSync(file) || !statSync(file).isFile()) {
+        let relative: string;
+        try {
+          relative = decodeURIComponent(url.slice(`/${ASSETS}/`.length).split('?')[0] ?? '');
+        } catch {
+          res.statusCode = 400;
+          res.end('Malformed asset URL');
+          return;
+        }
+        const file = resolveAssetFile(ASSETS, relative);
+        if (file === null || !existsSync(file) || !statSync(file).isFile()) {
           return next();
         }
         res.setHeader('Content-Type', CONTENT_TYPES[extname(file)] ?? 'application/octet-stream');
