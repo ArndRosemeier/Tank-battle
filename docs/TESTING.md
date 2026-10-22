@@ -481,3 +481,22 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
   p90 of tile medians ≤ 10 % of white) so a bright wall cannot hide in a dark frame.
 - The writer's own arms (`bright-fill`, `dim-lines`, `bloom-flood`) each made `shot.sh`
   exit 1, so the tool does catch *global* regressions — the gap is spatial, not plain.
+
+### row 37 — the dispatcher's own verification (a009de8)
+
+- **Integrated gate:** 59/59, exit 0.
+- **My arms** (the writer ran no mutations on these 20 pins):
+
+| arm | src tree sha256 (mutated) | result |
+| --- | --- | --- |
+| friendly-fire (teammate immunity bypassed) | `584e82ab…` | RED on `a shell cannot damage a teammate and stops at the teammate's body` |
+| reload-ignored (fire every tick) | `97a13250…` | RED on the reload pin **and** two downstream pins (one damage per shell, the scripted duel) |
+| bleed-disabled (the clock never ticks) | `1d9d4708…` | RED on `a wounded tank loses one HP per bleed interval and can die from the clock` |
+
+- **Watched, not summarised:** a per-tick trace of the scripted duel (temporary vitest
+  file, deleted after; tree left clean). Shots at ticks 1/61/121, 10 m of flight in 4
+  ticks, kill at tick 124, target closing at 0.02 m/tick on throttle 0.2, no bleed inside
+  124 ticks. These are the baseline numbers for tuning later.
+- **Accepted debt, blocking for teams:** no tank-tank collision; a point muzzle 3 m ahead;
+  an unpinned cap tie; the 2 m cell size duplicated across render and sim. All four are
+  A3b (ledger row 38), before wiring the renderer.

@@ -37,10 +37,9 @@
 
 ## Next action (one)
 
-**A3a is in flight**: the pure combat core (drive/aim/fire with pitch, shells, cell and
-tank damage, team immunity, the lethal wound clock, win conditions) with headless pins
-and a scripted duel. Then A3b wires it to the renderer + input, and hardens
-`look-budget.py` with the tile metric.
+**A3b is in flight**: tank-tank collision, a swept muzzle (no shooting through cover),
+the cap-tie pin, and folding the duplicated 2 m cell size into one seam. Then A3c wires
+input + the renderer so the game is playable and watchable.
 
 ## Open questions for the owner
 
