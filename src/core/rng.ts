@@ -21,6 +21,12 @@ export interface Rng {
   next(): number;
   /** An integer in `[0, maxExclusive)`. */
   int(maxExclusive: number): number;
+  /**
+   * The current 32-bit internal state, read-only. A simulation hash must include it:
+   * a state can look identical while sitting at a different point in the draw sequence,
+   * and the next debris angle would then differ. Read it; never set it.
+   */
+  readonly state: number;
 }
 
 /** The seed space: a 32-bit unsigned integer. */
@@ -56,5 +62,11 @@ export function createRng(seed: number): Rng {
     return Math.floor(next() * maxExclusive);
   };
 
-  return { next, int };
+  return {
+    next,
+    int,
+    get state() {
+      return state;
+    },
+  };
 }

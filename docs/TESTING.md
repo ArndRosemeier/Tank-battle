@@ -46,6 +46,28 @@ never "it passed".
 | A fill cannot depth-reject its coincident edge lines | `the fill is polygon-offset so a coincident edge line cannot be depth-rejected (D1)` | `src/render/neonSurface.test.ts` | remove `polygonOffset` from the fill material → the pin reds (and the old dotted screenshots return) |
 | Every hole is a black void quad, not a grid quad | `every hole cell is a void quad, and every intact cell is a grid quad` | `src/render/gridFloor.test.ts` | drop the `aVoid` attribute (or write 0) → the void-vertex count reds |
 | The showcase stays inside the GPU-independent budget | `the showcase scene stays inside the pinned draw-object, triangle and vertex budget` | `src/render/sceneBudget.test.ts` | add one tank/one extra surface, or unmerge a world surface → objects/triangles/vertices exceed the 20% headroom |
+| A wall stops a tank, but a floor hole stays drivable | `a tank cannot drive into a wall cell but can drive over a floor hole` | `src/core/sim.test.ts` | drop the wall/solidity branch, or make a hole impassable → the blocked tank enters the wall or the hole driver stops |
+| A blocked diagonal drive slides along the free axis | `a blocked diagonal drive slides along the free x axis` | `src/core/sim.test.ts` | make a blocked full move a hard stop → the tank never reaches the wall row's east side |
+| Drive and steer use the documented rates | `throttle and steer produce the documented speed and turn rate` | `src/core/sim.test.ts` | change either rate constant or apply steer after the move → the one-tick position/yaw reds |
+| Turret yaw is independent of hull yaw | `the turret yaw is independent of the hull` | `src/core/sim.test.ts` | copy hull yaw into turret yaw, or use hull yaw in the turret slew → the independence assertion reds |
+| Pitch is clamped to −30…25° and out-of-range throws | `the aim pitch is clamped to the documented range` | `src/core/sim.test.ts` | accept a pitch outside the clamp, or omit the pitch guard in `validateTankCommand` → the throw assertion reds |
+| Firing needs a clear reload and spawns one muzzle shell | `firing is refused until the reload elapses and spawns exactly one shell at the muzzle` | `src/core/sim.test.ts` | remove the reload guard (second shot too early), or spawn at the hull origin instead of the muzzle → `shotsFired`/position red |
+| A shell advances 1.5 m/tick and despawns at 120 m | `a shell advances the documented distance per tick and despawns at max range` | `src/core/sim.test.ts` | advance by a different distance, or never expire at range → the per-tick delta/loop bound reds |
+| A wall hit removes one HP and stops the shell | `a shell that strikes a wall cell damages it by one and despawns` | `src/core/sim.test.ts` | skip `damageCell`/`damageBlock`, or let the shell continue → wall HP or shell count reds |
+| Downward pitch breaks the struck floor cell | `a shell aimed downward breaks the floor cell it strikes` | `src/core/sim.test.ts` | give the shell no vertical component, or skip floor cells in collision → the hole assertion reds |
+| A big block absorbs one shell hit | `a shell that strikes a big block damages it` | `src/core/sim.test.ts` | treat the block cell as a bare hole, or skip `damageBlock` → block HP reds |
+| A moving tank shoves floor shards out of its cell | `a moving tank shoves floor shards out of its cell` | `src/core/sim.test.ts` | stop calling `shoveShard` after a move/displacement → the shards stay in the entered cell |
+| A shard shatters and reflects at its stored normal | `a shard shatters and deflects the shell at its stored mirror angle` | `src/core/sim.test.ts` | stop after shattering without reflecting, or use the raw non-unit horizontal in `shardDeflection` → direction/shard count reds |
+| Enemy tank hits deal 1 damage; 3 kill | `a shell striking an enemy tank deals one damage and despawns; three kill` | `src/core/sim.test.ts` | damage the teammate/owner too, or apply 2 damage → hits/kills/death cause red |
+| A teammate stops a shell without damage | `a shell cannot damage a teammate and stops at the teammate body` | `src/core/sim.test.ts` | remove the team check before `damageEnemyTank` → teammate HP and `hits` red |
+| The wound clock is lethal and does not reset on later hits | `a wounded tank loses one HP per bleed interval and can die from the clock` | `src/core/sim.test.ts` | stop decrementing the clock, or reset it on every hit → HP/death tick red |
+| A dead tank is inert | `a dead tank no longer moves, aims or fires` | `src/core/sim.test.ts` | remove the `if (!tank.alive)` guards in drive/aim/fire → position/yaw/shell count red |
+| Last team wins; at the cap total HP wins | `the match ends when one team remains, and at the cap the greater total HP wins` | `src/core/sim.test.ts` | omit the last-team check, or compare alive count before HP at the cap → winner/outcome red |
+| Same seed + commands hash identically; a command change differs | `the same seed and command sequence produce an identical match-state hash` | `src/core/sim.test.ts` | omit a tank/shell/status field from the canonical text → the two-run/different-command assertion reds |
+| A scripted duel ends by a shell kill with consistent stats | `the scripted duel runs to a shell kill and its stats tell the story` | `src/core/sim.test.ts` | change the phase order (fire before the last-team check), or stop counting muzzle shots → shots/hits/winner/death cause red |
+| Malformed commands throw rather than clamp | `a malformed command throws instead of being silently clamped` | `src/core/sim.test.ts` | clamp throttle/steer/pitch or coerce `fire` → the throw assertions red |
+
+The final 20 rows are the A3a combat pins. They are direct node assertions; **no mutation differential was run for A3a**, so the "how red" text names the one-line change that would red each pin, not an executed arm. The first sim test run was red in five places and the first typecheck was red; those were test-scaffold/scenario corrections (see `### row 37`), not pin evidence.
 
 The differential harness is a local artifact at `.gate-logs/differential.py` (row 26)
 and `.gate-logs/differential.sh` (row 0) — both gitignored; the mutations are described
@@ -332,6 +354,56 @@ only in trim lines and small lights. The team-trim diagnostic on `wide` is orang
   at 1080p / 118 draw calls), publish, and a team-hull segmentation (the neutral/shared
   hull fill makes it unreliable — see the table note). No test assertion was red except
   the albedo-pin reinterpretation above; no black/empty frame occurred.
+
+### row 37 — Slice A3a (the pure combat core)
+
+- **Cheap tier:** `GATE_TESTS=0 bash scripts/gate.sh` → exit **`2`** (the required
+  writer tier): `pnpm run build` (`tsc --noEmit && vite build`) green, the suite
+  deliberately NOT run through the gate. Cheap log `.gate-logs/gate.log`. The full suite
+  below was run directly with `pnpm exec vitest run` on the same tree; it was **not**
+  run through the gate, so this row does not claim a green full gate.
+- **Suite:** **59/59 tests in 12 files**, vitest 5.0.5, 472 ms; the 20 new tests are
+  `src/core/sim.test.ts` (the rest is the 39-test A2 baseline, including the A1 RNG and
+  world-hash pins touched by the shared `fnv1a` fold). Typecheck `pnpm exec tsc
+  --noEmit` exit 0.
+- **Scripted duel (the real simulation, not a mock):** two teams, one tank each; the
+  shooter (team 0) starts at `(5, 10)` with hull/turret yaw 180 and holds `fire`; the
+  target (team 1) starts at `(5, 20)` with hull yaw 0 and drives towards the shooter at
+  `throttle 0.2`; both are driven by `ScriptedController` lists through `stepMatch`.
+  Result: **ended at tick 124**, winner **team 0**, outcome **`last-team`**, target
+  **dead**, cause of death **`shell`**, target moved z **20.00 → 17.52 m**. Hits landed at
+  ticks **5, 65, 124** (HP 3→2→1→0). Stats: **`shotsFired 3 · hits 3 · kills 1 ·
+  damageDealt 3 · causes.shell 1 · causes.clock 0 · ticks 124`**; no shell remains in
+  flight. The third shell is the kill and no fourth shot is taken: the last-team check
+  runs before the fire phase on that tick.
+- **First runs were RED — recorded, not hidden. The red assertions were test-scaffold/scenario corrections, not evidence of a wrong combat rule; one code correction came from review:**
+  - the first `sim.test.ts` transform failed with a missing `)` in a test expression
+    (0 tests executed), and the first typecheck had 7 unused-import/helper errors in the
+    test file; both were test-scaffold fixes.
+  - the first executable sim run was **5 failed / 14 passed**: the diagonal-slide test
+    expected a single wall cell to stop the tank, but a real tank slid AROUND it (the test
+    was corrected to a full wall row); the pitch test constructed a spawn at `+30°` by
+    negating the `-30°` minimum (outside the clamp) and was corrected to slew from 0°;
+    the shard test passed a non-unit horizontal vector to `shardDeflection` and kept
+    three centre-cell shards, so the expected direction/count were wrong (the test now
+    keeps exactly one shard and passes a unit vector); the dead-tank loop's 100-tick
+    guard could not reach the third reload at tick 121 (guard raised); and the scripted
+    duel spawned its target at z 40 in a 24 m arena (z 20 now).
+  - the scripted duel's first **armed target** at `throttle 1` drove through the shooter
+    and past the muzzle, so the third shell could not hit. That is the **tank-tank
+    collision debt** in `ARCHITECTURE.md` §4, not a shell bug; the test uses `throttle
+    0.2` so the target stays in front and the duel still exercises movement. The debt is
+    now recorded instead of hidden by the test.
+  - code review, not a failing assertion, found the phase-order mismatch: an early
+    last-team check after the bleed phase ended a match before existing shells advanced.
+    It was removed so the order is exactly commands/drive/aim → world → bleed → existing
+    shells → ONE last-team check → fire → cap. `idleTankCommand` now validates pitch
+    through the command boundary instead of accepting an out-of-range value.
+- **Not run:** the full `bash scripts/gate.sh` (the dispatcher owns the integrated full
+  tier), any mutation differential for the 20 sim pins (the matrix says so), a browser
+  or pixel assertion (this slice touches no renderer), publish, and any AI/input
+  integration. The render test files stayed green, which is the evidence that the core
+  did not import or disturb the renderer.
 
 ## Honest records
 

@@ -8,10 +8,8 @@
  * arithmetic, and a hash is an equality check, not a measurement.
  */
 
+import { fnv1a } from '../fnv1a.ts';
 import { listBlocks, type World } from './state.ts';
-
-const FNV_OFFSET_BASIS = 0x811c9dc5;
-const FNV_PRIME = 0x01000193;
 
 /** An 8-character hex FNV-1a hash of the world's canonical state text. */
 export function hashState(world: World): string {
@@ -38,13 +36,4 @@ export function hashState(world: World): string {
 
 function millimetres(metres: number): number {
   return Math.round(metres * 1000);
-}
-
-function fnv1a(text: string): string {
-  let hash = FNV_OFFSET_BASIS;
-  for (let index = 0; index < text.length; index += 1) {
-    hash ^= text.charCodeAt(index);
-    hash = Math.imul(hash, FNV_PRIME) >>> 0;
-  }
-  return hash.toString(16).padStart(8, '0');
 }
