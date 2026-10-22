@@ -82,8 +82,9 @@ running headless in `node`.
 | AI navigation | `NavigationCache.findPath(...)` · `reachablePointNear(...)` | `src/core/ai/navigation.ts:120` · `src/core/ai/navigation.ts:209` | A* over four-neighbour body-free cell centres; the cache recomputes only on `world.revision` or a new goal CELL. Smoothing uses a sampled body-clear line. Boundary rows with zero clearance are rejected so a tank cannot wedge on an arena edge. |
 | AI character data | `validateAIProfile(input)` · `AI_PROFILES` | `src/core/ai/profile.ts:143` · `src/core/ai/profile.ts:132` | The only profile boundary: all eight goal keys (`gain-line-of-sight`, `approach-preferred-range`, `fire-in-cone`, `hold-cover`, `flank`, `ambush-chokepoint`, `breach-wall`, `wounded-retreat`) must be present and in 0…1; per-profile range, cone, memory, aim, ambush-hold and breach-range fields are validated numbers; unknown keys and invalid ranges throw. The four profiles are data, not classes and are passed through `validateAIProfile` at module load, so an invalid shipped weight fails the import; a test imports and re-validates all four. |
 | an AI decision | `AIController.commandFor(state, tankId)` | `src/core/ai/controller.ts:170` | One controller per tank; decides on the first call and every 6 ticks (default phase 0), holds the SAME command object in between, and never reads a clock. The profile goal weights select the mode: vanguard strafes and fires; sniper holds a long sightline and retreats inside `minRangeMetres`; ambusher walks to a reachable no-LOS cell, holds for `ambushHoldTicks`, then relocates; brute breaches a blocking or nearby cover cell, then brawls. Profiles with `wounded-retreat` add the retreat goal. |
+| the per-tick action order | `teamTurnOrder(seed, tick, teamIds)` | `src/core/sim/turnOrder.ts` | A pure rotation of the team ids, derived only from `(match seed, tick, team id set)`. It orders movement/body collision, the bleed tick, shell advancement and firing; `seededAssignmentOrder` also rotates the team array/tank ids per match. A four-tick cycle puts every team in every rank exactly once. |
 | a batch of AI matches | `runBatchMatches(setup, options)` · `pnpm batch` | `src/core/ai/batch.ts:125` · `scripts/batch.ts:1` | Real `createMatch`/`stepMatch`/`hashMatch` on a supplied level, one vanguard tank per team. Writes `reports/batch.json` and one seed's JSONL trace; `reports/` is gitignored. Summary keeps mean/median length, cap hits, accuracy, TTK from first shot, mean speed and deaths by cause. |
-| a 4-team AI batch | `runTeamBatch(setup, options)` · `pnpm batch --teams 4 --tanks-per-team 4` | `src/core/ai/teamBatch.ts` · `scripts/batch.ts:1` | Same real match seam, up to 4 teams ×4 tanks with the same character cast by slot. Reports per-team and per-corner win splits, length distribution, cap hits, shots/hits, kills, damage, deaths by cause, per-character survival/damage and the de-rotated per-character team-win rate, plus the per-corner diagnostic (first LOS, first-600 m, damage dealt/taken, cells destroyed). Writes `reports/team-batch.json`; the 1v1 `reports/batch.json` and trace shape are unchanged. The team-to-corner and corner-facing assignments rotate by seed; the team AI uses `aimErrorScale: 0.09` (see §4). |
+| a 4-team AI batch | `runTeamBatch(setup, options)` · `pnpm batch --teams 4 --tanks-per-team 4` | `src/core/ai/teamBatch.ts` · `scripts/batch.ts:1` | Same real match seam, up to 4 teams ×4 tanks with the same character cast by slot. Reports per-team and per-corner win splits, length distribution, cap hits, shots/hits, kills, damage, deaths by cause, per-character survival/damage and the de-rotated per-character team-win rate, plus the per-corner diagnostic (first LOS, first-600 m, damage dealt/taken, cells destroyed). Writes `reports/team-batch.json`; the 1v1 `reports/batch.json` and trace shape are unchanged. The team-to-corner and corner-facing assignments rotate by seed, the team array is shuffled per seed, and the team AI uses `aimErrorScale: 0.09` (see §4). |
 | the team staging | `arenaTeamSetup(teams, tanksPerTeam)` | `src/game/aiBatch.ts` | Four pads in each corner's outer gate, same cast by slot, with four seeded corner-facing patterns. It uses the ONE `ARENA`: the eight ring corners are opened to 5×5 windows so the body-free graph is one component; the app, batch and spectator all read that same level. |
 | the character round robin | `runRoundRobin(seedsPerPairing)` · `pnpm round-robin` | `src/game/aiBatch.ts:236` · `scripts/round-robin.ts:1` | Every unordered character pairing, both orientations, `seedsPerPairing/2` seeds each way: 6 × 2 × 100 = **1200 matches** at the default 200. Runs the real `createMatch`/`stepMatch` and reports the win matrix, per-character overall win rate, and four signatures against the field median: engagement distance while in LOS, world destruction (cells destroyed + big blocks broken), out-of-LOS share, and mean speed. Writes `reports/round-robin.json` (gitignored). |
 | the 1v1 duel staging | `arenaDuelSetup()` | `src/game/aiBatch.ts:12` | The 2-team batch starts on the open north margin at (18, 6) and (30, 6), a mirror pair, now pinned by `src/game/aiBatch.test.ts`. Adjacent authored corner spawns are NOT a symmetry pair: their exits face different directions, so a 1v1 started there has an unavoidable spatial/cover bias. The four corner spawns remain the >2-team/arena layout. |
@@ -189,6 +190,32 @@ cuts every 180 ticks and on a new shell; with 10+ tanks and four teams alive it 
 a four-team overview, later a scored engagement preferring shells and nearby teams.
 `N` follows the next living tank; `A` resumes automatic cuts. The B2 screenshot pose
 and look evidence remain presentation-only; B3 did not retune the camera or HUD.
+
+### B4 · Action order and the cast on the new arena
+
+The fixed per-tick order was still visible as a team-id win rate. `stepMatch` now derives
+`teamTurnOrder(seed, tick, teamIds)`; it orders movement, body collision, bleed, shell
+advancement and firing, and `runTeamBatch` additionally shuffles the team array/tank ids
+per seed. The pin checks that the order is a pure function of seed/tick/team set and
+that a four-tick cycle gives every team every rank once. The team split is still
+**28.5 / 20.5 / 19.5 / 21.0 %** (one 0.5-point miss on team 2), corners
+**24.5 / 22.5 / 22.0 / 20.5 %**, cap **10.5 %** at aim 0.09; the residual action bias is
+recorded, not claimed fixed.
+
+The cast signatures on the new arena are: sniper engagement **19.4 m vs 16.9 (+14.8 %)**,
+ambusher out-of-LOS **32.2 % vs 41.3 % (backwards)**, brute world destruction **1.32 vs
+1.34** and vanguard speed **2.72 vs 1.67 (+62 %)**. Only the vanguard separates. I tried
+raising the sniper range and giving the brute a second wall finish; those restored the
+sniper/brute signatures but pushed the team table outside its targets and cap, so they
+were reverted. The ambusher is the clearest failure: reachable hidden cells are behind
+long exposed paths on the connected arena, so it spends the match in sight; the metric
+is left as out-of-LOS and the failure is recorded.
+
+The 5×5 corner windows that connect the body graph also filter the authored central
+pillar placements out of `ARENA.cells.placements`. The SOURCE still calls `add()` for
+them (lines 116–120), but the filtered level has none: the cluster is not present,
+reachable or visible. The earlier note should have said "built then filtered", not
+"still built"; corrected here.
 
 ## 3 · Gotchas
 

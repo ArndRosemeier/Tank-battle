@@ -114,13 +114,16 @@ never "it passed".
 | The 4×4 and 2×2 team stagings create 16/4 non-overlapping tanks | `builds the 4×4 and 2×2 authored team stagings without overlapping tanks` | `src/game/aiBatch.test.ts` | overlap one gate pad, or return one spawn per team → match creation / count assertions red |
 | The 4×4 team batch runs a real table | `runs the authored 4×4 team table without sharing a corner` | `src/game/aiBatch.test.ts` | drop `runTeamBatch`'s corner map or a team's spawns → character/corner count reds |
 | Every corner spawn, every other spawn and the central objective are body-reachable | `all four corner spawns and the centre objective are body-reachable` | `src/game/levels/arena.test.ts` | re-close one ring gateway, or restore the authored 2×2 gates → `findPath` returns null from a corner |
+| The per-tick turn order is pure and rank-fair | `is a pure function of seed, tick and the team-id set` · `gives every team every rank exactly once over a four-tick cycle` | `src/core/sim/turnOrder.test.ts` | return `[0,1,2,3]` for every tick, or use tank/id order → a team is missing a rank / the pure-set assertion reds |
+| Team-array rotation is deterministic and preserves identity | `permutes the team array deterministically without changing team identity` | `src/core/sim/turnOrder.test.ts` | shuffle in place, or use `Math.random` → the repeated-seed/identity assertions red |
+| The scripted mirror survives the turn-order change | `a mirrored script produces the mirrored winner, length and causes` | `src/game/mirror.test.ts` | break the z mirror or swap the scripted team mapping → the mirrored winner/tick/cause no longer match |
 | Batch destruction attribution maps each team, not a forced team 0 | `runs the authored 4×4 team table without sharing a corner` (the `onMatchCreated` baselines) | `src/game/aiBatch.test.ts` | force `worldDestructionByTeam[0]` in the corner diagnostic → the sorted corner lower bounds red; executed arm observed RED at `destroyed[1] >= 20` |
 | The spectator match is deterministic and has a director shot | `runs a deterministic four-team match and exposes a director shot` | `src/game/spectator.test.ts` | seed a controller from `Math.random`, or skip the overview/engagement cut → hashes/shots diverge or focus is dead |
 | N locks a manual follow and auto resumes | `next-tank locks a manual follow and auto can be resumed` | `src/game/spectator.test.ts` | make next-tank a no-op or ignore the manual flag → `autoDirector`/reason assertions red |
 | Four-team targeting is not permanently locked to one enemy | `does not leave a tank permanently locked on one enemy` | `src/core/ai/teamTargeting.test.ts` | freeze the target to the first visible enemy → each tank's target set shrinks below 2 |
 | The spectator camera is a wider arm and rejects an out-of-range distance | `frames the spectator action from a wider arm and rejects an out-of-range distance` | `src/render/cameraMath.test.ts` | clamp spectator distance to the player's 16 m arm, or drop the range check → the pose/throw assertion reds |
 
-The A3a block (20 rows), the A3b block (7 rows) and the A3c block (11 rows) are direct assertions; A4 adds seven level-validation pins; B1a adds the two A4 gap pins and eleven AI pins; B1b adds the scripted mirror pin; B1c adds the staging-symmetry pin; B2 adds the eager-profile, destruction-attribution, team-staging, team-batch, spectator and spectator-camera pins; B3 adds the body-aware arena connectivity pin and the batch-attribution arm (**109/109 tests in 24 files**). **No mutation differential was run for A3a/A3b/A3c/A4/B1a/B1b/B1c/B2/B3**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
+The A3a block (20 rows), the A3b block (7 rows) and the A3c block (11 rows) are direct assertions; A4 adds seven level-validation pins; B1a adds the two A4 gap pins and eleven AI pins; B1b adds the scripted mirror pin; B1c adds the staging-symmetry pin; B2 adds the eager-profile, destruction-attribution, team-staging, team-batch, spectator and spectator-camera pins; B3 adds the body-aware arena connectivity pin and the batch-attribution arm; B4 adds the turn-order purity/rank/team-array pins (**113/113 tests in 25 files**). **No mutation differential was run for A3a/A3b/A3c/A4/B1a/B1b/B1c/B2/B3/B4**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
 
 The differential harness is a local artifact at `.gate-logs/differential.py` (row 26)
 and `.gate-logs/differential.sh` (row 0) — both gitignored; the mutations are described
@@ -980,6 +983,63 @@ only in trim lines and small lights. The team-trim diagnostic on `wide` is orang
 - **Not run:** a 4-team mirror pin, a GPU frame rate, a mutation differential for B3's
   model changes, or a re-shoot of the B2 spectate frame. The body-aware pin is an A*
   check at cell centres, not a swept-capsule path proof.
+
+### row 55 — Slice B4 (action order and the cast)
+
+- **Gate:** `bash scripts/gate.sh` → exit **0**, **113/113 tests in 25 files**.
+- **Action-order fix:** `stepMatch` now derives `teamTurnOrder(seed, tick, teamIds)` and
+  uses it for movement/body collision, bleed, shell advancement and firing;
+  `runTeamBatch` also shuffles the team array/tank ids per seed. Pins: the order is a
+  pure function of seed/tick/team set; over four ticks every team occupies every rank
+  exactly once; the team-array permutation is deterministic and identity-preserving;
+  the existing scripted mirror still mirrors. The full state hash remains the witness.
+- **200-seed 4×4 after:**
+
+  | metric | value |
+  | --- | ---: |
+  | team split | **28.5 / 20.5 / 19.5 / 21.0 %** |
+  | corner split | **24.5 / 22.5 / 22.0 / 20.5 %** |
+  | cap hits | **21/200 (10.5 %)** |
+  | mean / median length | 5326.4 / 3731.0 ticks |
+  | draws | 21 |
+  | character team-win rate | **22.4 % each** (179/800) |
+  | survival | vanguard 88, sniper 61, ambusher 56, brute 62 |
+  | speed / throughput | 1.26 m/s / 1.36 matches/s |
+
+  Corners pass; team 2 is 0.5 points low and cap is 0.5 points high. Action order is
+  improved but not fully even; this is recorded, not rounded into a pass.
+- **Cast signatures (200 seeds, current one arena):**
+
+  | character | engagement m | world damage | out-of-LOS | speed m/s |
+  | --- | ---: | ---: | ---: | ---: |
+  | vanguard | 10.6 | 0.57 | 35.0 % | **2.72** |
+  | sniper | **19.4** | 1.35 | 47.6 % | 1.44 |
+  | ambusher | 19.0 | 1.71 | 32.2 % | 1.04 |
+  | brute | 14.9 | 1.32 | 57.4 % | 1.91 |
+  | field median | 16.9 | 1.34 | 41.3 % | 1.67 |
+
+  Only vanguard separates: speed **+62 %**. Sniper engagement **+14.8 %** (bar 20),
+  ambusher out-of-LOS **32.2 % vs 41.3 % (backwards)**, brute world damage **1.32 vs
+  1.34**. This is the same failure the owner measured; the metric was not renamed.
+- **What I tried, and why it did not land:** raising the sniper range to 30/26 moved
+  engagement only to +16 % and pushed the team split/cap outside target; a second brute
+  wall finish raised world damage to **2.04 (+27 %)** but drove team 3 to 15 %, corner 2
+  to 16 % and cap to 14.5 %; the ambusher re-hide and shortest-path experiments moved
+  out-of-LOS down, not up. All were reverted rather than shipping a metric-only pass.
+  The ambusher is the clearest refusal: on the connected arena its reachable hidden
+  cells sit behind long exposed paths, so it spends the match in sight.
+- **Central pillar correction:** the source still calls `add()` for the cluster at
+  `arena.ts:116–120`, but the connected-gate filter removes those placements from
+  `ARENA.cells.placements`; the built level has none, so the cluster is not present,
+  reachable or visible. The earlier note should have said “built then filtered”, not
+  “still built”.
+- **Re-shot spectate frame:** `shot.sh spectate` (seed 7, tick 300) after the arena
+  change. Look budget PASS: surface median 14 L (5.5 %), mid-band 8.8 %, line p99 190,
+  contrast 13.57, tile p90 **26 L (10.2 %)**. Four teams visible. Raw screenshot
+  `.gate-logs/shots/spectate-b4-final.png`.
+- **Not run:** a GPU frame rate, a 4-team mirror pin beyond the scripted 2-team one, a
+  mutation differential for the turn-order change, or a profile redesign that would
+  restore all three signatures without breaking team fairness.
 
 ## Honest records
 

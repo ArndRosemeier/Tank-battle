@@ -68,6 +68,7 @@ import {
 } from './geometry.ts';
 import { isTankPositionFree, type MatchState, type Shell, type Tank } from './match.ts';
 import type { MatchOutcome } from './stats.ts';
+import { teamTurnOrder } from './turnOrder.ts';
 
 const EPSILON = 1e-9;
 
@@ -80,8 +81,9 @@ export function stepMatch(state: MatchState, orders: readonly TankCommandOrder[]
 
   state.tick += 1;
   state.stats.ticks = state.tick;
+  const turnOrder = teamTurnOrder(state.seed, state.tick, state.teams.map((team) => team.id));
 
-  for (const tank of orderedTanks(state)) {
+  for (const tank of orderedTanks(state, turnOrder)) {
     if (!tank.alive) {
       continue;
     }
@@ -89,18 +91,18 @@ export function stepMatch(state: MatchState, orders: readonly TankCommandOrder[]
     if (!command) {
       throw new Error(`sim.stepMatch: alive tank ${tank.id} has no command`);
     }
-    applyCommand(state, tank, command);
+    applyCommand(state, tank, command, turnOrder);
   }
 
   advanceWorld(state);
-  bleedWoundedTanks(state);
-  advanceShells(state);
+  bleedWoundedTanks(state, turnOrder);
+  advanceShells(state, turnOrder);
 
   if (checkLastTeam(state)) {
     return state;
   }
 
-  if (fireShells(state, commands)) {
+  if (fireShells(state, commands, turnOrder)) {
     return state;
   }
 
@@ -158,7 +160,7 @@ function validateOrders(
 }
 
 /** Hull turn, turret/pitch slew, drive, and the reload countdown for one tank. */
-function applyCommand(state: MatchState, tank: Tank, command: TankCommand): void {
+function applyCommand(state: MatchState, tank: Tank, command: TankCommand, turnOrder: readonly number[]): void {
   tank.hullYawDegrees = normaliseDegrees(
     tank.hullYawDegrees + command.steer * TANK_TURN_RATE_DEGREES_PER_SECOND * STEP_SECONDS,
   );
@@ -169,7 +171,7 @@ function applyCommand(state: MatchState, tank: Tank, command: TankCommand): void
   const distance = command.throttle * TANK_SPEED_METRES_PER_SECOND * STEP_SECONDS;
   if (distance !== 0) {
     const forward = forwardFromYaw(tank.hullYawDegrees);
-    const moved = moveTank(state, tank, forward.x * distance, forward.z * distance);
+    const moved = moveTank(state, tank, forward.x * distance, forward.z * distance, turnOrder);
     if (moved.x !== 0 || moved.z !== 0) {
       shoveShardsUnderTank(state, tank, moved.x, moved.z);
     }
@@ -181,12 +183,15 @@ function applyCommand(state: MatchState, tank: Tank, command: TankCommand): void
 }
 
 /**
- * Tanks in the ONE order body collision resolves in: ascending tank id, never the
- * order of the caller's `tanks` array. A later tank sees the positions of earlier
- * movers, so a two-tank closing move is deterministic and id-ordered, not random.
+ * Tanks in the ONE order body collision resolves in: team rank from the seeded turn
+ * order, then tank id. A later tank sees the positions of earlier movers, so the order
+ * is deterministic and fair over ticks, not fixed at team 0.
  */
-function orderedTanks(state: MatchState): readonly Tank[] {
-  return [...state.tanks].sort((a, b) => a.id - b.id);
+function orderedTanks(state: MatchState, turnOrder: readonly number[]): readonly Tank[] {
+  const rank = new Map(turnOrder.map((teamId, index) => [teamId, index]));
+  return [...state.tanks].sort(
+    (a, b) => (rank.get(a.teamId) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.teamId) ?? Number.MAX_SAFE_INTEGER) || a.id - b.id,
+  );
 }
 
 /**
@@ -194,29 +199,29 @@ function orderedTanks(state: MatchState): readonly Tank[] {
  * allowed only when the world is free at its endpoint AND the swept circle does not
  * pass through a live tank before that endpoint. A hard stop is the last resort.
  */
-function moveTank(state: MatchState, tank: Tank, dx: number, dz: number): { x: number; z: number } {
-  const full = canTankMoveTo(state, tank, tank.x + dx, tank.z + dz);
+function moveTank(state: MatchState, tank: Tank, dx: number, dz: number, turnOrder: readonly number[]): { x: number; z: number } {
+  const full = canTankMoveTo(state, tank, tank.x + dx, tank.z + dz, turnOrder);
   if (full) {
     tank.x += dx;
     tank.z += dz;
     return { x: dx, z: dz };
   }
-  if (canTankMoveTo(state, tank, tank.x + dx, tank.z)) {
+  if (canTankMoveTo(state, tank, tank.x + dx, tank.z, turnOrder)) {
     tank.x += dx;
     return { x: dx, z: 0 };
   }
-  if (canTankMoveTo(state, tank, tank.x, tank.z + dz)) {
+  if (canTankMoveTo(state, tank, tank.x, tank.z + dz, turnOrder)) {
     tank.z += dz;
     return { x: 0, z: dz };
   }
   return { x: 0, z: 0 };
 }
 
-function canTankMoveTo(state: MatchState, tank: Tank, x: number, z: number): boolean {
+function canTankMoveTo(state: MatchState, tank: Tank, x: number, z: number, turnOrder: readonly number[]): boolean {
   if (!isTankPositionFree(state.world, x, z)) {
     return false;
   }
-  return !tankBodyBlocksMove(state, tank, x, z);
+  return !tankBodyBlocksMove(state, tank, x, z, turnOrder);
 }
 
 /**
@@ -226,10 +231,10 @@ function canTankMoveTo(state: MatchState, tank: Tank, x: number, z: number): boo
  * endpoint is clear. Max speed moves 0.1 m/tick, well below the 2 m body diameter, so
  * the sweep also makes the no-tunnelling property explicit rather than incidental.
  */
-function tankBodyBlocksMove(state: MatchState, tank: Tank, toX: number, toZ: number): boolean {
+function tankBodyBlocksMove(state: MatchState, tank: Tank, toX: number, toZ: number, turnOrder: readonly number[]): boolean {
   const contact = TANK_RADIUS_METRES * 2;
   const contactSq = contact * contact;
-  for (const other of orderedTanks(state)) {
+  for (const other of orderedTanks(state, turnOrder)) {
     if (other.id === tank.id || !other.alive) {
       continue;
     }
@@ -316,8 +321,8 @@ function shoveShardsUnderTank(state: MatchState, tank: Tank, movedX: number, mov
 }
 
 /** A wounded tank loses one HP when its countdown expires; at zero the clock kills. */
-function bleedWoundedTanks(state: MatchState): void {
-  for (const tank of state.tanks) {
+function bleedWoundedTanks(state: MatchState, turnOrder: readonly number[]): void {
+  for (const tank of orderedTanks(state, turnOrder)) {
     if (!tank.alive || tank.hp >= tank.maxHp || tank.bleedTicksRemaining <= 0) {
       continue;
     }
@@ -335,9 +340,13 @@ function bleedWoundedTanks(state: MatchState): void {
 }
 
 /** Advances every shell one tick of travel, removing the ones that hit or expire. */
-function advanceShells(state: MatchState): void {
+function advanceShells(state: MatchState, turnOrder: readonly number[]): void {
   const survivors: Shell[] = [];
-  for (const shell of state.shells) {
+  const rank = new Map(turnOrder.map((teamId, index) => [teamId, index]));
+  const shells = [...state.shells].sort(
+    (a, b) => (rank.get(a.ownerTeamId) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.ownerTeamId) ?? Number.MAX_SAFE_INTEGER) || a.id - b.id,
+  );
+  for (const shell of shells) {
     if (advanceShell(state, shell)) {
       survivors.push(shell);
     }
@@ -661,8 +670,8 @@ function killTank(state: MatchState, tank: Tank, cause: 'shell' | 'clock'): void
  * Returns true when a barrel hit ended the match immediately (last team or draw); the
  * caller must not apply the tick cap in that case.
  */
-function fireShells(state: MatchState, commands: ReadonlyMap<number, TankCommand>): boolean {
-  for (const tank of orderedTanks(state)) {
+function fireShells(state: MatchState, commands: ReadonlyMap<number, TankCommand>, turnOrder: readonly number[]): boolean {
+  for (const tank of orderedTanks(state, turnOrder)) {
     if (!tank.alive) {
       continue;
     }

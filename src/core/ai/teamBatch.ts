@@ -22,6 +22,7 @@ import {
 } from '../sim.ts';
 import type { WorldSpec } from '../world.ts';
 import { STEP_SECONDS } from '../timestep.ts';
+import { createRng } from '../rng.ts';
 import { AIController } from './controller.ts';
 import { hasLineOfSight, eyePosition, targetCentre } from './perception.ts';
 import { AI_DECISION_INTERVAL_TICKS } from './constants.ts';
@@ -62,6 +63,23 @@ export function rotateTeamAssignments(
     teamId: team.teamId,
     corner: teams[(slot + rotation) % teams.length]!,
   }));
+}
+
+/** A deterministic per-seed permutation of team specs, used to rotate tank ids too. */
+export function seededAssignmentOrder<T extends { readonly teamId: number }>(
+  assignments: readonly T[],
+  seed: number,
+): readonly T[] {
+  if (!Number.isInteger(seed) || seed < 0) {
+    throw new Error(`seededAssignmentOrder: seed must be a non-negative integer, got ${String(seed)}`);
+  }
+  const rng = createRng((seed ^ 0x5bd1e995) >>> 0);
+  const ordered = [...assignments].sort((a, b) => a.teamId - b.teamId);
+  for (let index = ordered.length - 1; index > 0; index -= 1) {
+    const swap = rng.int(index + 1);
+    [ordered[index], ordered[swap]] = [ordered[swap]!, ordered[index]!];
+  }
+  return ordered;
 }
 
 export interface TeamBatchOptions {
@@ -277,9 +295,10 @@ export function runTeamBatch(setup: TeamSetup, options: TeamBatchOptions): TeamB
     // genuinely favoured corner.
     const assignments = rotateTeamAssignments(teams, seed);
     const yawPattern = setup.cornerYawPatterns?.[seed % setup.cornerYawPatterns.length];
+    const orderedAssignments = seededAssignmentOrder(assignments, seed);
     const state = createMatch({
       level: setup.level,
-      teams: assignments.map((assignment): TeamSpec => ({
+      teams: orderedAssignments.map((assignment): TeamSpec => ({
         id: assignment.teamId,
         tanks: assignment.corner.spawns.map((spawn) => ({
           ...spawn,
@@ -303,8 +322,8 @@ export function runTeamBatch(setup: TeamSetup, options: TeamBatchOptions): TeamB
         new AIController({
           tankId: tank.id,
           profile,
-          seed: teamControllerSeed(seed, tank.id),
-          decisionPhaseTicks: (seed + tank.teamId * 5 + tank.teamIndex) % AI_DECISION_INTERVAL_TICKS,
+          seed: teamControllerSeed(seed, tank.teamIndex),
+          decisionPhaseTicks: teamDecisionPhase(seed, tank.teamId, tank.teamIndex),
           aimErrorScale,
         }),
       );
@@ -564,13 +583,13 @@ function validateSetup(setup: TeamSetup): void {
 }
 
 /** The one deterministic controller seed for a team-mode tank. */
-export function teamControllerSeed(seed: number, tankId: number): number {
-  return (seed + Math.imul(tankId + 1, 0x9e3779b9)) >>> 0;
+export function teamControllerSeed(seed: number, teamIndex: number): number {
+  return (seed + Math.imul(teamIndex + 1, 0x9e3779b9)) >>> 0;
 }
 
 /** The one team decision phase; team id and tank slot both break the action-order tie. */
 export function teamDecisionPhase(seed: number, teamId: number, teamIndex: number): number {
-  return (seed + (teamId * 4 + teamIndex) * 5) % AI_DECISION_INTERVAL_TICKS;
+  return (seed + teamId * 5 + teamIndex) % AI_DECISION_INTERVAL_TICKS;
 }
 
 function quantile(sorted: readonly number[], fraction: number): number {

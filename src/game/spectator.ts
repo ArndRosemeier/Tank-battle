@@ -138,7 +138,7 @@ export class SpectatorSession {
         new AIController({
           tankId: tank.id,
           profile,
-          seed: teamControllerSeed(seed, tank.id),
+          seed: teamControllerSeed(seed, tank.teamIndex),
           decisionPhaseTicks: teamDecisionPhase(seed, tank.teamId, tank.teamIndex),
           aimErrorScale: SPECTATOR_TEAM_AIM_ERROR_SCALE,
         }),
