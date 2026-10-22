@@ -1621,3 +1621,17 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
     loads from the public URL.
 - Browser-side: the broken HTML may still be client-cached (max-age 14400); a hard refresh
   or a `?v=` URL is required ONCE to fetch the fixed page.
+
+### production audio — the second silent failure
+
+- **Symptom (owner):** `GET /tank-battle/assets/manifest.json 404`, then
+  `audio: assets/manifest.json answered 404`; the game ran silently.
+- **Cause:** the Vite assets bridge copied `assets/` into a hardcoded `dist/assets`, while
+  `publish.sh` stages into `.gate-logs/publish-dist`. The staged build had JS but no audio.
+- **Fix:** the bridge resolves `config.build.outDir`; publish verifies the public
+  `assets/manifest.json` and `assets/audio/menu.mp3` both answer 200.
+- **Verified after the fix:** `release/assets/` carries `audio/` + `manifest.json`;
+  public manifest 200 (9.9 KB), `menu.mp3` 200 (2.0 MB), `cannon.mp3` 200 (62 KB).
+- **Performance evidence from the owner's console:** spectate at **60.0 fps**, 1111×1031,
+  100–121 draw calls with four AI teams. First real GPU measurement in the project; 1920×1080
+  remains unconfirmed.

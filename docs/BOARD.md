@@ -178,3 +178,10 @@ RECOVERY | repo=/home/administrator/projects/Tank battle | remote=https://github
   `release/`. `publish.sh` stages the build, MERGES into `release/` (never wipes, so a
   cached `index.html` still finds its hashes) and fetches the PUBLIC asset requiring 200.
   Verified: a gate run and a shot.sh run both leave the served entry unchanged.
+- `TRAP` — **a Vite plugin that copies files must follow `--outDir`, not `dist`.** The audio
+  bridge copied `assets/` into a hardcoded `dist/assets`, so the staged publish
+  (`.gate-logs/publish-dist` → `release/`) carried the JS but **no audio and no manifest**:
+  the public page 404’d `assets/manifest.json` and the whole game was silent. Rule: resolve
+  `config.build.outDir` in `configResolved`; `publish.sh` now fetches the manifest AND one
+  clip over the public URL and fails if either is not 200. A green page proves nothing
+  about a second copy step.

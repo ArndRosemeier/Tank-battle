@@ -37,10 +37,10 @@
 
 ## Next action (one)
 
-**The live app is fixed and verified** at `https://apps.futuremagic.de/tank-battle/`
-(`release/`, entry `index-O9fOOoAc.js`; gate and screenshot runs no longer touch it).
-Awaiting the owner's play report on the fixed build; next slice is P4 (audio unlock on any
-first gesture + a single DoD scoreboard). Debts: 4x4 cap ~11 %, seed-148 parked duel,
+**Awaiting the owner's sound check** on the fixed build (`?v=7`): audio now serves publicly
+(manifest + clips 200). His console already shows **60.0 fps at 1111×1031** spectating four
+AI teams — the first GPU frame-rate evidence. Next slice is P4 (audio unlock on any first
+gesture + a single DoD scoreboard). Debts: 4x4 cap ~11 %, seed-148 parked duel,
 ambusher/brute naming.
 
 ## Open questions for the owner

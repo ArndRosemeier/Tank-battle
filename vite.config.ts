@@ -1,5 +1,5 @@
 import { cpSync, existsSync, readFileSync, statSync } from 'node:fs';
-import { extname, join, normalize } from 'node:path';
+import { extname, join, normalize, resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
 import type { Plugin } from 'vite';
 
@@ -14,6 +14,8 @@ const CONTENT_TYPES: Record<string, string> = {
   '.mp3': 'audio/mpeg',
   '.json': 'application/json',
 };
+let outDir = resolve("dist");
+
 function assetsBridge(): Plugin {
   return {
     name: 'assets-bridge',
@@ -30,8 +32,15 @@ function assetsBridge(): Plugin {
         res.end(readFileSync(file));
       });
     },
+    // Follow the build's REAL output directory. `publish.sh` stages into
+    // `.gate-logs/publish-dist`, so a hardcoded `dist/assets` shipped a build with no
+    // audio and no manifest (the public page then 404'd `assets/manifest.json` and was
+    // silent). `--outDir` and this seam must agree or the publish is incomplete.
+    configResolved(config) {
+      outDir = resolve(config.root, config.build.outDir);
+    },
     closeBundle() {
-      cpSync(ASSETS, 'dist/assets', { recursive: true });
+      cpSync(ASSETS, join(outDir, 'assets'), { recursive: true });
     },
   };
 }

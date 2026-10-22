@@ -98,5 +98,15 @@ if ! printf '%s' "$BODY" | grep -q "$(basename "$ENTRY_JS")"; then
 fi
 PUBLIC_ASSET_CODE="$(curl -s -o /dev/null -w '%{http_code}' "${PUBLIC_HOST}${ENTRY_JS}?cb=${NONCE}")"
 [ "$PUBLIC_ASSET_CODE" = "200" ] || die "the public asset ${PUBLIC_HOST}${ENTRY_JS} answered $PUBLIC_ASSET_CODE"
-say "public: 200, the page references $ENTRY_JS and the asset itself answers 200"
+
+# The audio bridge is a separate copy step; a publish without it is a silent game. Check
+# the manifest and one clip over the PUBLIC URL, because a 200 on the entry proves nothing
+# about them.
+[ -f "$DIST/assets/manifest.json" ] || die "release/assets/manifest.json is missing — the audio bridge did not follow the build outDir"
+[ -d "$DIST/assets/audio" ] || die "release/assets/audio/ is missing"
+for probe in "assets/manifest.json" "assets/audio/menu.mp3"; do
+  PROBE_CODE="$(curl -s -o /dev/null -w '%{http_code}' "${PUBLIC_HOST}${probe}?cb=${NONCE}")"
+  [ "$PROBE_CODE" = "200" ] || die "the public ${probe} answered $PROBE_CODE — the game would be silent"
+done
+say "public: 200, the page references $ENTRY_JS, the asset answers 200, and the audio manifest + a clip answer 200"
 say "PUBLISHED: https://apps.futuremagic.de/${SLUG}/"
