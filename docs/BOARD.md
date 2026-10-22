@@ -185,3 +185,5 @@ RECOVERY | repo=/home/administrator/projects/Tank battle | remote=https://github
   `config.build.outDir` in `configResolved`; `publish.sh` now fetches the manifest AND one
   clip over the public URL and fails if either is not 200. A green page proves nothing
   about a second copy step.
+
+QUEUE | row=6 | **OWNER REQUEST (2026-10-22):** "Ok, in the title screen, let a faded AI battle play in the background." Dispatched as Slice P4 (row 69) — live all-AI match behind the menu, faded and budgeted, disposed on play, plus the audio-unlock-on-any-gesture debt from P3 | src=ledger 69
