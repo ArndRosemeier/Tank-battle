@@ -28,6 +28,8 @@ parsed as a retirement claim).
 
 ## Board
 
+**Open audit PR (2026-10-22):** [#1](https://github.com/ArndRosemeier/Tank-battle/pull/1), `improve/code-quality-audit-20261022`; MIT, code-quality fixes, shared renderer, tick combat events, and added CI/browser checks. Feature branch only; no merge or deployment. Initial CI: Linux + browser PASS; Windows FAIL (source-scan path separator and title test timeout); fixes committed; latest head still awaits verification. Full local gate not executed in this session. Read `docs/AUDIT-REMEDIATION.md` for remaining risks.
+
 ```
 reconciled: 0b4e39c · 2026-10-22T00:12Z
 

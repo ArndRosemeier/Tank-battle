@@ -1,58 +1,31 @@
 # Handoff — Tank Battle
 
-<!-- One screen, overwritten in place. The next session — DSH or Claude Code — reads
-     this after AGENTS.md and docs/CROSS-TOOL.md, and must be able to act. -->
+- **by:** ChatGPT code-quality remediation, 2026-10-22
+- **branch:** `improve/code-quality-audit-20261022`, PR #1 (draft; not merged)
+- **last verified:** initial branch Linux build+tests and Chromium smoke passed in GitHub Actions; initial Windows suite failed on separators and a five-second timeout. Both were fixed on this branch. **No newer CI run is visible yet**, so the current head is unverified.
+- **current commit before this handoff:** `a6757ff`
 
-- **by:** ChatGPT GitHub review (audit remediation)
-- **at:** 2026-10-22
-- **branch / worktree:** `improve/code-quality-audit-20261022` · GitHub-only, no local worktree
-- **last verified:** source reviewed; **not executed** locally. Await GitHub Actions result and human review.
-  tier `2` before it
+## Done on this feature branch
 
-## Done
+- MIT `LICENSE` (copyright 2026 Arnd Rosemeier) and README.
+- Fixed per-character team batch statistics, Windows asset path containment, title renderer error cleanup, keyboard handling and listener teardown.
+- Centralized team staging, per-tank AI creation and tick command collection.
+- Centralized Three.js renderer/postprocessing creation in `src/render/renderStack.ts`.
+- Added per-tick combat presentation events for fire, impact, hits, deaths, with render consumer and regression tests.
+- Expanded real-scene budget tests, Windows/Linux CI and Chromium smoke through title settings, playable modes, pause/resume and resizing.
+- Documented pending limitations and checks in `docs/AUDIT-REMEDIATION.md`.
 
-- Design ruled through round 2: concept and answers recorded in `docs/DESIGN.md`
-  (ledger rows 7–21): fully 3D, breakable slow-regen world with displacement, drive/aim/
-  fire, 3 HP + wounded clock, 4 teams × 4 tanks, profiles as behaviour mixes, one level.
-- **A1 landed** `e62865b`: pure world model (rng, cells by height, destruction, two
-  debris tiers, slow regen with deterministic displacement, state hash). Verified by my
-  own full gate (26/26) and four of my own injections; worktree, branch and session retired.
-- **A2 landed** `7b1785f`: three.js + bloom, `NeonSurface`, merged world mesh, luminous
-  grid, third-person camera with first-person zoom, screenshot harness. Verified by my own
-  gate (34/34) and three of my own arms; look judged as **not yet hero** — A2b underway.
-- Day-1 scaffold (`cos init`): AGENTS.md, HANDOFF.md, docs, scripts, `.claude/`,
-  `.cos/` hooks.
-- Git repo on `main`, identity `Tank Battle Dev <dev@tankbattle.local>`, remote
-  `ArndRosemeier/Tank-battle` (the owner's existing empty repo).
-- Skeleton: Vite + TS + canvas + Vitest; `src/core/timestep.ts` (fixed step, clamp,
-  tolerance) with 8 pins; `src/entry/dom.ts` (the one typed-DOM seam); `src/main.ts`
-  (loop, canvas, one error surface).
-- The gate is real: cheap tier = `pnpm run build` (exit 2), full tier = `pnpm test`
-  (exit 0, 8/8). Raw log `.gate-logs/gate.log`; the four-arm differential is recorded
-  in `docs/TESTING.md`.
+## In flight / verification
 
-## In flight
-
-- Pull request for code-quality improvements (branch `improve/code-quality-audit-20261022`), not merged.
-- Regression fixes: AI character statistics use tank slots, Windows asset serving, title renderer failure cleanup, canvas-specific default-key suppression and context-menu cleanup.
-- Shared team match/AI setup and command collection. GitHub CI and browser smoke are newly introduced and not yet verified.
-- Renderer/postprocessing bootstrap is now unified in `renderStack.ts`. Fire, impact, hit and death use tick-level capture. Terrain events still use revision-diff detection; browser CI extended.
-- License is undecided; **do not assign a license without owner's choice**.
+- No other writers are registered by this session; local worktree status and gate lock cannot be inspected via GitHub API.
+- This GitHub-only environment cannot execute `bash scripts/gate.sh` on the repository. Treat latest branch code as **unverified until new CI succeeds**.
 
 ## Next action (one)
 
-**Awaiting the owner's verdict** on the live P4 build (`https://apps.futuremagic.de/tank-battle/?v=8`):
-title with a live faded battle, audio on any first gesture, sounds wired. Next: P5, a single
-DoD verification pass with numbers for every clause, plus candidate polish (random title
-seed for variety). Debts: 4x4 cap ~11 %, seed-148 parked duel, ambusher/brute naming.
-
-## Open questions for the owner
-
-- **None.** Design ruled through Q1–Q3 (ledger rows 22–24) and the multiplayer-forward
-  constraints (§5.9–12, row 25). Remaining numbers are vetoable defaults (§7).
+**Check latest PR #1 CI for build, Windows/Linux tests and Chromium smoke; fix any failure, run full gate and browser testing before merging to main.** Do not claim a green gate without evidence.
 
 ## Read first
 
-- `AGENTS.md`
-- `docs/CROSS-TOOL.md`
-- `docs/ARCHITECTURE.md` (seam rows) · `docs/BOARD.md` (state of record)
+`AGENTS.md`, `docs/CROSS-TOOL.md`, `docs/ARCHITECTURE.md`, `docs/AUDIT-REMEDIATION.md`.
+
+COPIES: 3→1 — `createTeamMatch` and `createTeamAIController`; COPIES: 4→1 — `collectControllerOrders`; COPIES: 3→1 — `createRenderStack`.

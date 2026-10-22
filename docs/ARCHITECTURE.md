@@ -1,5 +1,7 @@
 # Architecture — the seam index
 
+**Current branch note (2026-10-22):** Shared team staging and AI-controller creation are in `src/core/ai/teamBatch.ts`; per-tank order collection in `src/core/sim/controller.ts`; common renderer/postprocessing setup in `src/render/renderStack.ts`. Live combat `fire`, `impact`, `hit`, `death` presentation events are buffered per simulation tick. Earlier historical sections below describe prior slices and are not current deployment evidence. See `docs/AUDIT-REMEDIATION.md` and `HANDOFF.md` for verification status.
+
 ## 1 · Layer map
 
 Dependencies point **downward only**; nothing below a layer may import from above it.
@@ -826,5 +828,4 @@ tool and now warns on title/settings poses.
   than dropping the battle; both are constants in `titleBackground.ts`/`titleSession.ts`.
 - **The title music/SFX balance is the owner's ear.** The engine starts the menu loop on
   the first gesture and mutes background combat SFX; it cannot prove the loop seam or mix.
-- **P4 is not republished.** The build/release path is ready; the live host still serves
-  P3 until the dispatcher publishes.
+- **Historical P4 state:** the source of truth for current publication is `docs/BOARD.md` and the active `HANDOFF.md`; P4 publication was verified in the board on 2026-10-22. The audit branch has not been deployed.

@@ -1,6 +1,6 @@
 # Code-quality audit remediation (2026-10-22)
 
-This is an audit change, not a redesign. All branch changes require independent gate and browser verification before merge.
+This is an audit change, not a redesign. The owner explicitly approved the MIT license on 2026-10-22. All branch changes require independent gate and browser verification before merge.
 
 ## Shipped in this branch
 
