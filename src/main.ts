@@ -18,6 +18,7 @@ import { requireElement } from './entry/dom.ts';
 import { createAimHud, createHud, type HudState } from './entry/hud.ts';
 import { AudioEngine } from './entry/audio.ts';
 import { createScreens, type Screens } from './entry/screens.ts';
+import { createTitleBackground, type TitleBackground } from './entry/titleBackground.ts';
 import { loadSettings, saveSettings, type GameSettings } from './entry/settings.ts';
 import { CameraRig } from './render/cameraRig.ts';
 import {
@@ -55,6 +56,7 @@ import { PlayableSession, type TankRenderFrame } from './game/session.ts';
 import { SpectatorSession } from './game/spectator.ts';
 import { KillFeedTracker, describeKill, type KillFeedRow } from './game/killFeed.ts';
 import { scalePlayerInput, type PlayerInput } from './game/input.ts';
+import { TitleAudioGate } from './game/titleAudioGate.ts';
 import { TeamSession, createVanguardStandIn } from './game/teamSession.ts';
 
 /**
@@ -551,6 +553,9 @@ let screensUi: Screens | null = null;
 let gameStarted = false;
 let paused = false;
 let activeQuality: ((settings: GameSettings) => void) | null = null;
+let titleBackground: TitleBackground | null = null;
+let titleGate: TitleAudioGate | null = null;
+let titleGestureCleanup: (() => void) | null = null;
 
 function applySettings(settings: GameSettings): void {
   currentSettings = settings;
@@ -592,6 +597,14 @@ function resumeMatch(): void {
 
 function startGame(mode: 'play' | 'team' | 'spectate'): void {
   if (gameStarted) return;
+  if (titleBackground) {
+    titleBackground.dispose();
+    titleBackground = null;
+  }
+  titleGestureCleanup?.();
+  titleGestureCleanup = null;
+  const titleCanvas = document.getElementById('title-canvas');
+  if (titleCanvas) titleCanvas.style.display = 'none';
   gameStarted = true;
   screensUi?.hideAll();
   document.body.classList.remove('title-mode');
@@ -1109,6 +1122,39 @@ try {
   if (launch.mode === 'title') {
     gameStarted = false;
     document.body.classList.add('title-mode');
+    const titleCanvas = requireElement('title-canvas', HTMLCanvasElement, 'title background canvas');
+    try {
+      titleBackground = createTitleBackground({
+        canvas: titleCanvas,
+        seed: launch.seed,
+        onError: reportError,
+      });
+      titleBackground.start();
+    } catch (error) {
+      reportError(error);
+    }
+    (window as Window & { __TITLE_BATTLE__?: Record<string, () => number | boolean> }).__TITLE_BATTLE__ = {
+      disposed: () => titleBackground === null || titleBackground.disposed,
+      fps: () => titleBackground?.fps ?? 0,
+      drawCalls: () => titleBackground?.drawCalls ?? 0,
+      ticks: () => titleBackground?.ticks ?? 0,
+      seed: () => titleBackground?.seed ?? -1,
+    };
+    titleGate = new TitleAudioGate();
+    const onPointer = (): void => {
+      const track = titleGate?.pointerDown() ?? null;
+      if (track) ensureAudio(track);
+    };
+    const onKey = (): void => {
+      const track = titleGate?.keyDown() ?? null;
+      if (track) ensureAudio(track);
+    };
+    window.addEventListener('pointerdown', onPointer);
+    window.addEventListener('keydown', onKey);
+    titleGestureCleanup = () => {
+      window.removeEventListener('pointerdown', onPointer);
+      window.removeEventListener('keydown', onKey);
+    };
     screensUi.showTitle();
     if (launch.settings) screensUi.showSettings('title');
   } else {

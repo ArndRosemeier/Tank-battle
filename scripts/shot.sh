@@ -6,6 +6,7 @@
 #   pose:   wide | tank | first | combat | top | spectate | team | title | settings (default wide)
 #   detail: 0 … 1                        (default 0.3, the SURFACE_DETAIL default)
 #   output: default .gate-logs/shots/<pose>-detail-<detail>.png
+#   env: SHOT_MS virtual-time budget in ms (default 10000)
 #   team env: TEAM_SEED (default 67), TEAM_TICKS (default 480), TEAM_CAMERA_POSE
 #             (default `team`; `first` shows the eye-level squad view)
 #
@@ -34,6 +35,7 @@ OUT="${3:-.gate-logs/shots/${POSE}-detail-${DETAIL}.png}"
 
 CHROME_BIN="${CHROME_BIN:-/usr/bin/google-chrome}"
 PORT="${SHOT_PORT:-4183}"
+SHOT_MS="${SHOT_MS:-10000}"
 LOG_DIR="$ROOT/.gate-logs"
 OUT_ABS="$OUT"
 case "$OUT_ABS" in
@@ -171,7 +173,7 @@ BASE_ARGS=(
   --no-default-browser-check
   --user-data-dir="$PROFILE_DIR"
   --window-size=1920,1080
-  --virtual-time-budget=10000
+  --virtual-time-budget="$SHOT_MS"
   --screenshot="$OUT_ABS"
 )
 

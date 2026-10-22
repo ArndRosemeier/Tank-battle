@@ -122,9 +122,11 @@ running headless in `node`.
 | settings | `loadSettings()` · `saveSettings()` · `withSetting()` | `src/entry/settings.ts` | ONE persisted preference object (`tank-battle.settings.v1`): master/music/SFX volumes, quality (surface detail + bloom), mouse sensitivity, reduced motion. Invalid stored data is rejected and the documented defaults are used with a console warning; UI edits are range-validated. |
 | shipped assets | `assets/manifest.json` · build copy | `assets/` · `package.json` | Every shipped audio file is a manifest entry with sha256, bytes, model, prompt and date; every entry resolves to a file. `vite build` copies `assets/` into `dist/assets/`, so the served URLs are `assets/audio/…` and `assets/manifest.json`. |
 | presentation events | `PlayableScene.takeEvents()` | `src/render/playableScene.ts` | ONE queue of fire/reload/impact/hit/death/wall-break/regen events derived from state transitions; the host maps them to audio, and the VFX view remains the one consumer of its own particle spawns. |
+| the title background match | `TitleSession` · `createTitleBackground()` | `src/game/titleSession.ts` · `src/entry/titleBackground.ts` | ONE deterministic 4×4 `SpectatorSession` (16 tanks, seed from the title URL, default 1; `TitleSession` default 7) with a **420-tick (7 s)** director and a gentle tick-based drift. It renders into a SEPARATE `#title-canvas` at **0.75** internal resolution, exposure **0.7×** and bloom **0.5×**; the title overlay supplies the scrim. `start()` owns one rAF; `dispose()` cancels it and disposes the session, scene, renderer/context. A finished match is replaced (next seed), never run alongside. Background SFX are muted; menu music belongs to the shell. |
+| the title gesture gate | `TitleAudioGate` | `src/game/titleAudioGate.ts` · `src/main.ts` | The first `pointerdown` OR `keydown` anywhere on the title returns `menu` once and starts `menu.mp3`; later gestures do not restart it. Play then crossfades to combat as before. The gate is pure and pinned; `main.ts` wires both listeners. |
 | a low shoot-over barrier | `isLowCover(heightMetres)` · `LOW_COVER_MAX_HEIGHT_METRES` | `src/render/config.ts:193` | ONE predicate/height threshold distinguishes low cover from tall architecture in both the 3D edge hue (`worldMesh`) and the plan fill (`topPlan`); the A1 height model remains the collision authority. |
 | the spatial look budget | `tile_p90(luminance)` | `scripts/look-budget.py:97` | Splits a frame into 24×14 tiles, takes each tile median, and requires p90 ≤ 30.6 L (12 %); alongside the existing whole-frame gates. Proof injection reaches 255 L / 100 % and FAILS. |
-| the screenshot command | `scripts/shot.sh [pose] [detail] [out]` | `scripts/shot.sh:1` | Accepts `wide \| tank \| first \| combat \| top \| spectate \| team \| title \| settings`; `combat` appends `&demo=duel&ticks=571`, `team` runs `?mode=team&demo=team` with `TEAM_SEED` (67) / `TEAM_TICKS` (480) / `TEAM_CAMERA_POSE` (`team`; use `tank` for the live 8.2 m arm), `title`/`settings` use `?mode=title&settings=0/1`, `top` selects the plan, every run executes the look budget, and the trapped Chrome tree is reaped (`chrome processes after cleanup: 0`). |
+| the screenshot command | `scripts/shot.sh [pose] [detail] [out]` | `scripts/shot.sh:1` | Accepts `wide \| tank \| first \| combat \| top \| spectate \| team \| title \| settings`; `combat` appends `&demo=duel&ticks=571`, `team` runs `?mode=team&demo=team` with `TEAM_SEED` (67) / `TEAM_TICKS` (480) / `TEAM_CAMERA_POSE` (`team`; use `tank` for the live 8.2 m arm), `title`/`settings` use `?mode=title&settings=0/1`, `SHOT_MS` changes the virtual-time budget (default 10000; `title-mid` uses 25000), `top` selects the plan, builds into `.gate-logs/shot-dist` (never the live `release/`), every run executes the look budget, and the trapped Chrome tree is reaped (`chrome processes after cleanup: 0`). |
 | a canonical core hash | `fnv1a(text)` | `src/core/fnv1a.ts:14` | The ONE FNV-1a implementation; both `hashState` (world) and `hashMatch` (combat) feed it. Do not copy the offset basis/prime into a third hasher. |
 | seeded randomness in the simulation | `createRng(seed)` | `src/core/rng.ts:35` | The ONLY draw source under `src/core`: integer-only mulberry32, so a seed reproduces its sequence on every engine. A source scan (`src/core/purity.test.ts`) fails the build on `Math.random`. |
 | building the world | `createWorld(spec)` | `src/core/world/state.ts:108` | Validates the spec loudly (integer dimensions, a height above the floor plane, no double placement) and builds the row-major grid. Level data fills the same shape. |
@@ -365,6 +367,43 @@ match the manifest paths.
 The owner's ear is the judge of whether the loops sit right; this slice can prove the
 files decode, the buses respond, and the context runs (`AudioContext.state = running`,
 11 clips loaded in the browser smoke), not that the music is good.
+
+### P4 · A real fight behind the title
+
+The title's animated grid is now a real all-AI battle: a `SpectatorSession` of 4 teams ×
+4 tanks, a fixed seed (URL seed, default 1), a slower **420-tick (7 s)** director and a
+gentle tick-based yaw/pitch/distance drift. It renders on a **separate `#title-canvas`**
+at **0.75** internal resolution so the menu does not pay the full 1920×1080 pixel cost.
+The title overlay's scrim plus exposure **0.7×** and bloom **0.5×** make it a faded
+battle, not a dim black sheet; the wordmark, four buttons, controls and credit stay
+legible. The two frames read: title at 10 s and title mid-fight at 25 s both pass the look
+budget (surface median 8 L, line p99 163, contrast 20.38, tile p90 11 L / 4.3 %).
+
+The background match is **deterministic** for a seed (`TitleSession` hash) and is
+**disposed** when the title is left: `startGame` calls `titleBackground.dispose()` before
+`bootGame`, which cancels the rAF, disposes the scene and the renderer/context, and calls
+`TitleSession.dispose()` (further `advance` throws). The browser smoke showed
+`titleDisposed: true`, the title canvas `display: none`, the game mode `play`, 11 audio
+clips and a running context. A finished background match is rebuilt with the next seed;
+the old one is disposed first, so there is still only one live simulation.
+
+The title now unlocks audio on the **first pointerdown OR keydown anywhere**, via the pure
+`TitleAudioGate`; Play crossfades to combat, Settings leaves the menu loop playing. The
+background battle has **no SFX** (the title event queue is drained; menu music is the only
+sound), because a cannon blast in a menu is jarring. The menu is the owner's ear's call.
+
+The production assets bridge now follows the build's real `outDir` (the P3 incident:
+`publish.sh` stages `.gate-logs/publish-dist`, the bridge copied hardcoded `dist/assets`,
+and the public page was silent). This slice does not reintroduce that seam: the title
+background uses the same local `assets/`, and the build/publish checks are unchanged.
+
+What the brief gets right and the limits: the title battle is a **second** scene, not a
+second simulation after Play; it is disposed first. The menu cannot be audible before a
+gesture, but any first gesture now starts it. The title's fps on this host is a headless
+SwiftShader number (12–16 fps at 1280×720, 114 draw calls, 0.75 scale), not a GPU number;
+the owner's 60 fps at 1111×1031 was the game spectator. The background does not take
+input and does not accumulate ticks: one fixed-step advance per rendered frame; a match
+that ends is replaced.
 
 ## 3 · Gotchas
 
@@ -623,6 +662,31 @@ files decode, the buses respond, and the context runs (`AudioContext.state = run
   context state; it cannot prove the loops sit right. Report the file mapping, not a taste
   claim.
 
+- **The title battle is a separate canvas and a separate simulation that is DISPOSED first.**
+  `startGame` calls `titleBackground.dispose()` before `bootGame`; that cancels the title
+  rAF, disposes its scene/renderer/context and the `TitleSession`. Never create the game
+  renderer while the title one still owns a context, and never leave the title session
+  advancing in the background.
+- **The title canvas is not the game canvas.** `#title-canvas` is visible only under
+  `body.title-mode`; `#app` is hidden there. The game builds its own renderer on `#app`
+  after disposal. Do not merge them into one context to "save" a canvas — that is what
+  makes the disposal seam possible.
+- **Any first gesture on the title unlocks the menu, not just Play.** The window
+  `pointerdown`/`keydown` handlers call `TitleAudioGate` once. If that gesture is Play, the
+  menu loop is still skipped (combat wanted); if it is a click on the background or a
+  Tab key, the menu is heard. Do not add a second unlock path that starts combat on the
+  title.
+- **Background SFX are MUTED by design.** The title's presentation event queue is drained
+  with no audio sink; menu music is the only title sound. If a distant mix is ever wanted,
+  it must stay below the music and go through the same SFX bus, not a second engine.
+- **A finished title match is replaced, not looped in place.** `rebuild()` disposes the old
+  scene/session, increments the seed and adds a new scene; the renderer is reused. The
+  replacement is not a second live match.
+- **The production assets bridge follows `config.build.outDir`.** The P3 incident was a
+  hardcoded `dist/assets` while `publish.sh` stages `.gate-logs/publish-dist`; the public
+  page was silent. Do not hardcode the output directory again; `publish.sh` checks the
+  staged manifest/clips.
+
 ## 4 · Known debt
 
 - **A4/B1a is still not the full game.** The app is a single playable duel on the
@@ -742,3 +806,16 @@ files decode, the buses respond, and the context runs (`AudioContext.state = run
 - **The title/pause/settings screens are DOM overlays with no Vitest pin.** The CDP smoke
   (`node .gate-logs/p3-cdp-smoke2.mjs`) is a local artifact, not part of the suite; the
   gate still has no trusted-click/browser test.
+- **The title battle's GPU fps is unmeasured.** The headless SwiftShader number at
+  1280×720, 0.75 internal scale and 114 draw calls is 12–16 fps; it is not a GPU claim.
+  The owner measured 60 fps at 1111×1031 for the game spectator; the title uses a smaller
+  internal buffer and the same 16-tank scene.
+- **The title match replacement was not long-run tested.** A 4×4 match ends after roughly
+  a minute; the rebuild path is implemented and the determinism/disposal seams are pinned,
+  but a soak past several replacements is not measured.
+- **The title is 4×4 at 0.75 scale.** On a weak GPU, drop to 2×2 or lower the scale rather
+  than dropping the battle; both are constants in `titleBackground.ts`/`titleSession.ts`.
+- **The title music/SFX balance is the owner's ear.** The engine starts the menu loop on
+  the first gesture and mutes background combat SFX; it cannot prove the loop seam or mix.
+- **P4 is not republished.** The build/release path is ready; the live host still serves
+  P3 until the dispatcher publishes.

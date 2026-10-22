@@ -143,7 +143,12 @@ never "it passed".
 | Settings round-trip and reject malformed data | `round-trips a valid settings object` · `rejects a malformed stored value…` · `rejects out-of-range values…` | `src/entry/settings.test.ts` | stop validating master/quality/sensitivity, or return a silent clamp → the throw/fallback assertions red |
 | Pointer sensitivity scales and clamps the aim | `scales the pointer aim by the user sensitivity and clamps it` | `src/game/input.test.ts` | ignore sensitivity, or let the scaled pointer exceed ±1 → the 1/-0.5/0.15 assertions red |
 | A new shell emits fire and reload presentation events | `emits fire and reload presentation events for a newly spawned shell` | `src/render/playableScene.test.ts` | drop the event queue or skip the muzzle-distance gate → the fire/reload assertions red |
-The A3a block (20 rows), the A3b block (7 rows) and the A3c block (11 rows) are direct assertions; A4 adds seven level-validation pins; B1a adds the two A4 gap pins and eleven AI pins; B1b adds the scripted mirror pin; B1c adds the staging-symmetry pin; B2 adds the eager-profile, destruction-attribution, team-staging, team-batch, spectator and spectator-camera pins; B3 adds the body-aware arena connectivity pin and the batch-attribution arm; B4 adds the turn-order purity/rank/team-array pins; P1 adds the one-reload source/cadence pins, the player-team composition/determinism/teammate-immunity pins and the pulled-back team pose; P2 adds the six aim/reticle pins, the spawn-facing pin, the killer/clock attribution pin and the kill-feed label pin; P3 adds the two-way asset-manifest pins, the settings validation/round-trip pin, the pointer-sensitivity pin and the presentation-event pin (**134/134 tests in 31 files**). **No mutation differential was run for A3a/A3b/A3c/A4/B1a/B1b/B1c/B2/B3/B4/P1/P2/P3**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
+| The title background is deterministic for a seed | `is deterministic for a seed and uses the slow director` | `src/game/titleSession.test.ts` | use `Math.random` or a different seed path, or change the 420-tick director → the two hashes/director assertion reds |
+| Leaving the title disposes the background match | `is disposed when the title is left and cannot advance afterwards` | `src/game/titleSession.test.ts` | keep `advance` live after `dispose`, or make dispose non-idempotent → the throw/idempotence assertions red |
+| The first pointerdown starts the menu, not a second time | `starts the menu loop on the first pointerdown and not again on a keydown` | `src/game/titleAudioGate.test.ts` | make the gate stateless, or let a keydown restart it → the `menu`/null sequence reds |
+| The first keydown starts the menu, not a second time | `starts the menu loop on the first keydown and not again on a pointerdown` | `src/game/titleAudioGate.test.ts` | wire only pointerdown, or restart on the second gesture → the key/pointer sequence reds |
+| The shell wires both gestures and disposes the title first | `wires both gestures and disposes the background before a match boots` | `src/game/titleAudioGate.test.ts` | remove either listener, or boot the match before `titleBackground.dispose()` → the source-order assertions red |
+The A3a block (20 rows), the A3b block (7 rows) and the A3c block (11 rows) are direct assertions; A4 adds seven level-validation pins; B1a adds the two A4 gap pins and eleven AI pins; B1b adds the scripted mirror pin; B1c adds the staging-symmetry pin; B2 adds the eager-profile, destruction-attribution, team-staging, team-batch, spectator and spectator-camera pins; B3 adds the body-aware arena connectivity pin and the batch-attribution arm; B4 adds the turn-order purity/rank/team-array pins; P1 adds the one-reload source/cadence pins, the player-team composition/determinism/teammate-immunity pins and the pulled-back team pose; P2 adds the six aim/reticle pins, the spawn-facing pin, the killer/clock attribution pin and the kill-feed label pin; P3 adds the two-way asset-manifest pins, the settings validation/round-trip pin, the pointer-sensitivity pin and the presentation-event pin; P4 adds the title-session determinism/disposal pins, the two first-gesture pins and the shell-wiring order pin (**139/139 tests in 33 files**). **No mutation differential was run for A3a/A3b/A3c/A4/B1a/B1b/B1c/B2/B3/B4/P1/P2/P3/P4**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
 
 The differential harness is a local artifact at `.gate-logs/differential.py` (row 26)
 and `.gate-logs/differential.sh` (row 0) — both gitignored; the mutations are described
@@ -1306,6 +1311,50 @@ only in trim lines and small lights. The team-trim diagnostic on `wide` is orang
   median-filtering the tile map; HTML range inputs; creating the AudioContext at page load
   (browser-refused); a CDN for the audio; a second audio/SFX module; keeping the bright
   hull and arguing from the 28 m frame.
+
+### row 69 — Slice P4 (a live battle behind the title)
+
+- **Gate:** `bash scripts/gate.sh` → exit **0**, **139/139 tests in 33 files** (vitest
+  5.0.5). Raw log `.gate-logs/gate.log`.
+- **The title now has a real fight behind it:** a `SpectatorSession` of 4 teams × 4 tanks
+  (16 hulls), fixed seed from the URL (default 1), **420-tick (7 s)** director cuts and a
+  tick-based yaw/pitch/distance drift. It renders on a separate `#title-canvas` at **0.75**
+  internal resolution. The title overlay scrim plus exposure **0.7×** and bloom **0.5×**
+  yields a faded battle; the wordmark, buttons, controls and credit stay legible.
+- **Title look tables (both frames, 1920×1080):**
+
+  | gate | title (10 s) | title mid-fight (25 s) |
+  | --- | ---: | ---: |
+  | void | 62.7 % | 62.6 % |
+  | surface median | **8 L (3.1 %)** | **8 L (3.1 %)** |
+  | mid-band | 4.3 % | 4.3 % |
+  | line p99 | 163 | 163 |
+  | contrast | 20.38 | 20.38 |
+  | tile p90 | **11 L (4.3 %)** | **11 L (4.3 %)** |
+  | verdict | PASS | PASS |
+
+  Raw frames `.gate-logs/shots/title.png` and `title-mid.png`; the title is seed 1, the
+  mid-fight shot uses `SHOT_MS=25000`.
+- **Performance:** the headless SwiftShader run at 1280×720/0.75 reads **12–16 fps** with
+  **114 draw calls** while the title is up. This is a software lower bound, not a GPU
+  number; the owner's 60.0 fps at 1111×1031 was the game spectator. The title deliberately
+  renders at 0.75 rather than dropping the 16-tank battle.
+- **Lifecycle:** `TitleSession` is deterministic (hash) and its disposal is pinned; the
+  browser smoke after Play read `titleDisposed: true`, title canvas `display: none`, game
+  mode `play`, 11 audio clips, `AudioContext.state = running`. `startGame` disposes the
+  background before it boots the match; a finished background match is replaced with the
+  next seed, never run alongside the old one.
+- **Audio first gesture:** `TitleAudioGate` starts `menu.mp3` on the first `pointerdown` OR
+  `keydown` anywhere on the title; the two entry points and the shell wiring are pinned.
+  The browser smoke confirmed both (`CLICK TO ENABLE SOUND` → `SOUND ENABLED`). Play then
+  crossfades to combat as before. Background combat SFX are **muted** (the title event
+  queue is drained with no audio sink); menu music is the only title sound. This is a
+  deliberate policy choice, not a missing wire.
+- **Not run:** a GPU title-frame fps (the host's only backend is SwiftShader), a soak
+  through several background match replacements, a 2×2 fallback, Safari/Firefox/touch, the
+  owner's ear on the title/menu mix, or a republish of the live host. The P4 build uses the
+  fixed assets bridge, which follows the build's real `outDir`; that P3 incident is a
+  trap in ARCHITECTURE.
 
 ## Honest records
 

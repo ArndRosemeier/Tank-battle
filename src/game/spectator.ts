@@ -44,6 +44,8 @@ export interface SpectatorOptions {
   readonly seed?: number;
   /** Profile names by team slot; defaults to the four-character cast. */
   readonly characters?: readonly string[];
+  /** Ticks between director cuts; defaults to the spectator's 180 (3 s). */
+  readonly directorIntervalTicks?: number;
 }
 
 /** What the director wants the renderer to frame. */
@@ -80,6 +82,7 @@ export class SpectatorSession {
   readonly state: MatchState;
   readonly fixed: FixedStep;
   readonly characters: readonly string[];
+  readonly directorIntervalTicks: number;
 
   private previous: Map<number, TankRenderFrame>;
   private current: Map<number, TankRenderFrame>;
@@ -110,6 +113,13 @@ export class SpectatorSession {
       );
     }
     this.characters = requested.slice(0, tanksPerTeam);
+    const directorIntervalTicks = options.directorIntervalTicks ?? DIRECTOR_INTERVAL_TICKS;
+    if (!Number.isInteger(directorIntervalTicks) || directorIntervalTicks < 1) {
+      throw new Error(
+        `spectator: directorIntervalTicks must be a positive integer, got ${String(directorIntervalTicks)}`,
+      );
+    }
+    this.directorIntervalTicks = directorIntervalTicks;
     const profiles = this.characters.map((name) => getAIProfile(name));
 
     const setup = arenaTeamSetup(teams, tanksPerTeam);
@@ -254,7 +264,7 @@ export class SpectatorSession {
     if (
       !force &&
       !this.directorDirty &&
-      this.state.tick - this.lastDirectorTick < DIRECTOR_INTERVAL_TICKS &&
+      this.state.tick - this.lastDirectorTick < this.directorIntervalTicks &&
       !shellCut
     ) {
       return;
