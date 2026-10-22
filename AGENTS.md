@@ -17,6 +17,24 @@ new to this workflow. This file holds only what is **binding here**.
 
 For any behavior-changing code work, read [`docs/DEVELOPMENT-QUALITY-PROCESS.md`](docs/DEVELOPMENT-QUALITY-PROCESS.md) after the relevant architecture seam. It records the shortcomings found in the October 2026 audit, the fixes, and the required anti-regression brief/checks. Its six-line brief, data-identity checks, actual-app proof and `COPIES` report are binding **quality supplements**; `AGENTS.md` and `docs/CROSS-TOOL.md` remain the process authorities. Do not claim verified work without evidence from the exact commit.
 
+## The published artifact (added 2026-10-22)
+
+`release/` is what `~/apps/tank-battle` serves, and **only `scripts/publish.sh` writes it**.
+`dist/` is disposable local build output that the gate and the screenshot tools may rewrite;
+when the host pointed at `dist/`, a gate run silently redeployed a root-base build and every
+button died. One writer per served artifact, always.
+
+Publishing is not a content check. `publish.sh` stages the build, merges into `release/` (so
+a CDN-cached `index.html` still finds its hashed assets), verifies the public entry, its
+asset and the audio manifest, then **loads the public URL in a real browser**
+(`scripts/live-smoke.mjs`: console/HTTP errors, animation, Play) and **measures the deployed
+player camera** with `look-budget.py`. It exits 3 when the bytes are live but the page does
+not work. The smoke needs a dev-only install:
+`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --prefix .browser-smoke --no-save playwright@1.58.2`.
+
+A user-visible change is **VERIFIED-DEPLOYED** only when that chain passes. Otherwise say
+**VERIFIED-LOCAL** and name what was not verified.
+
 ## Cross-tool contract (DSH and Claude Code)
 
 This project is worked from **two harnesses**. The contract is

@@ -19,6 +19,7 @@
 #   0  published and verified by content
 #   1  failed — read the message; nothing was claimed
 #   2  built but the base path is wrong (refused to publish a blank page)
+#   3  the bytes are live but the deployed page FAILED the browser smoke
 #
 set -uo pipefail
 
@@ -109,4 +110,42 @@ for probe in "assets/manifest.json" "assets/audio/menu.mp3"; do
   [ "$PROBE_CODE" = "200" ] || die "the public ${probe} answered $PROBE_CODE — the game would be silent"
 done
 say "public: 200, the page references $ENTRY_JS, the asset answers 200, and the audio manifest + a clip answer 200"
+
+# --- 7. prove the DEPLOYED page boots ---------------------------------------
+# This is the step whose absence produced two live outages: the entry, its asset and the
+# audio were all "present", and the page was still dead (a root-base 404, then a missing
+# manifest). Only loading it like a visitor catches that class.
+if [ "${SKIP_LIVE_SMOKE:-0}" = "1" ]; then
+  say "smoke:  SKIPPED by SKIP_LIVE_SMOKE=1 — this publish is NOT verified as a loaded page"
+else
+  say "smoke:  loading the public page in a real browser"
+  node "$ROOT/scripts/live-smoke.mjs" "${PUBLIC_HOST}?cb=${NONCE}"
+  SMOKE_CODE=$?
+  if [ "$SMOKE_CODE" = "2" ]; then
+    die "the live smoke cannot run (Playwright missing). Install it once: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --prefix .browser-smoke --no-save playwright@1.58.2"
+  fi
+  if [ "$SMOKE_CODE" != "0" ]; then
+    printf 'PUBLISH INCOMPLETE: the bytes are live but the page FAILS the smoke (exit %s). Fix or roll back.\n' "$SMOKE_CODE" >&2
+    exit 3
+  fi
+  say "smoke:  the public page booted, Play opened the game, no console or HTTP errors"
+fi
+
+# --- 8. measure the DEPLOYED player camera, not a staging pose ---------------
+# The look gate once passed on a 28 m staging pose while the 8.2 m camera the player uses
+# failed at 29 %. This step captures the real deployed team-mode view and measures THAT.
+if [ "${SKIP_LIVE_SMOKE:-0}" != "1" ]; then
+  LIVE_SHOT="$ROOT/.gate-logs/shots/published-live.png"
+  say "look:   capturing the deployed player camera"
+  bash "$ROOT/scripts/shot-live.sh" "${PUBLIC_HOST}?mode=team&cb=${NONCE}" "$LIVE_SHOT" >/dev/null 2>&1 \
+    || die "could not capture the deployed player view"
+  if python3 "$ROOT/scripts/look-budget.py" "$LIVE_SHOT" > "$ROOT/.gate-logs/published-look.log" 2>&1; then
+    say "look:   the deployed player camera passes the look budget"
+  else
+    printf 'PUBLISH INCOMPLETE: the deployed player camera FAILS the look budget:\n' >&2
+    grep -E 'FAIL' "$ROOT/.gate-logs/published-look.log" >&2 || true
+    exit 3
+  fi
+fi
+
 say "PUBLISHED: https://apps.futuremagic.de/${SLUG}/"

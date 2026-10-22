@@ -27,9 +27,11 @@
 
 ## Next action (one)
 
-**Get the owner's approval on the process plan** (host-global COS rule + Toolbox scaffold),
-then implement the deployment smoke and the one-writer rule first — those two would have
-caught both live outages. No feature work before that decision.
+**Process plan implemented** (project + Toolbox + host rules): the publish chain now fails
+closed unless the deployed page boots and its player camera passes the look budget. Live:
+`https://apps.futuremagic.de/tank-battle/` (`index-CtakY_ue.js`), VERIFIED-DEPLOYED.
+Next: the three outstanding debts (4x4 cap ~11 %, seed-148 parked duel, ambusher/brute
+naming), or the owner's next request. Nothing is dispatched.
 
 ## Open questions for the owner
 

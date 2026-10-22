@@ -1722,3 +1722,19 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
   cited its draw calls as evidence about the shipped scene.
 - **Not verified by anyone yet:** audio by ear, 1920×1080 on real hardware, GPU context loss,
   long soak — recorded as such rather than implied.
+
+### the deployment tier — enforced, and proven to fail
+
+- `scripts/live-smoke.mjs` (Playwright, dev-only, drives the system Chrome) loads a URL,
+  collects page errors, console errors, failed requests and every HTTP >= 400, requires the
+  title to render, requires two real-time frames to differ (animation), clicks Play and
+  requires the game canvas to appear, and checks `assets/manifest.json` and one clip.
+- **Negative proof:** a copy of `release/` with `assets/manifest.json` removed, served on
+  loopback, failed with 7 reported problems and exit 1 — including the same
+  `/tank-battle/assets/index-*.js` 404 class that broke the live site.
+- **Positive proof:** the public URL passes (exit 0, no console/HTTP errors, Play opens the
+  game), and a Chrome count of 0 afterwards.
+- **Deployed look:** the public `?mode=team` frame measures surface 3.1 %, tile p90 4.7 %,
+  contrast 23.4 — PASS on the camera the player actually uses.
+- `publish.sh` now runs both as required steps and exits **3** when the bytes are live but the
+  page fails, so "published" cannot be confused with "working".
