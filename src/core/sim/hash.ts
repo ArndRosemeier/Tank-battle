@@ -32,7 +32,8 @@ export function hashMatch(state: MatchState): string {
         `hull=${microdegrees(tank.hullYawDegrees)} turret=${microdegrees(tank.turretYawDegrees)} ` +
         `pitch=${microdegrees(tank.aimPitchDegrees)} hp=${tank.hp}/${tank.maxHp} ` +
         `alive=${tank.alive ? 1 : 0} reload=${tank.reloadTicksRemaining} ` +
-        `bleed=${tank.bleedTicksRemaining} cause=${tank.deathCause ?? '-'} died=${tank.diedAtTick ?? '-'}`,
+        `bleed=${tank.bleedTicksRemaining} cause=${tank.deathCause ?? '-'} died=${tank.diedAtTick ?? '-'} ` +
+        `killer=${tank.killedByTeamId ?? '-'}`,
     );
   }
 

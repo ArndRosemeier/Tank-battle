@@ -24,6 +24,7 @@ import {
   DEFAULT_MATCH_RULES,
   createMatch,
   hashMatch,
+  normaliseDegrees,
   stepMatch,
   type Controller,
   type MatchRules,
@@ -33,7 +34,7 @@ import {
   type TankCommandOrder,
 } from '../core/sim.ts';
 import { arenaTeamSetup, TEAM_MODE_AIM_ERROR_SCALE } from './aiBatch.ts';
-import { ARENA } from './levels/arena.ts';
+import { ARENA, ARENA_BOUNDS } from './levels/arena.ts';
 import { commandFromInput, idlePlayerInput, type PlayerInput } from './input.ts';
 import { interpolateTanks, snapshotTanks, type TankRenderFrame } from './tankFrames.ts';
 
@@ -108,7 +109,7 @@ export class TeamSession {
   private previous: Map<number, TankRenderFrame>;
   private current: Map<number, TankRenderFrame>;
   private readonly controllers = new Map<number, Controller>();
-  private frozen = false;
+  private frozenState = false;
 
   constructor(options: TeamSessionOptions) {
     const seed = options.seed;
@@ -144,9 +145,20 @@ export class TeamSession {
       seed,
       rules: options.rules ?? DEFAULT_MATCH_RULES,
     });
-    if (this.state.tanks[PLAYER_TANK_ID]?.teamId !== PLAYER_TEAM_ID) {
+    const playerSpawn = this.state.tanks[PLAYER_TANK_ID];
+    if (playerSpawn?.teamId !== PLAYER_TEAM_ID) {
       throw new Error('teamSession: tank id 0 is not on team 0');
     }
+    // P2: a human should look at the fight, not at the corner wall. The spawn corner
+    // still rotates by seed; only the facing is aimed at the arena centre.
+    const centreX = (ARENA_BOUNDS.minX + ARENA_BOUNDS.maxX) / 2;
+    const centreZ = (ARENA_BOUNDS.minZ + ARENA_BOUNDS.maxZ) / 2;
+    const facing = normaliseDegrees(
+      (Math.atan2(-(centreX - playerSpawn.x), -(centreZ - playerSpawn.z)) * 180) / Math.PI,
+    );
+    playerSpawn.hullYawDegrees = facing;
+    playerSpawn.turretYawDegrees = facing;
+    playerSpawn.aimPitchDegrees = 0;
 
     const readInput = options.readInput ?? idlePlayerInput;
     const playerController = options.playerController ?? new PlayerInputController(readInput);
@@ -181,14 +193,23 @@ export class TeamSession {
   }
 
   get frozenFrame(): boolean {
-    return this.frozen;
+    return this.frozenState;
+  }
+
+  get frozen(): boolean {
+    return this.frozenState;
   }
 
   get alpha(): number {
-    return this.frozen ? 1 : this.fixed.alpha;
+    return this.frozenState ? 1 : this.fixed.alpha;
   }
 
   /** The player's team, slot 0 first: the player and the three squadmates. */
+  /** Character names for the HUD kill feed, in slot order. */
+  get feedNames(): readonly string[] {
+    return this.characters;
+  }
+
   get squad(): readonly Tank[] {
     const team = this.state.teams.find((candidate) => candidate.id === PLAYER_TEAM_ID);
     if (!team) throw new Error('teamSession: the player team is missing');
@@ -201,7 +222,7 @@ export class TeamSession {
 
   /** One frame delta → zero or more simulation ticks. Input is sampled per tick. */
   advance(frameSeconds: number): number {
-    if (this.frozen) {
+    if (this.frozenState) {
       return 0;
     }
     return this.fixed.advance(frameSeconds, () => {
@@ -216,13 +237,13 @@ export class TeamSession {
     if (!Number.isInteger(ticks) || ticks < 0) {
       throw new Error(`teamSession: ticks must be a non-negative integer, got ${String(ticks)}`);
     }
-    if (this.frozen) {
+    if (this.frozenState) {
       return;
     }
     for (let tick = 0; tick < ticks && this.state.status === 'active'; tick += 1) {
       this.stepOnce();
     }
-    this.frozen = true;
+    this.frozenState = true;
     this.fixed.reset();
     this.previous = this.current;
   }

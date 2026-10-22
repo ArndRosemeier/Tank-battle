@@ -126,10 +126,19 @@ never "it passed".
 | The player's team is the player plus three AI squadmates | `starts with the player plus three AI squadmates, against three teams of four` | `src/game/teamSession.test.ts` | drop a squad slot or put the player on another team → the squad/team counts red |
 | The player-team mode is deterministic for a seed and input | `is deterministic for a seed and a scripted player` | `src/game/teamSession.test.ts` | seed a controller from `Math.random`, or let the input counter drift → the state hashes differ |
 | A player's shell cannot damage a squadmate | `the player can spawn a shell and a squadmate is immune to it` | `src/game/teamSession.test.ts` | bypass the Q2 team check → the squadmate's HP drops or the shell passes through |
+| The reticle is the gun's projected direction, not a fixed centre | `projects the gun direction into the frame, not a fixed centre` | `src/render/aimProjection.test.ts` | return a constant NDC, or remove the hull/turret blend → the off-centre/`x>0` assertion reds |
+| The camera follows only part of the turret offset and wraps | `turns the camera only part of the turret offset and wraps correctly` | `src/render/aimProjection.test.ts` | follow the full turret (fixed centre) or use the raw difference at 350°/10° → the 33°/-1° assertions red |
+| The full ±60° turret aim stays inside the 16:9 frame | `keeps the full ±60° turret aim inside the horizontal frame at 16:9` | `src/render/aimProjection.test.ts` | lower `aimFollowFraction` below 0.4, or shrink the FOV → the 27° vs 39.8° invariant reds |
+| An off-screen aim clamps to the edge and points outward | `clamps an off-screen aim to the edge and returns the screen direction` | `src/render/aimProjection.test.ts` | stop clamping, return angle 0 for every aim, or accept `edgeMargin` outside 0…1 → the edge/angle assertions red |
+| The reticle is a path point, not a direction at infinity | `projects a point on the shell path, not the direction at infinity` | `src/render/aimProjection.test.ts` | project the normalised direction instead of the point → near and far points report the same NDC |
+| A behind-camera aim gets no invented screen point | `handles a direction behind the camera without inventing a screen point` | `src/render/aimProjection.test.ts` | drop the `depth <= 0` branch → the behind flag/edge fallback reds |
+| The player starts facing the arena centre | `points the player at the arena centre while the seeded corner rotation remains` | `src/game/teamSession.test.ts` | restore the authored corner yaw, or fix one yaw for all seeds → the centre-facing/four-corner assertions red |
+| A shell kill records the firing team | `a shell striking an enemy tank deals one damage and despawns; three kill` (killer assertions) | `src/core/sim.test.ts` | pass null to `killTank` for shell kills → `killedByTeamId` is null |
+| The kill feed names the killer, victim and clock | `names a squad kill, a squad loss and a clock death` | `src/game/killFeed.test.ts` | label every victim by team only, or invent a killer for a clock death → the SQUAD/SNIPER/— assertions red |
 | The team pose is a deterministic pulled-back frame | `a camera pose reproduces the same position and target for the same inputs` (team case) | `src/render/cameraMath.test.ts` | collapse the team pose to the 8.2 m follow arm or make it non-deterministic → the horizontal-distance/equality assertions red |
 | The spectator camera is a wider arm and rejects an out-of-range distance | `frames the spectator action from a wider arm and rejects an out-of-range distance` | `src/render/cameraMath.test.ts` | clamp spectator distance to the player's 16 m arm, or drop the range check → the pose/throw assertion reds |
 
-The A3a block (20 rows), the A3b block (7 rows) and the A3c block (11 rows) are direct assertions; A4 adds seven level-validation pins; B1a adds the two A4 gap pins and eleven AI pins; B1b adds the scripted mirror pin; B1c adds the staging-symmetry pin; B2 adds the eager-profile, destruction-attribution, team-staging, team-batch, spectator and spectator-camera pins; B3 adds the body-aware arena connectivity pin and the batch-attribution arm; B4 adds the turn-order purity/rank/team-array pins; P1 adds the one-reload source/cadence pins, the player-team composition/determinism/teammate-immunity pins and the pulled-back team pose (**119/119 tests in 27 files**). **No mutation differential was run for A3a/A3b/A3c/A4/B1a/B1b/B1c/B2/B3/B4/P1**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
+The A3a block (20 rows), the A3b block (7 rows) and the A3c block (11 rows) are direct assertions; A4 adds seven level-validation pins; B1a adds the two A4 gap pins and eleven AI pins; B1b adds the scripted mirror pin; B1c adds the staging-symmetry pin; B2 adds the eager-profile, destruction-attribution, team-staging, team-batch, spectator and spectator-camera pins; B3 adds the body-aware arena connectivity pin and the batch-attribution arm; B4 adds the turn-order purity/rank/team-array pins; P1 adds the one-reload source/cadence pins, the player-team composition/determinism/teammate-immunity pins and the pulled-back team pose; P2 adds the six aim/reticle pins, the spawn-facing pin, the killer/clock attribution pin and the kill-feed label pin (**127/127 tests in 29 files**). **No mutation differential was run for A3a/A3b/A3c/A4/B1a/B1b/B1c/B2/B3/B4/P1/P2**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
 
 The differential harness is a local artifact at `.gate-logs/differential.py` (row 26)
 and `.gate-logs/differential.sh` (row 0) — both gitignored; the mutations are described
@@ -1123,7 +1132,8 @@ only in trim lines and small lights. The team-trim diagnostic on `wide` is orang
 
   Raw frame `.gate-logs/shots/team.png`; the seed-1/tick-600 scenario was chosen after
   probing the squad's positions, because at seed 7 the three hulls overlap the player's
-  from the follow arm.
+  from the follow arm. *(P2 later retimed the team demo to seed 67/tick 480 and widened
+  the staging pose to 28 m/34° for the look budget; the live 8.2 m arm is unchanged.)*
 - **Combat demo retimed by the reload rule.** The old demo fired 3 shots by tick 122
   because the player's reload was 60; with the one 285-tick reload the same three shots
   land at ticks 1/286/571, so the deterministic freeze moved to **571** (dummy 1 HP,
@@ -1140,6 +1150,83 @@ only in trim lines and small lights. The team-trim diagnostic on `wide` is orang
   untested), a full P2 HUD/crosshair, the aim-off-screen limit fixed, a team-specific
   live follow camera, GPU frame rate, a 4-team AI mirror, or a mutation differential for
   the reload/team changes.
+
+### row 59 — Slice P2 (the player's screen)
+
+- **Gate:** `bash scripts/gate.sh` → exit **0**, **127/127 tests in 29 files** (vitest
+  5.0.5). Raw log `.gate-logs/gate.log`.
+- **Aiming loop:** `CAMERA.fovDegrees` stays **50**. At 16:9 the horizontal half-frame is
+  **39.8°**; a lens that contains the full ±60° turret would be about 120° horizontal, so
+  the camera instead yaws to `hull + 0.55 × turret offset` with a **0.11 s** half-life
+  spring. The un-followed remainder is **27°**, inside the frame. The reticle is the
+  projection of a point on the shell's path (nearest enemy in a 0.985 cone, else 40 m),
+  and an off-screen aim clamps to the 0.9 NDC edge with a direction chevron. Pins: the
+  reticle is not a fixed centre; the 0.55/27° invariant holds; a near path point and a
+  far direction report different NDC (the parallax fix); an off-screen aim clamps and
+  returns its screen angle; a behind-camera aim has no invented point.
+- **HUD:** the player panel is inset 28 px with three 44×10 hull segments, a `3 / 3`
+  label, a 56 px reload ring and the remaining seconds; the squad panel has 13 px names,
+  26×8 pips and LIVE/KIA; the duel target keeps its own panel. The kill feed has four
+  rows with the sim's killer attribution (`Tank.killedByTeamId`; a clock death shows `—`),
+  and the damage vignette is a radial edge flash on the player's HP drop, not a filled
+  overlay. No HUD element is clipped at 1920×1080 (read in the team crop).
+- **Gun and muzzle:** the 2.15 m barrel ends in a hexagonal muzzle brake at the sim's
+  3 m muzzle with a small ice bore ring; the old floating grey cube is gone (read in the
+  combat crop). A shot spawns a soft, lifted muzzle flash at the shell origin; the flash
+  is lifted 0.26 m because a point on the bore axis is hidden behind the brake from the
+  follow camera.
+- **Combat VFX:** one additive particle view (muzzle flash, impact/hit sparks, cell-break
+  shards, an eight-slot regeneration grow-in cage, death bursts) and a shell trail
+  clamped to the shell's travelled distance so a fresh shot does not paint the tank. The
+  particles use a generated radial alpha texture rather than square point sprites. All
+  effects are light; no flat surface is brightened.
+- **Spawn facing:** the player's tank points at the arena centre after the seeded corner
+  rotation; all four corners are pinned. The side effect is a new stand-in table
+  (200 seeds, scripted vanguard on tank 0; human skill NOT measured):
+
+  | metric | value |
+  | --- | ---: |
+  | player-team wins | **52 (26.0 %)** |
+  | team split | 26.0 / 28.5 / 17.5 / 19.5 % |
+  | draws | 17 |
+  | cap hits | **17/200 (8.5 %)** |
+  | mean / median length | 5104.2 / 3858.0 ticks |
+  | shots / hits / accuracy | 18015 / 7049 / 39.1 % |
+  | kills | 1846 (1846 shell / 1101 clock) |
+
+  Team 2 is **below the P1 20 % band** (17.5 %), a side effect of the facing change
+  recorded rather than tuned in a presentation slice. The 100-seed half was 34.0 % and
+  is treated as noise; the 200-seed table is the report. The all-AI 4×4 table is
+  unaffected (the facing change is in `TeamSession`, not `runTeamBatch`).
+- **Look tables (both frames read; 1920×1080):**
+
+  | gate | team | combat |
+  | --- | ---: | ---: |
+  | void (L<5) | 42.4 % | 33.6 % |
+  | surface median | 12 L (4.7 %) | 14 L (5.5 %) |
+  | mid-band share | 8.1 % | 8.3 % |
+  | line p99 | 201 | 197 |
+  | contrast p99/median | 16.75 | 14.07 |
+  | tile p90 | **30 L (11.8 %)** | **30 L (11.8 %)** |
+  | verdict | PASS | PASS |
+
+  The `team` pose is **28 m / 34° / 18°**: the live 8.2 m arm and the previous 12.5 m
+  staging pose put too many bright hull tiles in one band (12.5 m measured tile p90 50
+  on the chosen frame; 22 m 35; 28 m 30). The frame shows the player plus two squadmates,
+  the reticle on an enemy, the squad/HP/reload panels and a kill-feed row. The `combat`
+  frame shows the reticle on the dummy, the attached muzzle brake and flash, the target
+  panel and the player panel. Raw files `.gate-logs/shots/team.png` and `combat.png`.
+- **Rejected:** widening the FOV to contain ±60° (≈120° horizontal, distorts the whole
+  look); a fixed centre crosshair (the turret is independent of the hull); a camera that
+  follows the full turret (it becomes a fixed centre and removes the hull read); a
+  direction-at-infinity reticle (8 m of camera parallax put it above the target); a
+  smaller team pose that failed the tile budget (12.5 m/22 m); square point sprites; a
+  filled damage overlay; and adding killer attribution as a gameplay rule (it is
+  `Tank.killedByTeamId` metadata, not a damage change).
+- **Not run:** a human at the keyboard (no browser-level input pin), a screenshot of the
+  off-screen chevron (the projection/edge math is pinned, the DOM is not), live-VFX GPU
+  frame rate, a still of the damage vignette or a break/death effect, the 4-team AI
+  mirror, or a mutation differential for P2.
 
 ## Honest records
 
@@ -1381,7 +1468,8 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
   muzzle renders as a detached cube; turret ±60° exceeds the ±39° FOV, so aim can leave
   the screen. Also recorded: a pre-existing 1v1 parked duel (seed 148), 4×4 cap at 10.5 %,
   spawn facing can point away from the arena, and a 285-tick (4.75 s) reload is a feel
-  fork for the owner.
+  fork for the owner. *(P2 row 59 addresses the reticle, HUD, muzzle and spawn facing;
+  the parked duel, 4×4 cap and reload feel remain.)*
 
 ### row 60 — publish verification
 

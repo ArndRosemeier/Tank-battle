@@ -52,6 +52,21 @@ function box(
   return geometry;
 }
 
+/** A cylinder whose axis runs along the barrel's -z, centred at (x, y, z). */
+function cylinderAlongZ(
+  radiusTop: number,
+  radiusBottom: number,
+  length: number,
+  x: number,
+  y: number,
+  z: number,
+): BufferGeometry {
+  const geometry = new CylinderGeometry(radiusTop, radiusBottom, length, 6, 1, false);
+  geometry.rotateX(Math.PI / 2);
+  geometry.translate(x, y, z);
+  return geometry;
+}
+
 /**
  * Builds one tank facing -z at the origin. The caller positions and yaws the group; a
  * unique `phase` gives each turret sweep a different offset without any randomness.
@@ -63,6 +78,9 @@ export function createPlaceholderTank(teamIndex: number, phase: number): Placeho
   const color = teamColor(teamIndex);
   // D5: the hue is the owner's, the BRIGHTNESS is normalised across teams.
   const gain = teamEdgeGainFor(teamIndex);
+  // The gun is a slimmer, quieter surface than the hull: a full-gain 2.15 m barrel
+  // reads as a neon bar in the follow arm and pushes the frame's tile p90.
+  const gunGain = gain * 0.5;
   const core = { color: PALETTE.iceWhite, gain: NEON.coreGain };
 
   const hullParts: SurfacePart[] = [
@@ -103,13 +121,17 @@ export function createPlaceholderTank(teamIndex: number, phase: number): Placeho
   const barrelStart = -0.5;
   const barrelCentre = barrelStart - TANK.barrelLengthMetres / 2;
   const barrelEnd = barrelStart - TANK.barrelLengthMetres;
-  const muzzleCentre = barrelEnd - TANK.muzzleLengthMetres / 2;
+  // The sim's muzzle is 3 m forward of the hull origin; keep the brake's tip at that
+  // reach instead of ending the barrel short of the shell spawn.
+  const muzzleTip = barrelEnd - TANK.muzzleLengthMetres;
+  const brakeCentre = barrelEnd - TANK.muzzleLengthMetres / 2;
 
   const turretParts: SurfacePart[] = [
     { geometry: turretGeometry, color, gain },
     // Rear turret bustle: weight at the back, and a second turret line.
     { geometry: box(0.9, 0.28, 0.5, 0, 0.16, 0.65), color, gain },
-    // Mantlet, then the gun: a long square barrel with collars and a hot muzzle.
+    // Mantlet, then the gun: a long square barrel with a thick sleeve, collars and a
+    // hexagonal muzzle brake at the tip (the old muzzle was a floating grey cube).
     { geometry: box(0.6, 0.36, 0.4, 0, 0.18, -0.55), color, gain },
     {
       geometry: box(
@@ -123,17 +145,25 @@ export function createPlaceholderTank(teamIndex: number, phase: number): Placeho
       color,
       gain,
     },
-    { geometry: box(0.28, 0.28, 0.18, 0, 0.2, -0.9), color, gain },
-    { geometry: box(0.28, 0.28, 0.18, 0, 0.2, -1.7), color, gain },
+    { geometry: box(0.42, 0.38, 0.8, 0, 0.2, -1.55), color, gain },
+    { geometry: box(0.36, 0.34, 0.16, 0, 0.2, -1.15), color, gain },
     {
-      geometry: box(
-        TANK.muzzleDiameterMetres,
-        TANK.muzzleDiameterMetres,
-        TANK.muzzleLengthMetres,
-        0,
-        0.2,
-        muzzleCentre,
-      ),
+      geometry: cylinderAlongZ(0.22, 0.2, TANK.muzzleLengthMetres, 0, 0.2, brakeCentre),
+      color,
+      gain: gunGain,
+    },
+    {
+      geometry: cylinderAlongZ(0.26, 0.26, 0.07, 0, 0.2, barrelEnd - 0.04),
+      color,
+      gain: gunGain,
+    },
+    {
+      geometry: cylinderAlongZ(0.24, 0.24, 0.05, 0, 0.2, muzzleTip + 0.03),
+      ...core,
+    },
+    // The bore cap: the hottest small point, exactly on the shell's origin line.
+    {
+      geometry: cylinderAlongZ(0.09, 0.09, 0.03, 0, 0.2, muzzleTip + 0.012),
       ...core,
     },
     // Cupola and sensor mast above the turret: the second silhouette step.

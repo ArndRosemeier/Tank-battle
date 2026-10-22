@@ -477,6 +477,7 @@ describe('the combat core', () => {
     expect(state.status).toBe('ended');
     expect(tankAt(state, 1).alive).toBe(false);
     expect(tankAt(state, 1).deathCause).toBe('shell');
+    expect(tankAt(state, 1).killedByTeamId).toBe(0);
     expect(state.stats.shotsFired).toBe(3);
     expect(state.stats.hits).toBe(3);
     expect(state.stats.kills).toBe(1);
@@ -532,6 +533,7 @@ describe('the combat core', () => {
     }
     expect(tankAt(state, 1).alive).toBe(false);
     expect(tankAt(state, 1).deathCause).toBe('clock');
+    expect(tankAt(state, 1).killedByTeamId).toBeNull();
     expect(state.stats.causes.clock).toBe(1);
     expect(state.stats.kills).toBe(0);
   });

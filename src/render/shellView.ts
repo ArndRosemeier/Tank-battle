@@ -1,10 +1,11 @@
 /**
- * The shells in flight as ONE merged line-streak buffer. A shell is short-lived and
- * thin: a line from its current position back along its direction reads as a tracer,
- * and bloom supplies the glow. Shells render at the LATEST simulation position (no
- * interpolation); tanks are the only interpolated objects.
+ * The shells in flight as ONE merged line-streak buffer. Each shell draws three short
+ * fading segments from its current position back along its direction: a tail that
+ * reads as motion, not a single 1.8 m tick. Bloom supplies the glow.
  *
- * The buffer is rewritten each frame and drawn in one call; empty shells hide it.
+ * Shells render at the LATEST simulation position (no interpolation); tanks are the
+ * only interpolated objects. The buffer is rewritten each frame and drawn in one call;
+ * empty shells hide it.
  */
 
 import {
@@ -20,7 +21,10 @@ import type { Shell } from '../core/sim.ts';
 import { NEON, PALETTE } from './config.ts';
 
 const MAX_SHELLS = 64;
-const STREAK_METRES = 1.8;
+const TRAIL_SEGMENTS = 3;
+const TRAIL_METRES = 4.2;
+const VERTICES_PER_SHELL = TRAIL_SEGMENTS * 2;
+const SEGMENT_FADE = [0.9, 0.32, 0.1] as const;
 
 export interface ShellView {
   readonly group: Group;
@@ -32,13 +36,15 @@ export function createShellView(): ShellView {
   if (MAX_SHELLS <= 0) {
     throw new Error('shellView: MAX_SHELLS must be positive');
   }
-  const positions = new Float32Array(MAX_SHELLS * 2 * 3);
+  const positions = new Float32Array(MAX_SHELLS * VERTICES_PER_SHELL * 3);
+  const colors = new Float32Array(MAX_SHELLS * VERTICES_PER_SHELL * 3);
   const geometry = new BufferGeometry();
   geometry.setAttribute('position', new BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new BufferAttribute(colors, 3));
   geometry.setDrawRange(0, 0);
 
   const material = new LineBasicMaterial({
-    color: new Color(PALETTE.iceWhite).multiplyScalar(NEON.coreGain),
+    vertexColors: true,
     transparent: true,
     opacity: 0.95,
     blending: AdditiveBlending,
@@ -53,6 +59,7 @@ export function createShellView(): ShellView {
   group.name = 'shells-group';
   group.add(lines);
 
+  const baseColor = new Color(PALETTE.iceWhite).multiplyScalar(NEON.coreGain);
   let disposed = false;
   return {
     group,
@@ -62,19 +69,32 @@ export function createShellView(): ShellView {
       }
       let offset = 0;
       for (const shell of shells) {
-        const tailX = shell.x - shell.dx * STREAK_METRES;
-        const tailY = shell.y - shell.dy * STREAK_METRES;
-        const tailZ = shell.z - shell.dz * STREAK_METRES;
-        positions[offset] = tailX;
-        positions[offset + 1] = tailY;
-        positions[offset + 2] = tailZ;
-        positions[offset + 3] = shell.x;
-        positions[offset + 4] = shell.y;
-        positions[offset + 5] = shell.z;
-        offset += 6;
+        // The trail may not begin behind the muzzle: a freshly spawned shell has not
+        // travelled yet, and drawing 4 m back would paint the tank with the tracer.
+        const trail = Math.min(TRAIL_METRES, Math.max(0.6, shell.travelledMetres));
+        for (let segment = 0; segment < TRAIL_SEGMENTS; segment += 1) {
+          const far = (trail * (segment + 1)) / TRAIL_SEGMENTS;
+          const near = (trail * segment) / TRAIL_SEGMENTS;
+          const fade = (SEGMENT_FADE[segment] ?? 1) * (trail / TRAIL_METRES);
+          // Two vertices per segment: the far (dim) end then the near (bright) end.
+          positions[offset] = shell.x - shell.dx * far;
+          positions[offset + 1] = shell.y - shell.dy * far;
+          positions[offset + 2] = shell.z - shell.dz * far;
+          positions[offset + 3] = shell.x - shell.dx * near;
+          positions[offset + 4] = shell.y - shell.dy * near;
+          positions[offset + 5] = shell.z - shell.dz * near;
+          for (let vertex = 0; vertex < 2; vertex += 1) {
+            const boost = vertex === 0 ? fade * 0.55 : fade;
+            colors[offset + vertex * 3] = baseColor.r * boost;
+            colors[offset + vertex * 3 + 1] = baseColor.g * boost;
+            colors[offset + vertex * 3 + 2] = baseColor.b * boost;
+          }
+          offset += 6;
+        }
       }
-      geometry.setDrawRange(0, shells.length * 2);
+      geometry.setDrawRange(0, shells.length * VERTICES_PER_SHELL);
       geometry.getAttribute('position').needsUpdate = true;
+      geometry.getAttribute('color').needsUpdate = true;
       lines.visible = shells.length > 0;
     },
     dispose(): void {

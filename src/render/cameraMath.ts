@@ -266,21 +266,15 @@ export function cameraPose(request: CameraPoseRequest): CameraPose {
       });
     }
     case 'team': {
-      const eye: Vec3 = {
-        x: focus.x,
-        y: floorY + CAMERA.focusHeightMetres,
-        z: focus.z,
-      };
-      const yaw = (CAMERA.teamPoseYawOffsetDegrees * Math.PI) / 180;
-      const poseForward: Vec3 = {
-        x: forward.x * Math.cos(yaw) + forward.z * Math.sin(yaw),
-        y: 0,
-        z: -forward.x * Math.sin(yaw) + forward.z * Math.cos(yaw),
-      };
-      return orbitPose({
-        focus: eye,
-        forward: poseForward,
-        distance: CAMERA.teamPoseDistanceMetres,
+      // A screenshot staging pose, not the live 8.2 m arm: the team frame needs the
+      // player, the squad and enough arena to read as a battle. The spectator arm's
+      // wider range is reused rather than pushing the player's zoom clamp.
+      return spectatorPose({
+        centerX: focus.x,
+        centerZ: focus.z,
+        floorY,
+        yawDegrees: focusYawDegrees + CAMERA.teamPoseYawOffsetDegrees,
+        distanceMetres: CAMERA.teamPoseDistanceMetres,
         pitchDegrees: CAMERA.teamPosePitchDegrees,
       });
     }

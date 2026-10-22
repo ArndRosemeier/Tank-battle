@@ -332,7 +332,7 @@ function bleedWoundedTanks(state: MatchState, turnOrder: readonly number[]): voi
     }
     tank.hp -= 1;
     if (tank.hp <= 0) {
-      killTank(state, tank, 'clock');
+      killTank(state, tank, 'clock', null);
     } else {
       tank.bleedTicksRemaining = state.rules.bleedIntervalTicks;
     }
@@ -641,19 +641,25 @@ function damageEnemyTank(state: MatchState, tank: Tank, ownerTeamId: number): vo
   state.stats.damageDealt += applied;
   state.stats.damageByTeam[ownerTeamId] = (state.stats.damageByTeam[ownerTeamId] ?? 0) + applied;
   if (tank.hp <= 0) {
-    killTank(state, tank, 'shell');
+    killTank(state, tank, 'shell', ownerTeamId);
   } else if (tank.bleedTicksRemaining === 0) {
     tank.bleedTicksRemaining = state.rules.bleedIntervalTicks;
   }
 }
 
-function killTank(state: MatchState, tank: Tank, cause: 'shell' | 'clock'): void {
+function killTank(
+  state: MatchState,
+  tank: Tank,
+  cause: 'shell' | 'clock',
+  killerTeamId: number | null,
+): void {
   tank.alive = false;
   tank.hp = 0;
   tank.bleedTicksRemaining = 0;
   tank.reloadTicksRemaining = 0;
   tank.deathCause = cause;
   tank.diedAtTick = state.tick;
+  tank.killedByTeamId = killerTeamId;
   state.stats.causes[cause] += 1;
   if (cause === 'shell') {
     state.stats.kills += 1;

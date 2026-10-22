@@ -104,16 +104,21 @@ running headless in `node`.
 | the app scene | `createPlayableScene(state, ids)` | `src/render/playableScene.ts:40` | Builds the real world mesh, debris, two tank views and the shell streak buffer. This is the app path; the A2 showcase remains the budget fixture. `setTanksHidden` is the top-plan review switch, not gameplay. |
 | rebuilding on revision | `PlayableScene.syncWorld()` | `src/render/playableScene.ts:77` | The ONE rebuild gate: compares `World.revision` with the last built revision; only a change calls `worldMesh.rebuild()` / `debrisView.rebuild()`. Never per frame. |
 | shells/debris views | `createShellView()` · `createDebrisView(world)` | `src/render/shellView.ts:31` · `src/render/debrisView.ts:24` | One merged streak line buffer for shells; one merged `NeonSurface` for A1 blocks and shards. Both are data-derived, never patched. |
-| the in-style HUD | `createHud()` | `src/entry/hud.ts:67` | DOM only: 3-segment player/target HP, reload ring, the player-team squad rows (name, 3 pips, LIVE/KIA), fps and the victory/defeat banner. The squad rows hide in duel mode and the target block hides in team mode. Colours come from `PALETTE`/`teamColor`; no HTML controls. |
+| the in-style HUD | `createHud()` · `createAimHud()` | `src/entry/hud.ts` | DOM only: three 44 px hull segments with a numeric label, a 56 px reload ring with seconds, the squad rows (name, pips, LIVE/KIA), the duel target, the kill feed, the victory/defeat banner and the projected reticle. Team mode omits the duel target; duel mode hides the squad. Colours come from `PALETTE`/`teamColor`; no HTML controls. |
 | the combat screenshot pose | `cameraPose('combat', ...)` | `src/render/cameraMath.ts:228` | Deterministic behind/above player frame for the demo breach, target and in-flight shell. Added to `CAMERA_POSE_NAMES`; `shot.sh combat` selects it. |
 | the player-team mode | `?mode=team` · `TeamSession` | `src/main.ts:89` · `src/game/teamSession.ts:101` | Team 0 is the input tank plus three AI squadmates, against three AI teams of four on `ARENA`; the seed rotates the team-to-corner assignment. `hash()` is the determinism witness; the stand-in and the demo both run through this same class. |
 | the player's controller | `PlayerInputController` | `src/game/teamSession.ts:67` | The ONE human→sim adapter: the existing `PlayerInput`/`commandFromInput` mapping behind the core's `Controller` seam. The player is one controller among the AI's; `src/core` has no `isPlayer`. |
 | the squad readout | `createHud()` squad rows | `src/entry/hud.ts:67` | One row per AI squadmate in slot order: character name, three HP pips, LIVE/KIA; the player's own block keeps the hull segments and reload ring. Team mode omits the duel target block; duel mode hides the squad. |
-| the team screenshot pose | `cameraPose('team', …)` | `src/render/cameraMath.ts:268` | A deterministic 12.5 m / 22° / 18° over-the-shoulder frame of the player and squad, selected by `shot.sh team`; the live follow arm stays the existing 8.2 m. |
+| the team screenshot pose | `cameraPose('team', …)` | `src/render/cameraMath.ts` | A deterministic 28 m / 34° / 18° staging frame of the player and squad, selected by `shot.sh team`; the live follow arm is 8.2 m and unchanged. The 12.5 m version put too many bright hull tiles in one screen band and failed the look-budget tile p90. |
 | the player-team stand-in | `runPlayerTeamBatch` | `src/game/playerBatch.ts:82` | The ONE way the player mode gets a win rate without a human: the vanguard `AIController` drives tank 0 through the real `TeamSession`, 100 seeds by default, writing `reports/player-batch.json`. Human skill is not measured. |
+| the player's aiming loop | `aimFollowYawDegrees` · `projectAimPoint` · `createAimHud()` | `src/render/aimProjection.ts` · `src/entry/hud.ts` · `src/main.ts` | The camera yaw follows the hull plus **0.55** of the turret's offset with a **0.11 s** half-life spring; the reticle is the projection of a point on the shell's path (nearest enemy in a 0.985 cone, else 40 m), and an off-screen aim clamps to the 0.9 NDC edge with a direction chevron. `fovDegrees` stays **50**. |
+| combat VFX | `createEffectsView()` | `src/render/effectsView.ts` | ONE additive particle view: muzzle flash, impact/hit sparks, cell-break shards, a regeneration grow-in cage and death bursts. Point sprites use a generated radial alpha texture; the shells draw a travelled-clamped trail. No VFX is a bright flat surface. |
+| the gun and muzzle | `PlaceholderTank` turret parts · `effects.muzzle` | `src/render/placeholderTank.ts` · `src/render/effectsView.ts` | The 2.15 m barrel ends in a hexagonal muzzle brake at the sim's 3 m muzzle, with a small ice bore ring; a shot spawns a lifted, soft muzzle flash at the shell origin. |
+| killer attribution and feed | `Tank.killedByTeamId` · `KillFeedTracker` · `describeKill` | `src/core/sim/match.ts` · `src/game/killFeed.ts` | The sim records the firing team on a shell kill (null for the clock); the game layer turns alive→dead transitions into labelled rows (SQUAD / YOU / TEAM n, cause). Presentation only — no gameplay rule. |
+| the damage vignette | `damageFlash` in `HudState` | `src/entry/hud.ts` · `src/main.ts` | The host decays a 0…1 flash when the player's HP drops; the HUD renders a radial edge glow, never a filled bright overlay. |
 | a low shoot-over barrier | `isLowCover(heightMetres)` · `LOW_COVER_MAX_HEIGHT_METRES` | `src/render/config.ts:193` | ONE predicate/height threshold distinguishes low cover from tall architecture in both the 3D edge hue (`worldMesh`) and the plan fill (`topPlan`); the A1 height model remains the collision authority. |
 | the spatial look budget | `tile_p90(luminance)` | `scripts/look-budget.py:97` | Splits a frame into 24×14 tiles, takes each tile median, and requires p90 ≤ 30.6 L (12 %); alongside the existing whole-frame gates. Proof injection reaches 255 L / 100 % and FAILS. |
-| the screenshot command | `scripts/shot.sh [pose] [detail] [out]` | `scripts/shot.sh:1` | Accepts `wide \| tank \| first \| combat \| top \| spectate \| team`; `combat` appends `&demo=duel&ticks=571`, `team` runs `?mode=team&demo=team` with `TEAM_SEED`/`TEAM_TICKS`/`TEAM_CAMERA_POSE`, `top` selects the plan, every run executes the look budget, and the trapped Chrome tree is reaped (`chrome processes after cleanup: 0`). |
+| the screenshot command | `scripts/shot.sh [pose] [detail] [out]` | `scripts/shot.sh:1` | Accepts `wide \| tank \| first \| combat \| top \| spectate \| team`; `combat` appends `&demo=duel&ticks=571`, `team` runs `?mode=team&demo=team` with `TEAM_SEED` (67) / `TEAM_TICKS` (480) / `TEAM_CAMERA_POSE` (`team`), `top` selects the plan, every run executes the look budget, and the trapped Chrome tree is reaped (`chrome processes after cleanup: 0`). |
 | a canonical core hash | `fnv1a(text)` | `src/core/fnv1a.ts:14` | The ONE FNV-1a implementation; both `hashState` (world) and `hashMatch` (combat) feed it. Do not copy the offset basis/prime into a third hasher. |
 | seeded randomness in the simulation | `createRng(seed)` | `src/core/rng.ts:35` | The ONLY draw source under `src/core`: integer-only mulberry32, so a seed reproduces its sequence on every engine. A source scan (`src/core/purity.test.ts`) fails the build on `Math.random`. |
 | building the world | `createWorld(spec)` | `src/core/world/state.ts:108` | Validates the spec loudly (integer dimensions, a height above the floor plane, no double placement) and builds the row-major grid. Level data fills the same shape. |
@@ -247,8 +252,9 @@ The HUD gains a squad panel in the Tron language: one row per squadmate with its
 character name, three HP pips and LIVE/KIA, while the player's block keeps the three hull
 segments and the reload ring; the victory/defeat banner is unchanged. `?mode=team&demo=team&ticks=600`
 pre-runs the stand-in and freezes; `shot.sh team` captures it with the deterministic
-`team` pose (12.5 m, 22° pitch, 18° yaw offset), because the live 8.2 m follow arm is too
-tight to read three squadmates beside the player. The frame passes the look budget:
+`team` pose (28 m, 34° pitch, 18° yaw offset; the live 8.2 m follow arm is too tight to
+read three squadmates and the 12.5 m pose failed the tile p90), because the screenshot
+is a staging frame, not the live camera. The frame passes the look budget:
 surface **11 L**, line p99 **187**, contrast **17.00**, tile p90 **22 L (8.6 %)**, void
 52.9 % (INFO).
 
@@ -260,12 +266,59 @@ a person's play. The mode is deterministic for a seed and the player's input (pi
 state hash), and the player is not given a different gun: the same reload, the same shell
 and the same damage.
 
-Two camera/aim limits are recorded rather than polished in P1: the follow camera looks
-along the hull, while the mouse can put the turret ±60° off it (the horizontal field of
-view is about ±39°), so at the extremes the player aims at a point they cannot see without
-a reticle; and the authored corner facing can point a human away from the arena centre
-until they turn. A full HUD/crosshair and a team-specific live camera are presentation
-work (P2), not a rules change.
+P1 recorded two camera/aim limits: the follow camera looked along the hull while the
+turret can sit ±60° off it, and the authored corner facing could point a human away from
+the arena. P2 addresses the reticle, the camera's partial aim follow and the spawn facing;
+the live follow arm stays 8.2 m and the screenshot's wider staging pose is separate.
+
+### P2 · The player's screen
+
+The aiming loop was the real gap: the turret can turn ±60° while the camera followed the
+hull, and the horizontal half-frame at 16:9 is **39.8°**, so a player could aim at a point
+they could not see. P2 keeps **`fovDegrees = 50`** — a lens wide enough to contain ±60°
+would be about 120° horizontal and distort the whole look — and turns the camera **0.55 of
+the way** towards the turret with a **0.11 s** half-life spring. At the ±60° limit the gun
+is then 27° off the camera axis, inside the frame; the remainder and the pitch cases are
+covered by a projected reticle and an edge chevron. The reticle is a point on the shell's
+path (the nearest enemy in a 0.985 cone, else 40 m), not the direction at infinity: the
+camera sits 8 m behind and 1.5 m above the muzzle, so projecting the direction instead of
+the point put the reticle above the target. The camera's yaw lag is the requested lag; its
+position spring and the live 8.2 m arm are unchanged.
+
+The HUD is now legible at 1080p: 44 px hull segments with a `3 / 3` label, a 56 px reload
+ring with the remaining seconds, three squad rows with names/pips/LIVE-KIA, and the
+existing banner. The panels are dark, inset 28 px, and clipped at one corner in the Tron
+language. A compact kill feed uses the sim's new killer attribution (`Tank.killedByTeamId`)
+and a damage vignette uses a radial edge flash on a player HP drop. The 12.5 m team
+screenshot pose failed the look-budget tile p90 with three separated hulls, so the `team`
+staging pose is now 28 m / 34°; the live player camera is still 8.2 m. Both frames pass:
+`team` surface 12 L, line p99 201, contrast 16.75, tile p90 30 L (11.8 %), void 42.4 %;
+`combat` surface 14 L, line p99 197, contrast 14.07, tile p90 30 L (11.8 %), void 33.6 %.
+
+The gun is attached: the 2.15 m barrel ends in a hexagonal muzzle brake at the sim's 3 m
+muzzle, and a shot spawns a lifted soft muzzle flash at the shell origin (a flash on the
+bore axis is hidden behind the brake from the follow camera). The combat VFX are one
+additive particle view — muzzle flash, impact/hit sparks, cell-break shards, an eight-slot
+regeneration grow-in cage and death bursts — plus a travelled-clamped shell trail. The
+effects use generated radial point sprites, not flat quads; the combat and team frames
+stay inside the look budget.
+
+Spawn facing now points the player's tank at the arena centre after the seeded corner
+rotation, so a human does not start looking at the corner wall. The rule is pinned for
+all four corners. The side effect is a new stand-in table (200 seeds): **26.0 %** player
+team wins, split 26 / 28.5 / 17.5 / 19.5, cap 8.5 %, median 3858 ticks. Team 2 is below
+the P1 20 % band; it is recorded as a side effect of the facing change, not tuned in a
+presentation slice. Human input is still untested; the edge chevron is pinned in the
+projection tests, not by a screenshot.
+
+What the brief gets wrong about aiming in a third-person tank camera: the turret and hull
+are independent, so the reticle cannot be a fixed centre; the camera looks at the tank,
+not along the bore, so a direction-at-infinity reticle has parallax; and the gun's pitch
+range (±30° down / +25° up) exceeds the camera's vertical half-frame (25°), so an
+edge indicator is required even when the horizontal follow is perfect. A reticle at a
+target's range also moves as targets approach, which is correct for a shell path but is
+not a mouse cursor; the input mapping remains hull-relative and is not what the reticle
+follows.
 
 ## 3 · Gotchas
 
@@ -492,11 +545,11 @@ work (P2), not a rules change.
   whole-frame gates. A white injection rectangle measured 255 L / 100 % and FAILED,
   proving the check catches a locally bright wall; the four final poses pass at 17–26 L.
   Thresholds are the gate; do not widen them to fit a frame.
-- **The HUD is DOM, not canvas.** `createHud()` owns the three-segment HP bars, reload
-  ring, the player-team squad rows and banner; colours come from
-  `PALETTE`/`teamColor`, and the element has `pointer-events: none`. There are no HTML
-  controls. It is still a minimal readout (P2/A5 owns the full interface and a reticle),
-  not a second UI system.
+- **The HUD is DOM, not canvas.** `createHud()` owns the hull/reload block, squad rows,
+  kill feed, target block, damage vignette and banner; `createAimHud()` owns the reticle
+  and edge chevron. Colours come from `PALETTE`/`teamColor`, and the elements have
+  `pointer-events: none`. There are no HTML controls. It is one readout module, not a
+  second UI system; A5 may add more panels but not another HUD seam.
 
 ## 4 · Known debt
 
@@ -559,8 +612,10 @@ work (P2), not a rules change.
   An AI match is deterministic-chaotic under a mirror, so the fairness fix is measured
   and its staging coordinates are pinned, not proven by an AI-level mirror.
 - **P1 removed the AI-only fire interval.** `RELOAD_TICKS` is 285 for the human, the AI
-  and the stand-in; a source scan keeps the old constant gone. What remains untested is
-  human skill (no browser input pin), the aim-off-screen limit above, and a full P2 HUD.
+  and the stand-in; a source scan keeps the old constant gone. P2 addresses the aiming
+  loop, HUD, muzzle and combat VFX. What remains untested is human skill (no browser
+  input pin), a still of the off-screen chevron or a break/death effect, and live-VFX
+  GPU frame rate. The 17.5 % team-2 stand-in result is recorded for a later fairness pass.
 - **Perception is sampled at 10 cm.** It uses `isSolidAt` and not the shell resolver;
   this is a sightline, not a guarantee that a shell clears low cover. The vanguard
   deliberately aims at the turret centre and does not plan a shoot-over arc.

@@ -6,7 +6,7 @@
 #   pose:   wide | tank | first | combat | top | spectate | team (default wide)
 #   detail: 0 … 1                        (default 0.3, the SURFACE_DETAIL default)
 #   output: default .gate-logs/shots/<pose>-detail-<detail>.png
-#   team env: TEAM_SEED (default 1), TEAM_TICKS (default 600), TEAM_CAMERA_POSE
+#   team env: TEAM_SEED (default 67), TEAM_TICKS (default 480), TEAM_CAMERA_POSE
 #             (default `team`; `first` shows the eye-level squad view)
 #
 # It builds the app, serves `dist` on 127.0.0.1, runs headless Chrome at 1920×1080
@@ -146,7 +146,7 @@ fi
 if [ "$POSE" = "team" ]; then
   # The team scenario always runs ?mode=team; TEAM_CAMERA_POSE picks the camera
   # framing (`team` by default, `first` for the eye-level squad view).
-  URL="http://127.0.0.1:$PORT/?mode=team&demo=team&seed=${TEAM_SEED:-1}&ticks=${TEAM_TICKS:-600}&pose=${TEAM_CAMERA_POSE:-team}&detail=$DETAIL"
+  URL="http://127.0.0.1:$PORT/?mode=team&demo=team&seed=${TEAM_SEED:-67}&ticks=${TEAM_TICKS:-480}&pose=${TEAM_CAMERA_POSE:-team}&detail=$DETAIL"
 else
   URL="http://127.0.0.1:$PORT/?pose=$POSE&detail=$DETAIL$DEMO_QUERY"
 fi

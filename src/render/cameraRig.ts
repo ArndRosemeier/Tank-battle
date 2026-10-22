@@ -135,7 +135,7 @@ export class CameraRig {
     const followBlend = springBlend(dtSeconds, CAMERA.followHalfLifeSeconds);
     this.currentFocus.lerp(this.targetFocus, followBlend);
 
-    const yawBlend = springBlend(dtSeconds, CAMERA.followHalfLifeSeconds);
+    const yawBlend = springBlend(dtSeconds, CAMERA.aimFollowHalfLifeSeconds);
     this.currentYawDegrees += shortestAngleDelta(this.currentYawDegrees, this.targetYawDegrees) * yawBlend;
 
     const zoomBlend = springBlend(dtSeconds, CAMERA.zoomHalfLifeSeconds);

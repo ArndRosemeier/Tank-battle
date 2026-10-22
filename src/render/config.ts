@@ -299,6 +299,8 @@ export const CAMERA = {
   firstPersonPitchDegrees: -7,
   /** Spring-arm focus smoothing, in half-lives per second. */
   followHalfLifeSeconds: 0.07,
+  /** The aim-follow yaw's lag: deliberately slower than the arm position spring. */
+  aimFollowHalfLifeSeconds: 0.11,
   /** How fast the arm itself follows a zoom, in half-lives per second. */
   zoomHalfLifeSeconds: 0.12,
   /**
@@ -309,6 +311,17 @@ export const CAMERA = {
    * composition work instead of a cropped foreground tank.
    */
   wideOffsetFractions: { x: 0.36, y: 0.56, z: 0.55 },
+  /**
+   * How much of the turret's hull-relative offset the player's camera follows. At the
+   * ±60° turret limit, 0.55 puts the gun 27° off the camera axis — inside the 39.8°
+   * horizontal half-frame at 16:9, so the aim stays visible without widening the lens.
+   */
+  aimFollowFraction: 0.55,
+  /** The reticle/edge indicator stays inside this fraction of the NDC frame. */
+  aimEdgeMargin: 0.9,
+  /** The reticle is projected at the nearest enemy in this cone, else this far ahead. */
+  aimTargetConeDot: 0.985,
+  aimFallbackRangeMetres: 40,
   /** The `combat` demo pose: behind/right of the player, looking down the corridor. */
   combatBackMetres: 8.0,
   combatSideMetres: 0,
@@ -316,11 +329,12 @@ export const CAMERA = {
   combatLookAheadMetres: 9.0,
   combatTargetHeightMetres: 1.0,
   /**
-   * The `team` screenshot pose: a pulled-back 3/4 frame of the player and the three
-   * squadmates. The live 8.2 m follow arm is too tight to read four hulls in one frame.
+   * The `team` screenshot pose: a pulled-back 3/4 frame of the player and the squad
+   * using the spectator arm's range. The live 8.2 m follow arm is too tight to read
+   * four hulls, and a 12.5 m frame put too many bright hull tiles in one screen band.
    */
-  teamPoseDistanceMetres: 12.5,
-  teamPosePitchDegrees: 22,
+  teamPoseDistanceMetres: 28,
+  teamPosePitchDegrees: 34,
   teamPoseYawOffsetDegrees: 18,
 } as const;
 
@@ -337,9 +351,9 @@ export const TANK = {
   turretWidthMetres: 1.4,
   turretHeightMetres: 0.46,
   turretLengthMetres: 1.2,
-  barrelLengthMetres: 1.4,
+  barrelLengthMetres: 2.15,
   /** The barrel tube and its muzzle brake. */
-  barrelDiameterMetres: 0.24,
+  barrelDiameterMetres: 0.3,
   muzzleDiameterMetres: 0.4,
   muzzleLengthMetres: 0.32,
   /** A small rest yaw so the gun reads from the follow pose. */

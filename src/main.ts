@@ -1,4 +1,4 @@
-import { Vector2 } from 'three';
+import { Vector2, Vector3 } from 'three';
 import {
   WebGLRenderer,
   Scene,
@@ -15,7 +15,7 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { requireElement } from './entry/dom.ts';
-import { createHud, type HudState } from './entry/hud.ts';
+import { createAimHud, createHud, type HudState } from './entry/hud.ts';
 import { CameraRig } from './render/cameraRig.ts';
 import {
   isCameraPoseName,
@@ -31,16 +31,26 @@ import {
   POST,
   SURFACE_DETAIL,
   TANK,
+  teamColor,
 } from './render/config.ts';
+import { aimFollowYawDegrees, projectAimPoint } from './render/aimProjection.ts';
 import { getSurfaceDetail, setSurfaceDetail } from './render/neonSurface.ts';
 import { createPlayableScene } from './render/playableScene.ts';
 import { createTopPlan, spawnMarkerColor, TOP_LEGEND_COLORS } from './render/topPlan.ts';
 import { measureScene } from './render/sceneStats.ts';
 import { createBrowserInput, type BrowserInput } from './game/browserInput.ts';
-import { RELOAD_TICKS, type MatchState } from './core/sim.ts';
+import {
+  MUZZLE_FORWARD_METRES,
+  MUZZLE_HEIGHT_METRES,
+  RELOAD_TICKS,
+  directionFromAim,
+  forwardFromYaw,
+  type MatchState,
+} from './core/sim.ts';
 import { ARENA, ARENA_BOUNDS } from './game/levels/arena.ts';
 import { PlayableSession, type TankRenderFrame } from './game/session.ts';
 import { SpectatorSession } from './game/spectator.ts';
+import { KillFeedTracker, describeKill, type KillFeedRow } from './game/killFeed.ts';
 import { TeamSession, createVanguardStandIn } from './game/teamSession.ts';
 
 /**
@@ -146,7 +156,7 @@ function readLaunchOptions(): LaunchOptions {
   }
 
   const ticksText = query.get('ticks');
-  let ticks: number | null = demo ? (mode === 'team' ? 600 : 571) : null;
+  let ticks: number | null = demo ? (mode === 'team' ? 480 : 571) : null;
   if (ticksText !== null) {
     ticks = Number(ticksText);
     if (!Number.isInteger(ticks) || ticks < 0 || ticks > 10000) {
@@ -327,6 +337,7 @@ function bootSpectate(launch: LaunchOptions): (nowMilliseconds: number) => void 
       scene.setTanks(frames);
       scene.setShells(spectator.state.shells);
       scene.syncWorld();
+      scene.updateEffects(spectator.frozenFrame ? 0 : frameSeconds);
       applyCamera();
 
       renderer.info.reset();
@@ -391,7 +402,10 @@ interface MatchView {
   readonly playerTankId: number;
   readonly floorY: number;
   readonly alpha: number;
+  readonly frozen: boolean;
   readonly player: TankRenderFrame;
+  /** Character names for kill-feed victims on the player's team; empty in duel mode. */
+  readonly feedNames: readonly string[];
   advance(frameSeconds: number): number;
   interpolatedTanks(alpha: number): readonly TankRenderFrame[];
 }
@@ -411,9 +425,13 @@ function playableMatchView(session: PlayableSession, input: BrowserInput): Match
     get alpha() {
       return session.alpha;
     },
+    get frozen() {
+      return session.demo;
+    },
     get player() {
       return session.player;
     },
+    feedNames: [],
     advance(frameSeconds: number): number {
       return session.advance(frameSeconds, input.read());
     },
@@ -487,6 +505,15 @@ function bootMatch(
     playerTankId: session.playerTankId,
     dummyTankId: launch.mode === 'play' ? 1 : undefined,
   });
+  const aimHud = createAimHud();
+  const killFeed = new KillFeedTracker();
+  let feedRows: KillFeedRow[] = killFeed
+    .prime(session.state)
+    .map((notice) => ({ ...describeKill(notice, session.feedNames), tick: notice.tick }))
+    .slice(0, 4);
+  let damageFlash = 0;
+  let lastPlayerHp = session.state.tanks[session.playerTankId]?.hp ?? 0;
+  const cameraDirection = new Vector3();
   const initialPlayer = session.player;
   const sceneStats = measureScene(scene.group);
   console.log(
@@ -525,7 +552,10 @@ function bootMatch(
     floorY: session.floorY,
     focus: {
       position: { x: initialPlayer.x, y: session.floorY, z: initialPlayer.z },
-      yawDegrees: initialPlayer.hullYawDegrees,
+      yawDegrees: aimFollowYawDegrees(
+        initialPlayer.hullYawDegrees,
+        initialPlayer.turretYawDegrees,
+      ),
     },
     pose: isTop ? null : rigPose,
   });
@@ -614,7 +644,14 @@ function bootMatch(
   }
 
   function updateHud(): void {
-    hud.update(hudState(lastFps));
+    const feed = feedRows.map((row) => ({
+      killerTeamId: row.killerTeamId,
+      killerLabel: row.killerLabel,
+      victimTeamId: row.victimTeamId,
+      victimLabel: row.victimLabel,
+      cause: row.cause,
+    }));
+    hud.update({ ...hudState(lastFps), feed, damageFlash });
   }
 
   function frame(nowMilliseconds: number): void {
@@ -636,6 +673,25 @@ function bootMatch(
         throw new Error('main: the interpolated player frame is missing');
       }
 
+      const playerState = session.state.tanks[session.playerTankId];
+      const playerHp = playerState?.hp ?? 0;
+      if (playerHp < lastPlayerHp) {
+        damageFlash = 1;
+      }
+      lastPlayerHp = playerHp;
+      damageFlash = Math.max(
+        0,
+        damageFlash - Math.min(Math.max(frameSeconds, 0), 0.12) * 2.6,
+      );
+      for (const notice of killFeed.update(session.state)) {
+        feedRows.unshift({
+          ...describeKill(notice, session.feedNames),
+          tick: notice.tick,
+        });
+      }
+      const feedTick = session.state.tick;
+      feedRows = feedRows.filter((row) => feedTick - row.tick <= 420).slice(0, 4);
+
       if (isTop) {
         scene.setPlayerHidden(true);
         scene.setTanks(frames);
@@ -644,10 +700,14 @@ function bootMatch(
         scene.setShells(session.state.shells);
         scene.syncWorld();
         scene.updateCamera(topCamera.position);
+        aimHud.update(null, window.innerWidth, window.innerHeight, PALETTE.debugText);
       } else {
         rig.setFocus({
           position: { x: playerFrame.x, y: session.floorY, z: playerFrame.z },
-          yawDegrees: playerFrame.hullYawDegrees,
+          yawDegrees: aimFollowYawDegrees(
+            playerFrame.hullYawDegrees,
+            playerFrame.turretYawDegrees,
+          ),
         });
         rig.update(frameSeconds);
         scene.setPlayerHidden(rig.firstPerson);
@@ -655,7 +715,66 @@ function bootMatch(
         scene.setShells(session.state.shells);
         scene.syncWorld();
         scene.updateCamera(rig.camera.position);
+
+        const camera = rig.camera;
+        camera.getWorldDirection(cameraDirection);
+        let aim = null;
+        if (playerFrame.alive) {
+          const aimDirection = directionFromAim(
+            playerFrame.turretYawDegrees,
+            playerFrame.aimPitchDegrees,
+          );
+          const forward = forwardFromYaw(playerFrame.turretYawDegrees);
+          const muzzleX = playerFrame.x + forward.x * MUZZLE_FORWARD_METRES;
+          const muzzleZ = playerFrame.z + forward.z * MUZZLE_FORWARD_METRES;
+          const muzzleY = session.floorY + MUZZLE_HEIGHT_METRES;
+          // Project a point ON the shell's path, not the direction at infinity: a
+          // camera 8 m behind and above the muzzle has real parallax, and a point at
+          // the target's range is what puts the reticle over the target.
+          let distance: number = CAMERA.aimFallbackRangeMetres;
+          for (const tank of session.state.tanks) {
+            if (!tank.alive || tank.teamId === playerFrame.teamId) continue;
+            const dx = tank.x - muzzleX;
+            const dz = tank.z - muzzleZ;
+            const length = Math.hypot(dx, dz);
+            if (length < 2) continue;
+            const dot = (dx * forward.x + dz * forward.z) / length;
+            if (dot >= CAMERA.aimTargetConeDot && length < distance) {
+              distance = length;
+            }
+          }
+          aim = projectAimPoint(
+            {
+              cameraPosition: {
+                x: camera.position.x,
+                y: camera.position.y,
+                z: camera.position.z,
+              },
+              cameraTarget: {
+                x: camera.position.x + cameraDirection.x,
+                y: camera.position.y + cameraDirection.y,
+                z: camera.position.z + cameraDirection.z,
+              },
+              cameraUp: { x: 0, y: 1, z: 0 },
+              fovDegrees: camera.fov,
+              aspect: camera.aspect,
+            },
+            {
+              x: muzzleX + aimDirection.x * distance,
+              y: muzzleY + aimDirection.y * distance,
+              z: muzzleZ + aimDirection.z * distance,
+            },
+          );
+        }
+        aimHud.update(
+          aim,
+          window.innerWidth,
+          window.innerHeight,
+          teamColor(playerFrame.teamId),
+        );
       }
+
+      scene.updateEffects(session.frozen ? 0 : frameSeconds);
 
       renderer.info.reset();
       composer.render();
@@ -750,7 +869,7 @@ function boot(): (nowMilliseconds: number) => void {
         })
       : new TeamSession({ seed: launch.seed, readInput: () => input.read() });
     if (launch.demo) {
-      session.runTicks(launch.ticks ?? 600);
+      session.runTicks(launch.ticks ?? 480);
     }
     return bootMatch(launch, session, (fps) => teamHudState(session, fps));
   }

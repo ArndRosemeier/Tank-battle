@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { idleTankCommand, type TankCommand } from '../core/sim.ts';
+import { idleTankCommand, normaliseDegrees, type TankCommand } from '../core/sim.ts';
 import { ScriptedController } from '../core/sim/controller.ts';
 import type { PlayerInput } from './input.ts';
+import { ARENA_BOUNDS } from './levels/arena.ts';
 import { TeamSession, createVanguardStandIn } from './teamSession.ts';
 
 function heldInput(): PlayerInput {
@@ -35,6 +36,25 @@ describe('the player team', () => {
       expect(team.tanks).toHaveLength(4);
     }
     expect(session.state.tanks.filter((tank) => tank.teamId !== 0)).toHaveLength(12);
+  });
+
+  it('points the player at the arena centre while the seeded corner rotation remains', () => {
+    const centres = new Set<string>();
+    for (const seed of [0, 1, 2, 3]) {
+      const session = new TeamSession({ seed });
+      const player = session.squad[0]!;
+      const centreX = (ARENA_BOUNDS.minX + ARENA_BOUNDS.maxX) / 2;
+      const centreZ = (ARENA_BOUNDS.minZ + ARENA_BOUNDS.maxZ) / 2;
+      const expected = normaliseDegrees(
+        (Math.atan2(-(centreX - player.x), -(centreZ - player.z)) * 180) / Math.PI,
+      );
+      expect(player.hullYawDegrees).toBeCloseTo(expected, 10);
+      expect(player.turretYawDegrees).toBeCloseTo(expected, 10);
+      expect(player.aimPitchDegrees).toBe(0);
+      // A corner spawn is preserved: the four seeds use four different pads.
+      centres.add(`${player.x.toFixed(1)},${player.z.toFixed(1)}`);
+    }
+    expect(centres.size).toBe(4);
   });
 
   it('is deterministic for a seed and a scripted player', () => {

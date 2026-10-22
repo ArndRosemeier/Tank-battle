@@ -87,6 +87,8 @@ export interface Tank {
   bleedTicksRemaining: number;
   deathCause: DeathCause | null;
   diedAtTick: number | null;
+  /** The team whose shell killed this tank; null for a clock death or a living tank. */
+  killedByTeamId: number | null;
 }
 
 /** A shell in flight. Its owner may be dead; the shell keeps flying. */
@@ -216,6 +218,7 @@ export function createMatch(input: CreateMatchInput): MatchState {
         bleedTicksRemaining: 0,
         deathCause: null,
         diedAtTick: null,
+        killedByTeamId: null,
       };
       tanks.push(tank);
       teamTanks.push(tank);
