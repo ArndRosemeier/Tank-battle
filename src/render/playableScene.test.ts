@@ -24,4 +24,22 @@ describe('playable scene revisions', () => {
       scene.dispose();
     }
   });
+
+  it('emits fire and reload presentation events for a newly spawned shell', () => {
+    const session = new PlayableSession({ demo: true });
+    session.runDemo(1);
+    const scene = createPlayableScene(session.state, {
+      playerTankId: session.playerTankId,
+      dummyTankId: session.dummyTankId,
+    });
+    try {
+      scene.setShells(session.state.shells);
+      const events = scene.takeEvents();
+      expect(events.some((event) => event.type === 'fire')).toBe(true);
+      expect(events.some((event) => event.type === 'reload')).toBe(true);
+      expect(scene.takeEvents()).toEqual([]);
+    } finally {
+      scene.dispose();
+    }
+  });
 });

@@ -77,7 +77,7 @@ export const PALETTE = {
  */
 export const NEON = {
   structureEdgeGain: 1.25,
-  teamEdgeGain: 3.2,
+  teamEdgeGain: 2.2,
   coreGain: 1.9,
   /** Hole rims are deliberately the hottest structural line: a mechanic must read. */
   holeRimGain: 2.2,
@@ -165,9 +165,9 @@ export function teamEdgeGainFor(index: number): number {
  * quality knob the performance budget is allowed to move — never correctness.
  */
 export const BLOOM = {
-  threshold: 0.6,
-  strength: 0.62,
-  radius: 0.4,
+  threshold: 0.65,
+  strength: 0.5,
+  radius: 0.32,
   resolutionScale: 1,
 } as const;
 

@@ -116,9 +116,15 @@ running headless in `node`.
 | the gun and muzzle | `PlaceholderTank` turret parts · `effects.muzzle` | `src/render/placeholderTank.ts` · `src/render/effectsView.ts` | The 2.15 m barrel ends in a hexagonal muzzle brake at the sim's 3 m muzzle, with a small ice bore ring; a shot spawns a lifted, soft muzzle flash at the shell origin. |
 | killer attribution and feed | `Tank.killedByTeamId` · `KillFeedTracker` · `describeKill` | `src/core/sim/match.ts` · `src/game/killFeed.ts` | The sim records the firing team on a shell kill (null for the clock); the game layer turns alive→dead transitions into labelled rows (SQUAD / YOU / TEAM n, cause). Presentation only — no gameplay rule. |
 | the damage vignette | `damageFlash` in `HudState` | `src/entry/hud.ts` · `src/main.ts` | The host decays a 0…1 flash when the player's HP drops; the HUD renders a radial edge glow, never a filled bright overlay. |
+| the hull's light | `NEON.teamEdgeGain` · `BLOOM` | `src/render/config.ts` | The close player hull is a DARK mass with thin trim: team edge HDR **2.2** (was 3.2) and bloom threshold **0.65** / strength **0.5** / radius **0.32** (was 0.6/0.62/0.4). The live 8.2 m `TEAM_CAMERA_POSE=tank` frame measures tile p90 **15 L (5.9 %)**; it was 75 L (29.4 %) before. Do not raise either without re-running the live pose. |
+| the audio seam | `AudioEngine` | `src/entry/audio.ts` | ONE Web Audio graph: master → music bus + SFX bus, two looping beds (`menu`, `combat`) with a 2 s crossfade, a **0.28×** pause duck, per-bus volumes, and one-shot SFX. `unlock()` must be called from a real gesture; it creates/resumes the context and loads `assets/manifest.json`. The generated clips are local; no CDN. |
+| the front door | `createScreens()` | `src/entry/screens.ts` · `index.html` | Title / settings / pause as DOM overlays in the HUD palette: Play / Team / Spectate / Settings, controls, credit, animated grid, drawn sliders (no HTML range inputs), reduced-motion switch and Back. The root URL opens the title; `?mode=…` still starts a match directly for screenshot/direct URLs. |
+| settings | `loadSettings()` · `saveSettings()` · `withSetting()` | `src/entry/settings.ts` | ONE persisted preference object (`tank-battle.settings.v1`): master/music/SFX volumes, quality (surface detail + bloom), mouse sensitivity, reduced motion. Invalid stored data is rejected and the documented defaults are used with a console warning; UI edits are range-validated. |
+| shipped assets | `assets/manifest.json` · build copy | `assets/` · `package.json` | Every shipped audio file is a manifest entry with sha256, bytes, model, prompt and date; every entry resolves to a file. `vite build` copies `assets/` into `dist/assets/`, so the served URLs are `assets/audio/…` and `assets/manifest.json`. |
+| presentation events | `PlayableScene.takeEvents()` | `src/render/playableScene.ts` | ONE queue of fire/reload/impact/hit/death/wall-break/regen events derived from state transitions; the host maps them to audio, and the VFX view remains the one consumer of its own particle spawns. |
 | a low shoot-over barrier | `isLowCover(heightMetres)` · `LOW_COVER_MAX_HEIGHT_METRES` | `src/render/config.ts:193` | ONE predicate/height threshold distinguishes low cover from tall architecture in both the 3D edge hue (`worldMesh`) and the plan fill (`topPlan`); the A1 height model remains the collision authority. |
 | the spatial look budget | `tile_p90(luminance)` | `scripts/look-budget.py:97` | Splits a frame into 24×14 tiles, takes each tile median, and requires p90 ≤ 30.6 L (12 %); alongside the existing whole-frame gates. Proof injection reaches 255 L / 100 % and FAILS. |
-| the screenshot command | `scripts/shot.sh [pose] [detail] [out]` | `scripts/shot.sh:1` | Accepts `wide \| tank \| first \| combat \| top \| spectate \| team`; `combat` appends `&demo=duel&ticks=571`, `team` runs `?mode=team&demo=team` with `TEAM_SEED` (67) / `TEAM_TICKS` (480) / `TEAM_CAMERA_POSE` (`team`), `top` selects the plan, every run executes the look budget, and the trapped Chrome tree is reaped (`chrome processes after cleanup: 0`). |
+| the screenshot command | `scripts/shot.sh [pose] [detail] [out]` | `scripts/shot.sh:1` | Accepts `wide \| tank \| first \| combat \| top \| spectate \| team \| title \| settings`; `combat` appends `&demo=duel&ticks=571`, `team` runs `?mode=team&demo=team` with `TEAM_SEED` (67) / `TEAM_TICKS` (480) / `TEAM_CAMERA_POSE` (`team`; use `tank` for the live 8.2 m arm), `title`/`settings` use `?mode=title&settings=0/1`, `top` selects the plan, every run executes the look budget, and the trapped Chrome tree is reaped (`chrome processes after cleanup: 0`). |
 | a canonical core hash | `fnv1a(text)` | `src/core/fnv1a.ts:14` | The ONE FNV-1a implementation; both `hashState` (world) and `hashMatch` (combat) feed it. Do not copy the offset basis/prime into a third hasher. |
 | seeded randomness in the simulation | `createRng(seed)` | `src/core/rng.ts:35` | The ONLY draw source under `src/core`: integer-only mulberry32, so a seed reproduces its sequence on every engine. A source scan (`src/core/purity.test.ts`) fails the build on `Math.random`. |
 | building the world | `createWorld(spec)` | `src/core/world/state.ts:108` | Validates the spec loudly (integer dimensions, a height above the floor plane, no double placement) and builds the row-major grid. Level data fills the same shape. |
@@ -319,6 +325,46 @@ edge indicator is required even when the horizontal follow is perfect. A reticle
 target's range also moves as targets approach, which is correct for a shell path but is
 not a mouse cursor; the input mapping remains hull-relative and is not what the reticle
 follows.
+
+### P3 · The front door, the score and the hull's light
+
+The live camera failed the look gate because the player's own hull at 8.2 m is a large
+bright object: `TEAM_CAMERA_POSE=tank` measured **75 L / 29.4 %** tile p90 against the
+30.6 L / 12 % bar while the 28 m staging pose passed. This was not line density (the
+owner's median filter moved it 75→74). The hull is now a dark mass with thin trim: team
+edge HDR **2.2** (was 3.2) and bloom **0.65 / 0.5 / 0.32** (was 0.6 / 0.62 / 0.4). The
+live pose measures **15 L (5.9 %)**, with surface median **8 L**, line p99 **203**,
+contrast **25.38**; the combat frame measures tile p90 **14 L (5.5 %)**. The hull's fill
+stays in the §9 band; the change is HDR/bloom, not a metric change. The screenshot gate is
+now accepted on the live arm, not a staging pose.
+
+The front door is a DOM shell over the HUD palette: an animated perspective grid, the
+wordmark, **Play / Team / Spectate / Settings**, the controls list and the credit.
+Settings are drawn sliders (no `<input type="range">`): master/music/SFX, quality
+(surface detail + bloom), mouse sensitivity and reduced motion, persisted per browser and
+applied live. Escape pauses the running match, dims it, ducks the music and offers
+Resume / Settings / Quit-to-title; the simulation does not advance while paused and
+resumes the same deterministic match. Quit reloads the title.
+
+The score is one Web Audio seam: master/music/SFX buses, `menu` and `combat` loops with a
+2 s crossfade, pause ducking, and SFX on real state transitions (fire, reload, hit, death,
+wall break, regeneration, UI click, victory/defeat). The event queue is
+`PlayableScene.takeEvents()`; audio does not read the simulation directly. The context is
+created/resumed only in a gesture: the title's first click. That is browser law, not a
+choice — the menu cannot be audible before a gesture; if the first click is Play, the menu
+loop is effectively skipped and combat starts after the asset load. Quit-to-title is a
+reload, so the title is silent again until the next click.
+
+The assets are local and provenance-pinned: 11 files under `assets/audio/` (the eight
+`audio-set` clips plus `cannon`, `wall-break`, `regen` from the v0 probe set), and
+`assets/manifest.json` carries path, sha256, bytes, kind, model, prompt and date.
+`assets.test.ts` fails a shipped file that is absent from the manifest and a manifest
+entry with no file. `vite build` copies `assets/` to `dist/assets/`, so the published URLs
+match the manifest paths.
+
+The owner's ear is the judge of whether the loops sit right; this slice can prove the
+files decode, the buses respond, and the context runs (`AudioContext.state = running`,
+11 clips loaded in the browser smoke), not that the music is good.
 
 ## 3 · Gotchas
 
@@ -551,6 +597,32 @@ follows.
   `pointer-events: none`. There are no HTML controls. It is one readout module, not a
   second UI system; A5 may add more panels but not another HUD seam.
 
+- **The title cannot be audible before a gesture.** Chrome/Safari autoplay law suspends an
+  `AudioContext` until a user gesture; the title's first click unlocks it. If that click is
+  Play, the menu loop is mostly the crossfade into combat; if it is Settings, the menu loop
+  is heard. Do not "fix" this by creating the context at load or by autoplaying — it will
+  be refused and it hides the law from the next reader.
+- **Quit-to-title is a reload.** The title after Quit is silent until the next click because
+  the old page's audio context is gone. A soft in-page quit would need a disposable game
+  screen; that is P4 work, not a reason to fake audio.
+- **The hull's light is now a gate item.** The live `tank` pose is the acceptance frame;
+  team edge HDR and bloom are tuned against it. Raising either restores the 75 L close-up
+  that failed three slices; re-run the live pose before changing them.
+- **Assets are bridged, not a `publicDir`.** Vite's `publicDir` would strip the `assets/`
+  prefix (it copies a public directory's CONTENTS to the root), so `vite.config.ts` has an
+  `assets-bridge` plugin: it serves `/assets/...` in dev and copies `assets/` to
+  `dist/assets/` in `closeBundle`. A new asset must be added to `assets/audio/` and
+  `assets/manifest.json`; `assets.test.ts` checks both directions.
+- **Screenshot `?detail=` overrides the quality setting.** A screenshot is a fixed look
+  target; the settings panel is for live play. Do not let a saved quality silently change
+  a screenshot's evidence.
+- **Pause stops ticks, not the renderer.** The canvas keeps rendering the frozen match so
+  the pause overlay has a dimmed frame behind it; `session.advance` is what is skipped.
+  Resume must not reset the session or the hash.
+- **The owner's ear judges the score.** The engine can prove decode, buses, crossfade and
+  context state; it cannot prove the loops sit right. Report the file mapping, not a taste
+  claim.
+
 ## 4 · Known debt
 
 - **A4/B1a is still not the full game.** The app is a single playable duel on the
@@ -643,8 +715,9 @@ follows.
   neutral/shared, so a cheap saturation mask measures trim, not hull. The hull-surface
   band is held by the shared albedo + `srgbLuma` pin and manual patch checks; the trim
   diagnostic is not gated.
-- **No publish script.** Publishing is deliberate once there is something to play
-  (board row 2); `TANK_BATTLE_BASE` already carries the subpath for it.
+- **The publish script exists; P3 is not republished yet.** `scripts/publish.sh` builds
+  the subpath and verifies the live bytes by content; P2 is live, and P3's assets/audio
+  are in the build but the host has not been refreshed for this landing.
 - **No real-browser *test*; the look budget is a screenshot script.** The suite runs in
   `node` against pure modules; `scripts/shot.sh` owns the headless-browser process
   tree and runs `scripts/look-budget.py` on the PNG, but that is a measurement command,
@@ -654,3 +727,18 @@ follows.
 - **The A2 showcase and gateway arches remain fixtures.** They are budget/review
   fixtures, not the app's level; A4 uses `ARENA` and the real A1 world, and the
   gateway arches are still presentation-only outside the final collision story.
+- **P3 audio is verified by state, not by ear.** The browser smoke proves
+  `AudioContext.state = running`, 11 clips decoded, the pause tick freeze and resume; it
+  cannot prove the menu/combat loops sit right or the SFX balance is good. The owner's
+  ear is the remaining judge. Safari/Firefox and touch are unmeasured.
+- **Three SFX come from the v0 probe set, not the owner's audio-set list.**
+  `cannon.mp3`, `wall-break.mp3` and `regen.mp3` have their own prompts and manifest
+  entries; the eight audio-set files are unchanged. The owner can veto any of them.
+- **The live-pose hull is now very dark** (tile p90 15 L, surface median 8 L). It passes
+  the reference's dark-mass/thin-trim reading, but the owner may want a middle ground;
+  changing it must re-run the live pose.
+- **Quality variants are not look-gated.** The settings quality slider changes
+  `SURFACE_DETAIL` and bloom strength live; only the default 0.3 frame was measured.
+- **The title/pause/settings screens are DOM overlays with no Vitest pin.** The CDP smoke
+  (`node .gate-logs/p3-cdp-smoke2.mjs`) is a local artifact, not part of the suite; the
+  gate still has no trusted-click/browser test.

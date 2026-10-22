@@ -16,6 +16,9 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { requireElement } from './entry/dom.ts';
 import { createAimHud, createHud, type HudState } from './entry/hud.ts';
+import { AudioEngine } from './entry/audio.ts';
+import { createScreens, type Screens } from './entry/screens.ts';
+import { loadSettings, saveSettings, type GameSettings } from './entry/settings.ts';
 import { CameraRig } from './render/cameraRig.ts';
 import {
   isCameraPoseName,
@@ -35,10 +38,10 @@ import {
 } from './render/config.ts';
 import { aimFollowYawDegrees, projectAimPoint } from './render/aimProjection.ts';
 import { getSurfaceDetail, setSurfaceDetail } from './render/neonSurface.ts';
-import { createPlayableScene } from './render/playableScene.ts';
+import { createPlayableScene, type SceneEvent } from './render/playableScene.ts';
 import { createTopPlan, spawnMarkerColor, TOP_LEGEND_COLORS } from './render/topPlan.ts';
 import { measureScene } from './render/sceneStats.ts';
-import { createBrowserInput, type BrowserInput } from './game/browserInput.ts';
+import { createBrowserInput } from './game/browserInput.ts';
 import {
   MUZZLE_FORWARD_METRES,
   MUZZLE_HEIGHT_METRES,
@@ -51,6 +54,7 @@ import { ARENA, ARENA_BOUNDS } from './game/levels/arena.ts';
 import { PlayableSession, type TankRenderFrame } from './game/session.ts';
 import { SpectatorSession } from './game/spectator.ts';
 import { KillFeedTracker, describeKill, type KillFeedRow } from './game/killFeed.ts';
+import { scalePlayerInput, type PlayerInput } from './game/input.ts';
 import { TeamSession, createVanguardStandIn } from './game/teamSession.ts';
 
 /**
@@ -81,7 +85,7 @@ window.addEventListener('error', (event) => reportError(event.error ?? event.mes
 window.addEventListener('unhandledrejection', (event) => reportError(event.reason));
 
 type RenderPoseName = CameraPoseName | 'top' | 'spectate';
-type LaunchMode = 'play' | 'team' | 'spectate';
+type LaunchMode = 'play' | 'team' | 'spectate' | 'title';
 
 interface LaunchOptions {
   readonly mode: LaunchMode;
@@ -93,20 +97,38 @@ interface LaunchOptions {
   readonly teams: number;
   readonly tanksPerTeam: number;
   readonly seed: number;
+  /** `?settings=1` on the title screen opens the settings panel. */
+  readonly settings: boolean;
 }
 
-/** `?mode=team&demo=team&ticks=600`, `?detail=…&pose=…&demo=duel&ticks=571` or `?mode=spectate&…`. Unknown values fail visibly. */
+/** `?mode=title`, `?detail=…&pose=…&demo=duel&ticks=571` or `?mode=spectate&…`. Unknown values fail visibly. */
 function readLaunchOptions(): LaunchOptions {
   const query = new URLSearchParams(window.location.search);
+  const hasGameParameter = ['pose', 'demo', 'ticks', 'teams', 'tanksPerTeam', 'seed'].some((key) =>
+    query.has(key),
+  );
 
   const modeText = query.get('mode');
-  let mode: LaunchMode = 'play';
+  let mode: LaunchMode = hasGameParameter ? 'play' : 'title';
   if (modeText !== null) {
-    if (modeText !== 'spectate' && modeText !== 'team') {
-      throw new Error(`launch: unknown ?mode "${modeText}" — expected play, team or spectate`);
+    if (modeText !== 'play' && modeText !== 'team' && modeText !== 'spectate' && modeText !== 'title') {
+      throw new Error(
+        `launch: unknown ?mode "${modeText}" — expected play, team, spectate or title`,
+      );
     }
     mode = modeText;
   }
+
+  const settingsText = query.get('settings');
+  if (settingsText !== null) {
+    if (settingsText !== '1') {
+      throw new Error(`launch: ?settings must be 1, got "${settingsText}"`);
+    }
+    if (mode !== 'title') {
+      throw new Error('launch: ?settings is only valid on the title screen (?mode=title)');
+    }
+  }
+  const settings = settingsText === '1';
 
   const detailText = query.get('detail');
   let detail: number | null = null;
@@ -120,6 +142,9 @@ function readLaunchOptions(): LaunchOptions {
   const poseText = query.get('pose');
   let pose: RenderPoseName | null = null;
   if (poseText !== null) {
+    if (mode === 'title') {
+      throw new Error('launch: the title screen takes no ?pose; start a match first');
+    }
     if (poseText === 'top' && mode === 'play') {
       pose = 'top';
     } else if (poseText === 'spectate' && mode === 'spectate') {
@@ -144,6 +169,9 @@ function readLaunchOptions(): LaunchOptions {
   const demoText = query.get('demo');
   const demo = demoText !== null;
   if (demo) {
+    if (mode === 'title') {
+      throw new Error('launch: the title screen takes no ?demo');
+    }
     if (mode === 'play' && demoText !== 'duel') {
       throw new Error(`launch: ?demo="${demoText}" is only valid as ?demo=duel in play mode`);
     }
@@ -158,6 +186,9 @@ function readLaunchOptions(): LaunchOptions {
   const ticksText = query.get('ticks');
   let ticks: number | null = demo ? (mode === 'team' ? 480 : 571) : null;
   if (ticksText !== null) {
+    if (mode === 'title') {
+      throw new Error('launch: the title screen takes no ?ticks');
+    }
     ticks = Number(ticksText);
     if (!Number.isInteger(ticks) || ticks < 0 || ticks > 10000) {
       throw new Error(`launch: ?ticks must be an integer within 0…10000, got "${ticksText}"`);
@@ -168,6 +199,9 @@ function readLaunchOptions(): LaunchOptions {
   }
 
   const teamsText = query.get('teams');
+  if (mode === 'title' && (teamsText !== null || query.get('tanksPerTeam') !== null)) {
+    throw new Error('launch: the title screen takes no ?teams/?tanksPerTeam');
+  }
   if (mode === 'team' && (teamsText !== null || query.get('tanksPerTeam') !== null)) {
     throw new Error(
       'launch: ?teams/?tanksPerTeam are spectator-only; team mode is the player plus three squadmates against three teams of four',
@@ -190,7 +224,7 @@ function readLaunchOptions(): LaunchOptions {
     throw new Error(`launch: ?seed must be a non-negative integer, got "${seedText ?? seed}"`);
   }
 
-  return { mode, detail, pose, demo, ticks, teams, tanksPerTeam, seed };
+  return { mode, detail, pose, demo, ticks, teams, tanksPerTeam, seed, settings };
 }
 
 const VIGNETTE_SHADER = {
@@ -222,7 +256,7 @@ const VIGNETTE_SHADER = {
 };
 
 /** The all-AI spectator entry: no HUD, no player input, director camera. */
-function bootSpectate(launch: LaunchOptions): (nowMilliseconds: number) => void {
+function bootSpectate(launch: LaunchOptions, audio: AudioEngine): (nowMilliseconds: number) => void {
   document.body.style.background = PALETTE.background;
   const spectator = new SpectatorSession({
     teams: launch.teams,
@@ -275,6 +309,14 @@ function bootSpectate(launch: LaunchOptions): (nowMilliseconds: number) => void 
   composer.addPass(bloomPass);
   composer.addPass(new ShaderPass(VIGNETTE_SHADER));
   composer.addPass(new OutputPass());
+
+  activeQuality = (settings) => {
+    if (launch.detail === null) setSurfaceDetail(settings.quality);
+    bloomPass.strength = BLOOM.strength * (0.7 + settings.quality);
+    scene.setEffectsEnabled(!settings.reducedMotion);
+  };
+  activeQuality(currentSettings);
+  if (audio.isUnlocked) audio.playMusic('combat');
 
   const hud = requireElement('hud', HTMLElement, 'hud');
   hud.style.display = 'none';
@@ -330,14 +372,19 @@ function bootSpectate(launch: LaunchOptions): (nowMilliseconds: number) => void 
       const frameSeconds = nowSeconds - lastSeconds;
       lastSeconds = nowSeconds;
 
-      if (!spectator.frozenFrame) {
+      if (!spectator.frozenFrame && !paused) {
         spectator.advance(frameSeconds);
       }
       const frames = spectator.interpolatedTanks(spectator.alpha);
       scene.setTanks(frames);
       scene.setShells(spectator.state.shells);
       scene.syncWorld();
-      scene.updateEffects(spectator.frozenFrame ? 0 : frameSeconds);
+      for (const event of scene.takeEvents()) {
+        if (event.type === 'wall-break') audio.playSfx('wall-break', 0.22);
+        else if (event.type === 'regen') audio.playSfx('regen', 0.18);
+        else if (event.type === 'death') audio.playSfx('death', 0.3);
+      }
+      scene.updateEffects(paused || spectator.frozenFrame ? 0 : frameSeconds);
       applyCamera();
 
       renderer.info.reset();
@@ -388,6 +435,12 @@ function bootSpectate(launch: LaunchOptions): (nowMilliseconds: number) => void 
     auto: () => spectator.autoDirector,
     shot: () => spectator.directorShot(),
     sceneStats: () => sceneStats,
+    audio: () => ({
+      unlocked: audio.isUnlocked,
+      clips: audio.loadedClipCount,
+      state: audio.contextState,
+      paused,
+    }),
   };
   (window as Window & { __TANK_BATTLE__?: typeof debugApi }).__TANK_BATTLE__ = debugApi;
 
@@ -410,8 +463,8 @@ interface MatchView {
   interpolatedTanks(alpha: number): readonly TankRenderFrame[];
 }
 
-/** Binds the browser input source to the playable session's per-tick advance. */
-function playableMatchView(session: PlayableSession, input: BrowserInput): MatchView {
+/** Binds the sensitivity-scaled input source to the playable session's advance. */
+function playableMatchView(session: PlayableSession, readInput: () => PlayerInput): MatchView {
   return {
     get state() {
       return session.state;
@@ -433,7 +486,7 @@ function playableMatchView(session: PlayableSession, input: BrowserInput): Match
     },
     feedNames: [],
     advance(frameSeconds: number): number {
-      return session.advance(frameSeconds, input.read());
+      return session.advance(frameSeconds, readInput());
     },
     interpolatedTanks(alpha: number): readonly TankRenderFrame[] {
       return session.interpolatedTanks(alpha);
@@ -491,6 +544,76 @@ function teamHudState(session: TeamSession, fps: number): HudState {
   };
 }
 
+/** The single app shell state shared by the title, pause, settings and the match. */
+let currentSettings = loadSettings();
+let audioEngine: AudioEngine | null = null;
+let screensUi: Screens | null = null;
+let gameStarted = false;
+let paused = false;
+let activeQuality: ((settings: GameSettings) => void) | null = null;
+
+function applySettings(settings: GameSettings): void {
+  currentSettings = settings;
+  saveSettings(settings);
+  audioEngine?.setVolumes({
+    master: settings.master,
+    music: settings.music,
+    sfx: settings.sfx,
+  });
+  document.body.classList.toggle('reduced-motion', settings.reducedMotion);
+  if (!gameStarted) setSurfaceDetail(settings.quality);
+  activeQuality?.(settings);
+}
+
+/** Must be called from a user gesture; the browser will not start audio otherwise. */
+function ensureAudio(track: 'menu' | 'combat'): void {
+  const audio = audioEngine;
+  if (!audio) return;
+  if (!audio.isUnlocked) {
+    audio.unlock();
+    screensUi?.setSoundUnlocked(true);
+  }
+  audio.playMusic(track);
+}
+
+function pauseMatch(): void {
+  if (!gameStarted || paused || screensUi?.isSettingsOpen()) return;
+  paused = true;
+  audioEngine?.setDucked(true);
+  screensUi?.showPause();
+}
+
+function resumeMatch(): void {
+  if (!gameStarted) return;
+  paused = false;
+  screensUi?.hideAll();
+  audioEngine?.setDucked(false);
+}
+
+function startGame(mode: 'play' | 'team' | 'spectate'): void {
+  if (gameStarted) return;
+  gameStarted = true;
+  screensUi?.hideAll();
+  document.body.classList.remove('title-mode');
+  ensureAudio('combat');
+  window.history.replaceState(null, '', `?mode=${mode}`);
+  const launch: LaunchOptions = {
+    mode,
+    detail: null,
+    pose: null,
+    demo: false,
+    ticks: null,
+    teams: 4,
+    tanksPerTeam: 4,
+    seed: 1,
+    settings: false,
+  };
+  const audio = audioEngine;
+  if (!audio) throw new Error('main: audio engine is missing');
+  const frame = bootGame(launch, audio);
+  requestAnimationFrame(frame);
+}
+
 /**
  * The ONE scene/render/loop path for both playable modes. The session supplies the
  * current match, the player's tank and per-frame ticks; this function owns the
@@ -500,6 +623,7 @@ function bootMatch(
   launch: LaunchOptions,
   session: MatchView,
   hudState: (fps: number) => HudState,
+  audio: AudioEngine,
 ): (nowMilliseconds: number) => void {
   const scene = createPlayableScene(session.state, {
     playerTankId: session.playerTankId,
@@ -513,6 +637,9 @@ function bootMatch(
     .slice(0, 4);
   let damageFlash = 0;
   let lastPlayerHp = session.state.tanks[session.playerTankId]?.hp ?? 0;
+  let endAnnounced = false;
+  let lastBreakTick = -999;
+  let lastRegenTick = -999;
   const cameraDirection = new Vector3();
   const initialPlayer = session.player;
   const sceneStats = measureScene(scene.group);
@@ -583,6 +710,14 @@ function bootMatch(
   composer.addPass(new ShaderPass(VIGNETTE_SHADER));
   composer.addPass(new OutputPass());
 
+  activeQuality = (settings) => {
+    if (launch.detail === null) setSurfaceDetail(settings.quality);
+    bloomPass.strength = BLOOM.strength * (0.7 + settings.quality);
+    scene.setEffectsEnabled(!settings.reducedMotion);
+  };
+  activeQuality(currentSettings);
+  if (audio.isUnlocked) audio.playMusic('combat');
+
   const hud = createHud();
   const hudRoot = requireElement('hud', HTMLElement, 'hud');
   const topLegend = requireElement('top-legend', HTMLElement, 'top legend');
@@ -643,6 +778,46 @@ function bootMatch(
     );
   }
 
+  function playEvent(event: SceneEvent): void {
+    const player = session.state.tanks[session.playerTankId];
+    const playerTeam = player?.teamId ?? 0;
+    const near = (x: number, z: number): number =>
+      player === undefined ? Number.POSITIVE_INFINITY : Math.hypot(x - player.x, z - player.z);
+    switch (event.type) {
+      case 'fire': {
+        if (event.tankId === session.playerTankId) audio.playSfx('cannon', 0.9);
+        else if (event.teamId === playerTeam) audio.playSfx('cannon', 0.45);
+        else if (near(event.x, event.z) < 20) audio.playSfx('cannon', 0.25);
+        break;
+      }
+      case 'reload':
+        if (event.tankId === session.playerTankId) audio.playSfx('reload', 0.55);
+        break;
+      case 'hit':
+        if (event.teamId === playerTeam) audio.playSfx('hit', 1);
+        else if (near(event.x, event.z) < 20) audio.playSfx('hit', 0.45);
+        break;
+      case 'death':
+        if (event.teamId === playerTeam) audio.playSfx('death', 1);
+        else if (near(event.x, event.z) < 24) audio.playSfx('death', 0.5);
+        break;
+      case 'wall-break':
+        if (session.state.tick - lastBreakTick >= 6) {
+          lastBreakTick = session.state.tick;
+          audio.playSfx('wall-break', 0.5);
+        }
+        break;
+      case 'regen':
+        if (session.state.tick - lastRegenTick >= 30) {
+          lastRegenTick = session.state.tick;
+          audio.playSfx('regen', 0.3);
+        }
+        break;
+      case 'impact':
+        break;
+    }
+  }
+
   function updateHud(): void {
     const feed = feedRows.map((row) => ({
       killerTeamId: row.killerTeamId,
@@ -664,7 +839,9 @@ function bootMatch(
       const frameSeconds = nowSeconds - lastSeconds;
       lastSeconds = nowSeconds;
 
-      session.advance(frameSeconds);
+      if (!paused) {
+        session.advance(frameSeconds);
+      }
 
       const alpha = session.alpha;
       const frames = session.interpolatedTanks(alpha);
@@ -774,7 +951,16 @@ function bootMatch(
         );
       }
 
-      scene.updateEffects(session.frozen ? 0 : frameSeconds);
+      for (const event of scene.takeEvents()) {
+        playEvent(event);
+      }
+      if (!endAnnounced && session.state.status === 'ended') {
+        endAnnounced = true;
+        const playerTeam = session.state.tanks[session.playerTankId]?.teamId ?? 0;
+        if (session.state.winnerTeamId === playerTeam) audio.playSfx('victory', 0.9);
+        else if (session.state.winnerTeamId !== null) audio.playSfx('defeat', 0.9);
+      }
+      scene.updateEffects(paused || session.frozen ? 0 : frameSeconds);
 
       renderer.info.reset();
       composer.render();
@@ -839,6 +1025,12 @@ function bootMatch(
     winnerTeam: () => session.state.winnerTeamId,
     outcome: () => session.state.outcome,
     sceneStats: () => sceneStats,
+    audio: () => ({
+      unlocked: audio.isUnlocked,
+      clips: audio.loadedClipCount,
+      state: audio.contextState,
+      paused,
+    }),
   };
   (window as Window & { __TANK_BATTLE__?: typeof debugApi }).__TANK_BATTLE__ = debugApi;
 
@@ -847,17 +1039,16 @@ function bootMatch(
   return frame;
 }
 
-function boot(): (nowMilliseconds: number) => void {
-  const launch = readLaunchOptions();
+function bootGame(launch: LaunchOptions, audio: AudioEngine): (nowMilliseconds: number) => void {
   if (launch.mode === 'spectate') {
-    return bootSpectate(launch);
+    return bootSpectate(launch, audio);
   }
-  if (launch.detail !== null) {
-    setSurfaceDetail(launch.detail);
-  }
+  setSurfaceDetail(launch.detail ?? currentSettings.quality);
   document.body.style.background = PALETTE.background;
 
   const input = createBrowserInput(canvas);
+  const readInput = (): PlayerInput =>
+    scalePlayerInput(input.read(), currentSettings.mouseSensitivity);
 
   // The demo is frozen BEFORE the scene/camera is built, so the screenshot pose sees
   // the final deterministic state, not an intermediate tick.
@@ -867,26 +1058,78 @@ function boot(): (nowMilliseconds: number) => void {
           seed: launch.seed,
           playerController: createVanguardStandIn(launch.seed),
         })
-      : new TeamSession({ seed: launch.seed, readInput: () => input.read() });
+      : new TeamSession({ seed: launch.seed, readInput });
     if (launch.demo) {
       session.runTicks(launch.ticks ?? 480);
     }
-    return bootMatch(launch, session, (fps) => teamHudState(session, fps));
+    return bootMatch(launch, session, (fps) => teamHudState(session, fps), audio);
   }
 
   const session = new PlayableSession({ demo: launch.demo });
   if (launch.demo) {
     session.runDemo(launch.ticks ?? 571);
   }
-  return bootMatch(launch, playableMatchView(session, input), (fps) => playHudState(session, fps));
+  return bootMatch(launch, playableMatchView(session, readInput), (fps) => playHudState(session, fps), audio);
 }
 
 /** Measured from the render geometry constants: hull width / 2. */
 const TANK_HALF_WIDTH_METRES = TANK.hullWidthMetres / 2;
 
 try {
-  const frame = boot();
-  requestAnimationFrame(frame);
+  const launch = readLaunchOptions();
+  currentSettings = loadSettings();
+  audioEngine = new AudioEngine({
+    onError: reportError,
+    volumes: {
+      master: currentSettings.master,
+      music: currentSettings.music,
+      sfx: currentSettings.sfx,
+    },
+  });
+  screensUi = createScreens(currentSettings, {
+    onPlay: () => startGame('play'),
+    onTeam: () => startGame('team'),
+    onSpectate: () => startGame('spectate'),
+    onResume: resumeMatch,
+    onQuit: () => window.location.assign('?mode=title'),
+    onGesture: () => {
+      ensureAudio('menu');
+      audioEngine?.playSfx('ui-click', 0.7);
+    },
+    onSettingsChange: (next) => applySettings(next),
+    onSettingsOpened: (origin) => {
+      if (origin === 'pause') audioEngine?.setDucked(true);
+    },
+    onSettingsClosed: (origin) => {
+      if (origin === 'title') audioEngine?.setDucked(false);
+    },
+  });
+  applySettings(currentSettings);
+
+  if (launch.mode === 'title') {
+    gameStarted = false;
+    document.body.classList.add('title-mode');
+    screensUi.showTitle();
+    if (launch.settings) screensUi.showSettings('title');
+  } else {
+    screensUi.hideAll();
+    gameStarted = true;
+    const audio = audioEngine;
+    const frame = bootGame(launch, audio);
+    requestAnimationFrame(frame);
+    const unlock = (): void => {
+      ensureAudio('combat');
+    };
+    canvas.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
+  }
+
+  window.addEventListener('keydown', (event) => {
+    if (event.code !== 'Escape' || !gameStarted) return;
+    if (screensUi?.isSettingsOpen()) return;
+    if (paused) resumeMatch();
+    else pauseMatch();
+  });
 } catch (cause) {
   reportError(cause);
 }

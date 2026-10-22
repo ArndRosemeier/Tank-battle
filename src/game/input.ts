@@ -35,6 +35,20 @@ export interface PlayerInput {
   readonly fire: boolean;
 }
 
+/** Scales the pointer aim by a user setting, clamped to the frame. */
+export function scalePlayerInput(input: PlayerInput, sensitivity: number): PlayerInput {
+  requireFinite(input.pointerX, 'pointerX');
+  requireFinite(input.pointerY, 'pointerY');
+  if (!Number.isFinite(sensitivity) || sensitivity <= 0 || sensitivity > 4) {
+    throw new Error(`sim.input: sensitivity must be finite and within 0…4, got ${String(sensitivity)}`);
+  }
+  return {
+    ...input,
+    pointerX: clampUnit(input.pointerX * sensitivity),
+    pointerY: clampUnit(input.pointerY * sensitivity),
+  };
+}
+
 export function idlePlayerInput(): PlayerInput {
   return {
     forward: false,

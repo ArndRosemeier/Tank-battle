@@ -7,6 +7,7 @@ import {
   AIM_YAW_OFFSET_MAX_DEGREES,
   commandFromInput,
   idlePlayerInput,
+  scalePlayerInput,
   type PlayerInput,
 } from './input.ts';
 
@@ -50,5 +51,14 @@ describe('the pure input mapping', () => {
     expect(() => commandFromInput(input({ pointerY: Number.POSITIVE_INFINITY }), 0)).toThrow(
       /pointerY/,
     );
+  });
+
+  it('scales the pointer aim by the user sensitivity and clamps it', () => {
+    const scaled = scalePlayerInput(input({ pointerX: 0.5, pointerY: -0.25 }), 2);
+    expect(scaled.pointerX).toBe(1);
+    expect(scaled.pointerY).toBe(-0.5);
+    expect(scalePlayerInput(input({ pointerX: 0.3 }), 0.5).pointerX).toBeCloseTo(0.15, 10);
+    expect(() => scalePlayerInput(input(), 0)).toThrow(/sensitivity/);
+    expect(() => scalePlayerInput(input(), Number.NaN)).toThrow(/sensitivity/);
   });
 });

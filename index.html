@@ -189,6 +189,269 @@
         white-space: nowrap;
         text-shadow: 0 0 14px currentColor;
       }
+      /* ---- the front door: title / settings / pause (P3) ---- */
+      .screen {
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #8ff4ff;
+        font-family: inherit;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        background: rgba(1, 6, 9, 0.92);
+        overflow: hidden;
+      }
+      .screen[hidden] { display: none; }
+      #title-screen {
+        background-color: #010306;
+        background-image:
+          linear-gradient(rgba(0, 229, 255, 0.2) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(0, 229, 255, 0.14) 1px, transparent 1px);
+        background-size: 120px 120px, 120px 120px;
+      }
+      #title-grid {
+        position: absolute;
+        inset: -20% -20% -35%;
+        background-image:
+          linear-gradient(rgba(0, 229, 255, 0.46) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(0, 229, 255, 0.34) 1px, transparent 1px);
+        background-size: 72px 72px, 72px 72px;
+        transform: perspective(520px) rotateX(58deg);
+        transform-origin: 50% 100%;
+        animation: grid-drift 18s linear infinite;
+        opacity: 0.9;
+        pointer-events: none;
+      }
+      #title-screen::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(ellipse at 50% 42%, rgba(0, 229, 255, 0.1), transparent 52%),
+          linear-gradient(180deg, rgba(1, 3, 6, 0.82) 0%, rgba(1, 3, 6, 0.1) 38%, rgba(1, 3, 6, 0.78) 100%);
+        pointer-events: none;
+      }
+      @keyframes grid-drift {
+        from { background-position: 0 0, 0 0; }
+        to { background-position: 0 64px, 64px 0; }
+      }
+      #title-horizon {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 76%;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, rgba(234, 255, 255, 0.95) 22%, #00e5ff 50%, rgba(234, 255, 255, 0.95) 78%, transparent);
+        box-shadow: 0 0 18px rgba(0, 229, 255, 0.85), 0 0 4px rgba(234, 255, 255, 0.8);
+        opacity: 0.9;
+        z-index: 0;
+      }
+      .title-frame {
+        position: relative;
+        z-index: 1;
+        width: min(980px, calc(100vw - 64px));
+        display: grid;
+        gap: 18px;
+        justify-items: start;
+      }
+      .screen-eyebrow {
+        color: #45d8ef;
+        opacity: 0.75;
+        font-size: 11px;
+        letter-spacing: 0.34em;
+      }
+      .wordmark {
+        margin: 0;
+        font-size: clamp(56px, 9vw, 128px);
+        line-height: 0.9;
+        font-weight: 300;
+        letter-spacing: 0.06em;
+        color: #eaffff;
+        text-shadow: 0 0 30px rgba(0, 229, 255, 0.65), 0 0 3px #eaffff;
+        display: flex;
+        gap: 0.18em;
+        flex-wrap: wrap;
+      }
+      .wordmark span {
+        color: #00e5ff;
+        text-shadow: 0 0 30px rgba(0, 229, 255, 0.7);
+      }
+      .tagline {
+        margin: -6px 0 8px;
+        color: #8ff4ff;
+        opacity: 0.6;
+        font-size: 12px;
+        letter-spacing: 0.4em;
+      }
+      .title-menu {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(240px, 1fr));
+        gap: 10px;
+        width: min(640px, 100%);
+      }
+      .tron-button {
+        appearance: none;
+        border: 1px solid rgba(0, 229, 255, 0.55);
+        border-left: 2px solid #00e5ff;
+        background: linear-gradient(90deg, rgba(0, 229, 255, 0.12), rgba(0, 0, 0, 0.55));
+        color: #c8fbff;
+        font: inherit;
+        font-size: 14px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        padding: 14px 18px;
+        text-align: left;
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+        cursor: pointer;
+        clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
+        transition: background 120ms linear, color 120ms linear, border-color 120ms linear;
+        text-shadow: 0 0 8px rgba(0, 229, 255, 0.45);
+      }
+      .tron-button span {
+        color: #45d8ef;
+        opacity: 0.7;
+        font-size: 10px;
+        letter-spacing: 0.18em;
+      }
+      .tron-button:hover,
+      .tron-button:focus-visible {
+        background: linear-gradient(90deg, rgba(0, 229, 255, 0.32), rgba(0, 0, 0, 0.45));
+        border-color: #8ff4ff;
+        color: #ffffff;
+        outline: none;
+      }
+      .tron-button:active { background: rgba(0, 229, 255, 0.42); }
+      .title-meta {
+        display: grid;
+        gap: 7px;
+        margin-top: 8px;
+        padding-top: 14px;
+        border-top: 1px solid rgba(0, 229, 255, 0.28);
+        font-size: 10px;
+        color: #8ff4ff;
+        opacity: 0.72;
+        letter-spacing: 0.16em;
+      }
+      #title-audio-hint { color: #ffb347; opacity: 0.9; }
+      #settings-screen::before, #pause-screen::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 50%;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, rgba(143, 244, 255, 0.65), #00e5ff, rgba(143, 244, 255, 0.65), transparent);
+        box-shadow: 0 0 16px rgba(0, 229, 255, 0.55);
+        opacity: 0.55;
+      }
+      #settings-screen {
+        background-color: rgba(1, 6, 9, 0.94);
+        background-image:
+          linear-gradient(rgba(143, 244, 255, 0.82) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(143, 244, 255, 0.82) 1px, transparent 1px),
+          radial-gradient(ellipse at 50% 40%, rgba(0, 229, 255, 0.1), transparent 62%);
+        background-size: 120px 120px, 120px 120px, auto;
+      }
+      #pause-screen {
+        background:
+          radial-gradient(ellipse at 50% 42%, rgba(0, 229, 255, 0.06), transparent 62%),
+          rgba(1, 6, 9, 0.58);
+        backdrop-filter: blur(1.5px);
+      }
+      body.title-mode #app { visibility: hidden; }
+      .screen-panel {
+        position: relative;
+        z-index: 1;
+        width: min(840px, calc(100vw - 64px));
+        padding: 34px 40px;
+        display: grid;
+        gap: 22px;
+        border: 1px solid rgba(143, 244, 255, 0.3);
+        border-left: 2px solid #00e5ff;
+        background: rgba(2, 10, 14, 0.92);
+        clip-path: polygon(0 0, calc(100% - 22px) 0, 100% 22px, 100% 100%, 0 100%);
+        box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.7), 0 0 60px rgba(0, 229, 255, 0.08);
+      }
+      .screen-panel h2 {
+        margin: -6px 0 2px;
+        font-size: 46px;
+        font-weight: 300;
+        letter-spacing: 0.32em;
+        color: #eaffff;
+      }
+      .setting-row {
+        display: grid;
+        grid-template-columns: 190px 1fr 74px;
+        align-items: center;
+        gap: 18px;
+        font-size: 14px;
+        color: #c8fbff;
+      }
+      .setting-label { opacity: 0.8; letter-spacing: 0.18em; }
+      .setting-value { text-align: right; font-size: 14px; color: #8ff4ff; opacity: 0.9; }
+      .slider {
+        position: relative;
+        height: 34px;
+        cursor: pointer;
+        outline: none;
+        touch-action: none;
+      }
+      .slider-track {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 15px;
+        height: 4px;
+        background: rgba(143, 244, 255, 0.18);
+      }
+      .slider-fill {
+        position: absolute;
+        left: 0;
+        top: 15px;
+        height: 4px;
+        width: 50%;
+        background: #00e5ff;
+        box-shadow: 0 0 8px rgba(0, 229, 255, 0.7);
+      }
+      .slider-knob {
+        position: absolute;
+        top: 5px;
+        left: 50%;
+        width: 16px;
+        height: 23px;
+        margin-left: -8px;
+        background: #010306;
+        border: 1px solid #8ff4ff;
+        box-shadow: 0 0 9px rgba(0, 229, 255, 0.8);
+      }
+      .slider:focus-visible .slider-knob { border-color: #eaffff; box-shadow: 0 0 12px #00e5ff; }
+      .settings-toggle {
+        appearance: none;
+        border: 1px solid rgba(0, 229, 255, 0.5);
+        background: rgba(0, 0, 0, 0.35);
+        color: #8ff4ff;
+        font: inherit;
+        font-size: 11px;
+        letter-spacing: 0.2em;
+        padding: 7px 12px;
+        cursor: pointer;
+      }
+      .settings-toggle.on { background: rgba(0, 229, 255, 0.28); color: #ffffff; border-color: #8ff4ff; }
+      .screen-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+      .screen-actions .tron-button { min-width: 180px; flex: 1; }
+      .pause-panel { text-align: center; justify-items: center; width: min(460px, calc(100vw - 64px)); }
+      .pause-panel .tron-button { width: 100%; }
+      body.reduced-motion #title-grid { animation: none; }
+      @media (max-width: 640px) {
+        .title-menu { grid-template-columns: 1fr; }
+        .setting-row { grid-template-columns: 108px 1fr 46px; gap: 9px; }
+      }
     </style>
   </head>
   <body>
@@ -252,6 +515,73 @@
       <div class="legend-row">SPAWN ZONES <span id="top-swatches"></span></div>
     </div>
     <div id="error" role="alert"></div>
+    <div id="title-screen" class="screen">
+      <div id="title-grid" aria-hidden="true"></div>
+      <div id="title-horizon" aria-hidden="true"></div>
+      <div class="title-frame">
+        <div class="screen-eyebrow">FOURFOLD CRUCIBLE // NEON ARMOUR</div>
+        <h1 class="wordmark">TANK <span>BATTLE</span></h1>
+        <div class="tagline">LAST TEAM STANDING</div>
+        <div class="title-menu">
+          <button id="title-play" class="tron-button" type="button">PLAY <span>1 V 1</span></button>
+          <button id="title-team" class="tron-button" type="button">TEAM <span>4 V 4</span></button>
+          <button id="title-spectate" class="tron-button" type="button">SPECTATE <span>ALL AI</span></button>
+          <button id="title-settings" class="tron-button" type="button">SETTINGS <span>SYSTEM</span></button>
+        </div>
+        <div class="title-meta">
+          <div>WASD DRIVE · MOUSE AIM · SPACE FIRE · ESC PAUSE · L DETAIL</div>
+          <div>BUILT BY TANK BATTLE DEV · AUDIO: LYRIA 3 + SEED AUDIO 1.0 · 2026</div>
+          <div id="title-audio-hint">CLICK TO ENABLE SOUND</div>
+        </div>
+      </div>
+    </div>
+    <div id="settings-screen" class="screen" hidden>
+      <div class="screen-panel">
+        <div class="screen-eyebrow">SYSTEM // PREFERENCES</div>
+        <h2>SETTINGS</h2>
+        <div class="setting-row">
+          <span class="setting-label">MASTER</span>
+          <div class="slider" data-setting="master" role="slider" tabindex="0" aria-label="Master volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="80"><div class="slider-track"></div><div class="slider-fill"></div><div class="slider-knob"></div></div>
+          <span class="setting-value" data-value="master">80</span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">MUSIC</span>
+          <div class="slider" data-setting="music" role="slider" tabindex="0" aria-label="Music volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="65"><div class="slider-track"></div><div class="slider-fill"></div><div class="slider-knob"></div></div>
+          <span class="setting-value" data-value="music">65</span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">SFX</span>
+          <div class="slider" data-setting="sfx" role="slider" tabindex="0" aria-label="Sound effects volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="80"><div class="slider-track"></div><div class="slider-fill"></div><div class="slider-knob"></div></div>
+          <span class="setting-value" data-value="sfx">80</span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">QUALITY</span>
+          <div class="slider" data-setting="quality" role="slider" tabindex="0" aria-label="Quality" aria-valuemin="0" aria-valuemax="100" aria-valuenow="30"><div class="slider-track"></div><div class="slider-fill"></div><div class="slider-knob"></div></div>
+          <span class="setting-value" data-value="quality">30</span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">SENSITIVITY</span>
+          <div class="slider" data-setting="mouseSensitivity" role="slider" tabindex="0" aria-label="Mouse sensitivity" aria-valuemin="20" aria-valuemax="200" aria-valuenow="100"><div class="slider-track"></div><div class="slider-fill"></div><div class="slider-knob"></div></div>
+          <span class="setting-value" data-value="mouseSensitivity">1.00×</span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">REDUCED MOTION</span>
+          <button id="settings-motion" class="settings-toggle" type="button" role="switch" aria-checked="false">OFF</button>
+        </div>
+        <div class="screen-actions"><button id="settings-back" class="tron-button" type="button">BACK</button></div>
+      </div>
+    </div>
+    <div id="pause-screen" class="screen" hidden>
+      <div class="screen-panel pause-panel">
+        <div class="screen-eyebrow">MATCH SUSPENDED</div>
+        <h2>PAUSED</h2>
+        <div class="screen-actions">
+          <button id="pause-resume" class="tron-button" type="button">RESUME</button>
+          <button id="pause-settings" class="tron-button" type="button">SETTINGS</button>
+          <button id="pause-quit" class="tron-button" type="button">QUIT TO TITLE</button>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

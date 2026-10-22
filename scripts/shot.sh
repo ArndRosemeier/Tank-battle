@@ -3,7 +3,7 @@
 # shot.sh — THE one screenshot command for Tank Battle.
 #
 #   bash scripts/shot.sh [pose] [detail] [output.png]
-#   pose:   wide | tank | first | combat | top | spectate | team (default wide)
+#   pose:   wide | tank | first | combat | top | spectate | team | title | settings (default wide)
 #   detail: 0 … 1                        (default 0.3, the SURFACE_DETAIL default)
 #   output: default .gate-logs/shots/<pose>-detail-<detail>.png
 #   team env: TEAM_SEED (default 67), TEAM_TICKS (default 480), TEAM_CAMERA_POSE
@@ -42,9 +42,9 @@ case "$OUT_ABS" in
 esac
 
 case "$POSE" in
-  wide | tank | first | combat | top | spectate | team) ;;
+  wide | tank | first | combat | top | spectate | team | title | settings) ;;
   *)
-    echo "shot: unknown pose '$POSE' — expected wide, tank, first, combat, top, spectate or team" >&2
+    echo "shot: unknown pose '$POSE' — expected wide, tank, first, combat, top, spectate, team, title or settings" >&2
     exit 2
     ;;
 esac
@@ -145,8 +145,12 @@ elif [ "$POSE" = "spectate" ]; then
 fi
 if [ "$POSE" = "team" ]; then
   # The team scenario always runs ?mode=team; TEAM_CAMERA_POSE picks the camera
-  # framing (`team` by default, `first` for the eye-level squad view).
+  # framing (`team` by default, `tank` for the live 8.2 m arm).
   URL="http://127.0.0.1:$PORT/?mode=team&demo=team&seed=${TEAM_SEED:-67}&ticks=${TEAM_TICKS:-480}&pose=${TEAM_CAMERA_POSE:-team}&detail=$DETAIL"
+elif [ "$POSE" = "title" ]; then
+  URL="http://127.0.0.1:$PORT/?mode=title&detail=$DETAIL"
+elif [ "$POSE" = "settings" ]; then
+  URL="http://127.0.0.1:$PORT/?mode=title&settings=1&detail=$DETAIL"
 else
   URL="http://127.0.0.1:$PORT/?pose=$POSE&detail=$DETAIL$DEMO_QUERY"
 fi

@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "generated": "2026-10-22",
+  "source": "OpenRouter creative key; ByteDance Seed Audio 1.0 for SFX, Google Lyria 3 Pro Preview for music",
+  "entries": [
+    {
+      "path": "assets/audio/menu.mp3",
+      "sha256": "eab02e6b7119be3f68fe492e8e221b36038abf3ac7a15d81f3e615354da2b0a7",
+      "bytes": 2001673,
+      "kind": "music",
+      "model": "google/lyria-3-pro-preview",
+      "prompt": "Instrumental only, no vocals: a 75-second looping MENU theme for a Tron-style neon arena. Slow and wide, cold glassy synth pads, a deep sub pulse, sparse arpeggios entering after 8 seconds, restrained percussion after 16 seconds, no big climax, ending that loops cleanly to the start.",
+      "date": "2026-10-22"
+    },
+    {
+      "path": "assets/audio/combat.mp3",
+      "sha256": "c9a7e3e00a41ad5a73b779be537eae809fe319b49aac26cc42bffe7ed4db6d61",
+      "bytes": 2206055,
+      "kind": "music",
+      "model": "google/lyria-3-pro-preview",
+      "prompt": "Instrumental only, no vocals: a 90-second looping COMBAT theme for a neon tank arena at 130 BPM. Driving analog bass ostinato, tight electronic percussion, a cold lead motif, a breakdown around 45 seconds, then rebuild, ends cleanly for a seamless loop.",
+      "date": "2026-10-22"
+    },
+    {
+      "path": "assets/audio/death.mp3",
+      "sha256": "33e222263495680698d120e8c982f001feba846b2d3a88775844fc94d0f743d0",
+      "bytes": 137552,
+      "kind": "sfx",
+      "model": "bytedance-seed/seed-audio-1-0",
+      "prompt": "The sound of a tank exploding into digital shards: a deep concussive boom with an electric crack and a long shard-fall tail, no music, no voice.",
+      "date": "2026-10-22"
+    },
+    {
+      "path": "assets/audio/hit.mp3",
+      "sha256": "6b2d8f7564b4b74a0aec5c614a5697aaf0835fd0b77c92d5c4a4f338602c8786",
+      "bytes": 57304,
+      "kind": "sfx",
+      "model": "bytedance-seed/seed-audio-1-0",
+      "prompt": "The sound of an energy shell striking a tank hull: a sharp metallic clang with a short electronic sizzle, very short, no music, no voice.",
+      "date": "2026-10-22"
+    },
+    {
+      "path": "assets/audio/reload.mp3",
+      "sha256": "f26eddce5ee0223e45603ff91951fb7b915562b34bec2a35d1a5cd9edcb61b28",
+      "bytes": 129611,
+      "kind": "sfx",
+      "model": "bytedance-seed/seed-audio-1-0",
+      "prompt": "The sound of an energy cannon recharging: a rising electrical whine that locks with a solid clunk at the end, no music, no voice.",
+      "date": "2026-10-22"
+    },
+    {
+      "path": "assets/audio/ui-click.mp3",
+      "sha256": "1514cb191a0309ac261b7a0487385bac3a088b387ec6b61b55d8e02b968b46bb",
+      "bytes": 11328,
+      "kind": "sfx",
+      "model": "bytedance-seed/seed-audio-1-0",
+      "prompt": "The sound of a Tron interface control being pressed: a short bright electronic chirp with a tiny echo, no music, no voice.",
+      "date": "2026-10-22"
+    },
+    {
+      "path": "assets/audio/victory.mp3",
+      "sha256": "d528d1b1e4c25f435837bebbf2a81ccdb1303aa9ab397ee0d15b2c9e60ca93a9",
+      "bytes": 49363,
+      "kind": "sfx",
+      "model": "bytedance-seed/seed-audio-1-0",
+      "prompt": "The sound of a short victory sting in a Tron arena: a rising synthetic chord with shimmer, three seconds, no voice.",
+      "date": "2026-10-22"
+    },
+    {
+      "path": "assets/audio/defeat.mp3",
+      "sha256": "1093145cb6089a8e1e08885211b7b1419d014ff561e2a10e2f349b74f483c711",
+      "bytes": 49363,
+      "kind": "sfx",
+      "model": "bytedance-seed/seed-audio-1-0",
+      "prompt": "The sound of a short defeat sting in a Tron arena: a descending detuned synthetic tone with a low electric rumble, three seconds, no voice.",
+      "date": "2026-10-22"
+    },
+    {
+      "path": "assets/audio/cannon.mp3",
+      "sha256": "1e8116394b01981b1a62f32739b5510d2be1a3b266719b49d4a25efa0c265ac4",
+      "bytes": 61902,
+      "kind": "sfx",
+      "model": "bytedance-seed/seed-audio-1-0",
+      "prompt": "The sound of a heavy energy cannon firing in a cavernous neon arena: a deep electric thump with crackling discharge and a short metallic tail, no music, no voice.",
+      "date": "2026-10-22"
+    },
+    {
+      "path": "assets/audio/wall-break.mp3",
+      "sha256": "b720fed5149c8a7009e0db689d390787839e0adbaef877b9dffaaf5c673679cb",
+      "bytes": 73604,
+      "kind": "sfx",
+      "model": "bytedance-seed/seed-audio-1-0",
+      "prompt": "The sound of a glowing wall panel shattering into metallic shards: sharp electronic glass crack, tumbling debris, short tail, no music, no voice.",
+      "date": "2026-10-22"
+    },
+    {
+      "path": "assets/audio/regen.mp3",
+      "sha256": "d371e0e39cd0d4353b6b9f0b0daa782790697e69b8b70b4d6b66aeccfa8e5330",
+      "bytes": 137552,
+      "kind": "sfx",
+      "model": "bytedance-seed/seed-audio-1-0",
+      "prompt": "The sound of an energy grid regenerating: rising electrical hum with a glassy shimmer and a soft locking pulse at the end, no music, no voice.",
+      "date": "2026-10-22"
+    }
+  ]
+}

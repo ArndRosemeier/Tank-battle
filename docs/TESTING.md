@@ -138,7 +138,12 @@ never "it passed".
 | The team pose is a deterministic pulled-back frame | `a camera pose reproduces the same position and target for the same inputs` (team case) | `src/render/cameraMath.test.ts` | collapse the team pose to the 8.2 m follow arm or make it non-deterministic → the horizontal-distance/equality assertions red |
 | The spectator camera is a wider arm and rejects an out-of-range distance | `frames the spectator action from a wider arm and rejects an out-of-range distance` | `src/render/cameraMath.test.ts` | clamp spectator distance to the player's 16 m arm, or drop the range check → the pose/throw assertion reds |
 
-The A3a block (20 rows), the A3b block (7 rows) and the A3c block (11 rows) are direct assertions; A4 adds seven level-validation pins; B1a adds the two A4 gap pins and eleven AI pins; B1b adds the scripted mirror pin; B1c adds the staging-symmetry pin; B2 adds the eager-profile, destruction-attribution, team-staging, team-batch, spectator and spectator-camera pins; B3 adds the body-aware arena connectivity pin and the batch-attribution arm; B4 adds the turn-order purity/rank/team-array pins; P1 adds the one-reload source/cadence pins, the player-team composition/determinism/teammate-immunity pins and the pulled-back team pose; P2 adds the six aim/reticle pins, the spawn-facing pin, the killer/clock attribution pin and the kill-feed label pin (**127/127 tests in 29 files**). **No mutation differential was run for A3a/A3b/A3c/A4/B1a/B1b/B1c/B2/B3/B4/P1/P2**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
+| Every shipped audio file is in the manifest | `every audio file is in the manifest with a matching sha256 and provenance` | `src/render/assets.test.ts` | add an unlisted `.mp3`, change a byte without updating the sha, or strip a prompt → the file/entry assertions red |
+| Every manifest entry has a file | `every manifest entry resolves to a file` | `src/render/assets.test.ts` | delete or move `assets/audio/win.mp3` while its entry remains → `statSync` reds |
+| Settings round-trip and reject malformed data | `round-trips a valid settings object` · `rejects a malformed stored value…` · `rejects out-of-range values…` | `src/entry/settings.test.ts` | stop validating master/quality/sensitivity, or return a silent clamp → the throw/fallback assertions red |
+| Pointer sensitivity scales and clamps the aim | `scales the pointer aim by the user sensitivity and clamps it` | `src/game/input.test.ts` | ignore sensitivity, or let the scaled pointer exceed ±1 → the 1/-0.5/0.15 assertions red |
+| A new shell emits fire and reload presentation events | `emits fire and reload presentation events for a newly spawned shell` | `src/render/playableScene.test.ts` | drop the event queue or skip the muzzle-distance gate → the fire/reload assertions red |
+The A3a block (20 rows), the A3b block (7 rows) and the A3c block (11 rows) are direct assertions; A4 adds seven level-validation pins; B1a adds the two A4 gap pins and eleven AI pins; B1b adds the scripted mirror pin; B1c adds the staging-symmetry pin; B2 adds the eager-profile, destruction-attribution, team-staging, team-batch, spectator and spectator-camera pins; B3 adds the body-aware arena connectivity pin and the batch-attribution arm; B4 adds the turn-order purity/rank/team-array pins; P1 adds the one-reload source/cadence pins, the player-team composition/determinism/teammate-immunity pins and the pulled-back team pose; P2 adds the six aim/reticle pins, the spawn-facing pin, the killer/clock attribution pin and the kill-feed label pin; P3 adds the two-way asset-manifest pins, the settings validation/round-trip pin, the pointer-sensitivity pin and the presentation-event pin (**134/134 tests in 31 files**). **No mutation differential was run for A3a/A3b/A3c/A4/B1a/B1b/B1c/B2/B3/B4/P1/P2/P3**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
 
 The differential harness is a local artifact at `.gate-logs/differential.py` (row 26)
 and `.gate-logs/differential.sh` (row 0) — both gitignored; the mutations are described
@@ -1227,6 +1232,80 @@ only in trim lines and small lights. The team-trim diagnostic on `wide` is orang
   off-screen chevron (the projection/edge math is pinned, the DOM is not), live-VFX GPU
   frame rate, a still of the damage vignette or a break/death effect, the 4-team AI
   mirror, or a mutation differential for P2.
+
+### row 63 — Slice P3 (the front door, the score, the hull's light)
+
+- **Gate:** `bash scripts/gate.sh` → exit **0**, **134/134 tests in 31 files** (vitest
+  5.0.5). Raw log `.gate-logs/gate.log`.
+- **The live hull now passes the look gate.** `TEAM_CAMERA_POSE=tank` (8.2 m, the arm the
+  player actually uses) was **75 L / 29.4 %** tile p90; it is **15 L / 5.9 %** after team
+  edge HDR **3.2 → 2.2** and bloom **0.6/0.62/0.4 → 0.65/0.5/0.32** (threshold/strength/
+  radius). The hull reads as a dark mass with thin trim; the fill stayed in the §9 band.
+  This is accepted on the **live** pose, not a staging pose. The look table (1920×1080):
+
+  | gate | live `tank` | combat | title | settings |
+  | --- | ---: | ---: | ---: | ---: |
+  | void | 55.6 % | 58.2 % | 58.2 % | 0.2 % |
+  | surface median | **8 L (3.1 %)** | 10 L (3.9 %) | 9 L (3.5 %) | 7 L (2.7 %) |
+  | mid-band | 3.9 % | 2.5 % | 3.3 % | 1.0 % |
+  | line p99 | **203** | 191 | 163 | 177 |
+  | contrast | 25.38 | 19.10 | 18.11 | 25.29 |
+  | tile p90 | **15 L (5.9 %)** | 14 L (5.5 %) | 13 L (5.1 %) | 10 L (3.9 %) |
+  | verdict | PASS | PASS | PASS | PASS |
+
+  Raw frames `.gate-logs/shots/live-tank.png`, `combat.png`, `title.png`, `settings.png`.
+- **Assets with provenance:** 11 local clips under `assets/audio/` — the eight
+  `audio-set` files plus `cannon`, `wall-break` and `regen` from the v0 probe set — and
+  `assets/manifest.json` carries path, sha256, bytes, kind, model, prompt and date for
+  every one. The eight audio-set files are unchanged; the three v0 files are additional
+  and vetoable. Models: `google/lyria-3-pro-preview` for menu/combat,
+  `bytedance-seed/seed-audio-1-0` for the nine SFX. Pins: a shipped file without an entry,
+  and an entry without a file, both fail. `vite build` copies `assets/` to `dist/assets/`
+  (Vite's `publicDir` would strip the prefix), so the served URLs match the manifest.
+- **Audio seam:** one `AudioEngine` with master/music/SFX buses, a 2 s crossfade between
+  the looping `menu` and `combat` beds, a 0.28× pause duck, per-bus volumes and one-shot
+  SFX. The context is created/resumed in a gesture; the title's first click is the
+  unlock. The browser smoke loaded **11/11 clips**, `AudioContext.state = running`, no
+  error banner.
+- **SFX mapping (the owner's ear judges the assets; this is what fires where):**
+
+  | event | clip | condition |
+  | --- | --- | --- |
+  | fire | `cannon.mp3` | player 0.9; squad 0.45; enemy within 20 m 0.25 |
+  | reload start | `reload.mp3` | player only, 0.55 |
+  | hit | `hit.mp3` | player's team 1.0; nearby 0.45 |
+  | death / kill | `death.mp3` | player's team 1.0; nearby 0.5 |
+  | wall break | `wall-break.mp3` | 0.5, at most one per 6 ticks |
+  | regeneration | `regen.mp3` | 0.3, at most one per 30 ticks |
+  | UI click | `ui-click.mp3` | every screen button/slider gesture, 0.7 |
+  | victory / defeat | `victory.mp3` / `defeat.mp3` | match end, 0.9; a draw is silent |
+  | music | `menu.mp3` / `combat.mp3` | menu after the first title click; combat on match start; 2 s crossfade |
+
+- **Title/settings:** title has the wordmark, Play / Team / Spectate / Settings, controls,
+  credit and an animated perspective grid; settings has drawn sliders for master, music,
+  SFX, quality (surface detail + bloom), mouse sensitivity and a reduced-motion switch,
+  with Back. The settings persist in `tank-battle.settings.v1`; the default quality is 0.3,
+  the default sensitivity 1.00×. No `<input type="range">` exists.
+- **Pause:** Escape pauses, dims the live frame, ducks the music and shows Resume /
+  Settings / Quit-to-title. The CDP smoke held ticks at **114 → 114** over ~0.9 s, opened
+  settings and returned to pause, then resumed to **172** ticks; Chrome processes after
+  cleanup **0**. Quit reloads `?mode=title`.
+- **Browser smoke (local artifact):** `node .gate-logs/p3-cdp-smoke2.mjs` → title visible;
+  Play starts mode `play`; 11 clips; pause/resume; no error. The suite still has no
+  trusted-click browser pin.
+- **Autoplay limitation (reported, not worked around):** no audio can play before a real
+  gesture. The title is silent on load; the first click unlocks. If that click is Play,
+  the menu loop is effectively skipped and combat starts after the asset load; if it is
+  Settings, the menu is heard. Quit-to-title reloads, so the title is silent again until
+  the next click. A soft in-page quit would need a disposable game screen.
+- **Unchanged:** the simulation (no rules, spawns, reload or AI changes); the 4×4/stand-in
+  tables are not re-run because P3 changes only presentation. Human input, Safari/Firefox/
+  touch and the owner's ear on the loops remain untested. Quality variants other than the
+  default 0.3 were not look-gated. P3 is not republished yet.
+- **Rejected:** accepting the look on a staging pose; changing the look-budget metric or
+  median-filtering the tile map; HTML range inputs; creating the AudioContext at page load
+  (browser-refused); a CDN for the audio; a second audio/SFX module; keeping the bright
+  hull and arguing from the 28 m frame.
 
 ## Honest records
 

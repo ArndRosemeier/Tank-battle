@@ -19,6 +19,16 @@ import {
 import { createWorldMesh, type WorldMesh } from './worldMesh.ts';
 import type { TankRenderFrame } from '../game/session.ts';
 
+/** A presentation event for the audio seam; positions are world metres. */
+export type SceneEvent =
+  | { readonly type: 'fire'; readonly tankId: number; readonly teamId: number; readonly x: number; readonly y: number; readonly z: number }
+  | { readonly type: 'reload'; readonly tankId: number; readonly teamId: number }
+  | { readonly type: 'impact'; readonly teamId: number; readonly x: number; readonly y: number; readonly z: number }
+  | { readonly type: 'hit'; readonly tankId: number; readonly teamId: number; readonly x: number; readonly y: number; readonly z: number }
+  | { readonly type: 'death'; readonly tankId: number; readonly teamId: number; readonly x: number; readonly y: number; readonly z: number }
+  | { readonly type: 'wall-break'; readonly x: number; readonly y: number; readonly z: number }
+  | { readonly type: 'regen'; readonly x: number; readonly y: number; readonly z: number };
+
 export interface PlayableSceneOptions {
   /** The player's tank in the playable session; omitted by the spectator. */
   readonly playerTankId?: number;
@@ -42,6 +52,10 @@ export interface PlayableScene {
   setShells(state: MatchState['shells']): void;
   /** Advances the additive VFX. A frozen demo passes 0 so its flash stays alive. */
   updateEffects(dtSeconds: number): void;
+  /** Drains the presentation events collected since the last call. */
+  takeEvents(): readonly SceneEvent[];
+  /** Reduced motion: hide the additive VFX without stopping the simulation. */
+  setEffectsEnabled(enabled: boolean): void;
   setPlayerHidden(hidden: boolean): void;
   /** Hide every tank for the review plan; the spawn markers carry the plan. */
   setTanksHidden(hidden: boolean): void;
@@ -83,6 +97,7 @@ export function createPlayableScene(
   let lastRevision = state.world.revision;
   let playerHidden = false;
   let disposed = false;
+  const events: SceneEvent[] = [];
 
   // VFX snapshots. They start at the CURRENT state, so a scene built after a demo
   // pre-run does not replay deaths/destruction that happened before it existed.
@@ -126,14 +141,19 @@ export function createPlayableScene(
       state.world.cells.forEach((cell, index) => {
         const before = previousCellHp[index] ?? 0;
         if (before > 0 && cell.hp === 0) {
-          effects.breakCell(
-            (cell.x + 0.5) * CELL_SIZE_METRES,
-            floorY + Math.max(0.2, cell.heightMetres * 0.7),
-            (cell.z + 0.5) * CELL_SIZE_METRES,
-            cellColor(cell),
-          );
+          const breakX = (cell.x + 0.5) * CELL_SIZE_METRES;
+          const breakY = floorY + Math.max(0.2, cell.heightMetres * 0.7);
+          const breakZ = (cell.z + 0.5) * CELL_SIZE_METRES;
+          effects.breakCell(breakX, breakY, breakZ, cellColor(cell));
+          events.push({ type: 'wall-break', x: breakX, y: breakY, z: breakZ });
         } else if (before === 0 && cell.hp > 0) {
           effects.regen(cell.x, cell.z, cell.heightMetres, cellColor(cell));
+          events.push({
+            type: 'regen',
+            x: (cell.x + 0.5) * CELL_SIZE_METRES,
+            y: floorY + 0.2,
+            z: (cell.z + 0.5) * CELL_SIZE_METRES,
+          });
         } else if (cell.hp < before) {
           effects.hit(
             (cell.x + 0.5) * CELL_SIZE_METRES,
@@ -153,6 +173,12 @@ export function createPlayableScene(
             (block.z + 0.5) * CELL_SIZE_METRES,
             PALETTE.holeRim,
           );
+          events.push({
+            type: 'wall-break',
+            x: (block.x + 0.5) * CELL_SIZE_METRES,
+            y: floorY + block.heightMetres,
+            z: (block.z + 0.5) * CELL_SIZE_METRES,
+          });
         }
       }
       for (const [key] of previousBlocks) {
@@ -165,6 +191,12 @@ export function createPlayableScene(
               (Math.floor(key / state.world.columns) + 0.5) * CELL_SIZE_METRES,
               PALETTE.holeRim,
             );
+            events.push({
+              type: 'wall-break',
+              x: (key % state.world.columns + 0.5) * CELL_SIZE_METRES,
+              y: floorY + 0.4,
+              z: (Math.floor(key / state.world.columns) + 0.5) * CELL_SIZE_METRES,
+            });
           }
         }
       }
@@ -210,6 +242,14 @@ export function createPlayableScene(
               frame.z,
               teamColor(frame.teamId),
             );
+            events.push({
+              type: 'death',
+              tankId: frame.id,
+              teamId: frame.teamId,
+              x: frame.x,
+              y: state.world.floorSurfaceHeightMetres + 0.8,
+              z: frame.z,
+            });
           } else {
             effects.hit(
               frame.x,
@@ -217,6 +257,14 @@ export function createPlayableScene(
               frame.z,
               teamColor(frame.teamId),
             );
+            events.push({
+              type: 'hit',
+              tankId: frame.id,
+              teamId: frame.teamId,
+              x: frame.x,
+              y: state.world.floorSurfaceHeightMetres + 1.1,
+              z: frame.z,
+            });
           }
         }
         previousHp.set(frame.id, frame.hp);
@@ -243,7 +291,16 @@ export function createPlayableScene(
             const forward = forwardFromYaw(owner.turretYawDegrees);
             const muzzleX = owner.x + forward.x * MUZZLE_FORWARD_METRES;
             const muzzleZ = owner.z + forward.z * MUZZLE_FORWARD_METRES;
-            if (Math.hypot(shell.x - muzzleX, shell.z - muzzleZ) <= 1.5) {
+            if (Math.hypot(shell.x - muzzleX, shell.z - muzzleZ) <= 4.5) {
+              events.push({
+                type: 'fire',
+                tankId: owner.id,
+                teamId: owner.teamId,
+                x: shell.x,
+                y: shell.y,
+                z: shell.z,
+              });
+              events.push({ type: 'reload', tankId: owner.id, teamId: owner.teamId });
               effects.muzzle(
                 shell.x,
                 shell.y,
@@ -258,6 +315,7 @@ export function createPlayableScene(
       for (const [id, last] of previousShells) {
         if (!current.has(id)) {
           effects.impact(last.x, last.y, last.z, teamColor(last.teamId));
+          events.push({ type: 'impact', teamId: last.teamId, x: last.x, y: last.y, z: last.z });
         }
       }
       previousShells.clear();
@@ -266,6 +324,14 @@ export function createPlayableScene(
     },
     updateEffects(dtSeconds: number): void {
       effects.update(dtSeconds);
+    },
+    takeEvents(): readonly SceneEvent[] {
+      const result = [...events];
+      events.length = 0;
+      return result;
+    },
+    setEffectsEnabled(enabled: boolean): void {
+      effects.group.visible = enabled;
     },
     setPlayerHidden(hidden: boolean): void {
       playerHidden = hidden;
