@@ -829,3 +829,15 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
 - **Layout:** judged from `top.png` — screened corner spawns with dogleg exits, two rings
   with corner gateways, breakable centre, staged low cover, 4-fold symmetry. The top plan
   caught two spawns facing each other down a margin before it was visible in 3D.
+
+### row 45 — the dispatcher's own verification (303efb4)
+
+- Integrated gate 98/98, exit 0.
+- **Arms:** LOS always true → RED on the cover pin and the memory pin; path cache
+  ignoring `world.revision` → RED on route invalidation plus the cache pin; decision
+  cadence 6 → 1 → RED on the held-command pin. Tree restored to `a3a6161d` each time.
+- **Batch, my own run** (100 matches, ~1.7 s): win split **85/15 team 0**, median **306
+  ticks**, accuracy **89.4 %**, 0 draws, 0 cap hits, all deaths by shell.
+- **Watched** (`reports/trace-seed-0.jsonl` rendered as frames): the tanks close to about
+  14 m, stop, and trade shots. No repositioning, no use of cover, no dodging — static
+  contact. Recorded as the third defect alongside fairness and length.

@@ -37,10 +37,10 @@
 
 ## Next action (one)
 
-**B1a is in flight**: AI perception + navigation + one "vanguard" profile + the headless
-batch rig (`node --experimental-strip-types scripts/batch.ts`), plus the two A4 validator
-gaps. Then B1b: the four-character cast and the distinctness numbers; then the live
-all-AI spectator mode.
+**B1b is in flight**: fairness (the 85/15 turn-order bias, with a mirror pin) and pacing
+(targets: 40–60 % win split, 900–1800-tick matches, 30–60 % accuracy, movement instead of
+parked duels), measured over 200 seeds. Then B1c: the four-character cast, measured
+against a fair baseline; then the live all-AI spectator.
 
 ## Open questions for the owner
 
