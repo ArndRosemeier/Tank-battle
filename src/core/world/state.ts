@@ -67,6 +67,12 @@ export interface World {
   readonly shards: Shard[];
   tick: number;
   nextShardId: number;
+  /**
+   * Monotonic version of the world's VISIBLE state. It increments exactly when a
+   * mutation changes cells, blocks, shards or an occupant displacement — never for a
+   * regen-timer tickdown alone. The renderer rebuilds only when this changes.
+   */
+  revision: number;
 }
 
 /** A wall or pillar authored into the level grid. */
@@ -92,6 +98,11 @@ export interface WorldSpec {
 
 /** The cell's state in one word: `intact` while it has HP, `hole` once destroyed. */
 export type CellState = 'intact' | 'hole';
+
+/** Marks a visible world mutation. Internal seams call this once per changed operation. */
+export function markWorldChanged(world: World): void {
+  world.revision += 1;
+}
 
 /** Builds a world from a spec, failing loudly on any malformed field. */
 export function createWorld(spec: WorldSpec): World {
@@ -124,6 +135,7 @@ export function createWorld(spec: WorldSpec): World {
     shards: [],
     tick: 0,
     nextShardId: 0,
+    revision: 0,
   };
 
   for (const placement of spec.placements ?? []) {

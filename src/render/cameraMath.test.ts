@@ -45,7 +45,7 @@ describe('cameraMath', () => {
       focusYawDegrees: 0,
     } as const;
 
-    for (const name of ['wide', 'tank', 'first'] as const) {
+    for (const name of ['wide', 'tank', 'first', 'combat'] as const) {
       const firstRun = cameraPose({ name, ...request });
       const secondRun = cameraPose({ name, ...request });
       expect(secondRun).toEqual(firstRun);

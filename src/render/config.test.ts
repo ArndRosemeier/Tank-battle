@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { TANK_RADIUS_METRES } from '../core/sim.ts';
 import {
   PALETTE,
+  TANK,
   SURFACE_LUMA_BAND,
   rec709Luminance,
   srgbLuma,
@@ -29,6 +31,13 @@ describe('render palette', () => {
 
     // Four distinct identities remain (normalisation must not collapse the hues).
     expect(new Set(PALETTE.team).size).toBe(4);
+  });
+
+  it('the rendered hull half-width fits inside the body radius with 5 % allowance', () => {
+    const hullHalfWidth = TANK.hullWidthMetres / 2;
+    expect(hullHalfWidth).toBeLessThanOrEqual(TANK_RADIUS_METRES * 1.05);
+    // The outboard pods are the actual widest geometry: 0.9 + 0.14 / 2 = 0.97 m.
+    expect(0.9 + 0.14 / 2).toBeLessThanOrEqual(hullHalfWidth + 1e-12);
   });
 
   it('surface albedos sit inside §9’s 2–10 % sRGB-luminance band', () => {

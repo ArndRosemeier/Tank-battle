@@ -259,6 +259,58 @@ describe('the world model', () => {
     expect(twice.z).toBeCloseTo(incoming.z, 12);
   });
 
+  it('the revision counter increments on visible changes and never on a timer-only tick', () => {
+    const world = createWorld({
+      columns: 4,
+      rows: 4,
+      floorSurfaceHeightMetres: FLOOR,
+      placements: [{ x: 1, z: 1, material: 'wall', heightMetres: 3 }],
+    });
+    expect(world.revision).toBe(0);
+
+    // No wound yet: a bare tick must not bump the renderer's version.
+    stepWorld(world, 1, []);
+    expect(world.revision).toBe(0);
+
+    damageCell(world, 1, 1, 1, createRng(101));
+    expect(world.revision).toBe(1);
+    damageCell(world, 1, 1, 1, createRng(101));
+    expect(world.revision).toBe(2); // destroyed: hole + big block
+    const afterDestroy = world.revision;
+    damageCell(world, 1, 1, 1, createRng(101));
+    expect(world.revision).toBe(afterDestroy); // a hole is a reported no-op
+
+    damageBlock(world, 1, 1, 1);
+    expect(world.revision).toBe(3);
+    damageBlock(world, 1, 1, 1);
+    expect(world.revision).toBe(4);
+
+    // The regeneration timer ticks down every step; only the actual heal is visible.
+    stepWorld(world, 1, []);
+    expect(world.revision).toBe(4);
+    stepWorld(world, REGEN_TICKS - 1, []);
+    expect(world.revision).toBe(5);
+
+    const floor = flatWorld();
+    damageCell(floor, 1, 1, 1, createRng(102));
+    const shard = requireShard(floor);
+    const beforeShove = floor.revision;
+    shoveShard(floor, shard.id, { x: 1, z: 0 });
+    expect(floor.revision).toBe(beforeShove + 1);
+    const beforeShatter = floor.revision;
+    shatterShard(floor, shard.id);
+    expect(floor.revision).toBe(beforeShatter + 1);
+
+    // A displacement is a visible change even when the displacement itself is the
+    // only thing the tick did.
+    const displaced = flatWorld(5, 5);
+    damageCell(displaced, 2, 2, 1, createRng(103));
+    const beforeDisplacement = displaced.revision;
+    const result = stepWorld(displaced, REGEN_TICKS, [{ id: 7, x: 2, z: 2 }]);
+    expect(result.displacements).toHaveLength(1);
+    expect(displaced.revision).toBeGreaterThan(beforeDisplacement);
+  });
+
   it('a shell hit shatters the shard, so it is gone and a stale id fails loudly', () => {
     const world = flatWorld();
     damageCell(world, 1, 1, 1, createRng(37));

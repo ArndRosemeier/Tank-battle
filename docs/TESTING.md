@@ -73,8 +73,18 @@ never "it passed".
 | A muzzle inside a solid cell resolves exactly once | `a shell that spawns inside a solid cell resolves that hit exactly once` | `src/core/sim.test.ts` | spawn then immediately advance the shell, or sweep and spawn → wall HP drops by 2 / a shell remains |
 | Equal HP + equal live tanks at the cap is a draw | `a match that ends at the cap with equal HP and equal tanks is a draw` | `src/core/sim.test.ts` | pick a winner or infer from HP alone → outcome/winner red |
 | The 2 m cell size has one definition and the renderer imports it | `the 2 m cell size is defined once and the renderer imports it` | `src/core/purity.test.ts` | add a second `CELL_SIZE_METRES = 2` literal, or make the renderer spell `cellMetres: 2` → the scan/import assertion reds |
+| The world revision changes only on visible mutations | `the revision counter increments on visible changes and never on a timer-only tick` | `src/core/world.test.ts` | bump on a timer tick, or skip a damage/shove/shatter/regen/displacement → the exact increments/non-increments red |
+| Adjacent-cell circles are rejected at match creation | `two tanks in adjacent cells whose circles overlap are rejected at match creation` | `src/core/sim.test.ts` | zero the circle-overlap distance (or keep only the same-cell check) → the 1.9 m-apart adjacent-cell spawn is accepted |
+| WASD maps to throttle/steer with a neutral centre aim | `maps WASD to throttle and steer without touching the centre aim` | `src/game/input.test.ts` | swap A/D, or add a non-zero aim at pointer centre → the command assertions red |
+| Mouse aim is hull-relative and pitch is clamped | `turns the turret RELATIVE to the hull and clamps the offset` · `maps pointer height to a clamped pitch, with centre = zero` | `src/game/input.test.ts` | use an absolute yaw, clamp wrongly, or map pitch from the bottom → the ±60°/25°/−30° assertions red |
+| The pure input surface rejects malformed pointer data | `passes the fire state through and rejects non-finite pointer input` | `src/game/input.test.ts` | silently coerce NaN/Infinity → the throw assertions red |
+| The demo freezes on a shell in flight and deterministic damage | `the demo is deterministic and freezes on a shell in flight at tick 122` | `src/game/session.test.ts` | stop the 122-tick run early, or run it twice non-deterministically → the shell/HP/revision assertions red |
+| The demo can reach a real last-team death/win | `the demo reaches a real last-team win and leaves a dead dummy` | `src/game/session.test.ts` | stop the match at the second hit, or leave the dummy alive → the outcome/winner/dead assertions red |
+| Tank transforms interpolate between ticks | `interpolates tank transforms between the previous and current sim tick` | `src/game/session.test.ts` | return current for every alpha, or discard the previous snapshot → the alpha0/alpha1 positions red |
+| The rendered hull half-width fits the 1 m body | `the rendered hull half-width fits inside the body radius with 5 % allowance` | `src/render/config.test.ts` | widen `TANK.hullWidthMetres` past 2.1 m → the measured half-width red |
+| The 24×14 tile p90 catches a locally bright wall | `tile_p90` gate in `python3 scripts/look-budget.py` | `scripts/look-budget.py` | remove the tile measure, or split 24×14 differently → the injection frame's 255 L p90 / FAIL would disappear |
 
-The A3a block (20 rows) and the A3b block (7 rows) are direct node assertions. **No mutation differential was run for A3a or A3b**, so the "how red" text names the one-line change that would red each pin, not an executed arm. The A3a first sim run was red in five places and its first typecheck was red; those were test-scaffold/scenario corrections (see `### row 37`).
+The A3a block (20 rows), the A3b block (7 rows) and the A3c block (10 rows) are direct assertions. **No mutation differential was run for A3a/A3b/A3c**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
 
 The differential harness is a local artifact at `.gate-logs/differential.py` (row 26)
 and `.gate-logs/differential.sh` (row 0) — both gitignored; the mutations are described
@@ -102,6 +112,7 @@ runs it after every capture (a FAIL makes the command exit non-zero):
 - **surfaces** (5 ≤ L < 102): median ≤ 22 L (≈8.6 %) and the whole-frame share with
   26 ≤ L ≤ 51 (10–20 %) ≤ 25 %.
 - **lines** L ≥ 102: p99 ≥ 150; **contrast** p99 / median(surface) ≥ 6.
+- **tiles** (A3c): 24×14 tile medians, p90 ≤ 30.6 L (12 % of white). This catches a locally bright wall the whole-frame median can hide; a white injection measured 255 L / 100 % and FAILED.
 - **void** (L < 5) is printed as INFO: the A2c brief gave no void threshold.
 - **team hulls** are SKIP: A2c's hull surfaces are neutral and shared, so a cheap
   saturation mask measures the trim, not the hull. The team-trim medians are printed
@@ -444,6 +455,60 @@ only in trim lines and small lights. The team-trim diagnostic on `wide` is orang
   a browser/pixel assertion, publish, and AI/input integration. The render suite stayed
   green; only `src/render/config.ts` and `gridFloor.test.ts` changed on the render side
   (cell-size import), with no three.js or DOM change.
+
+### row 41 — Slice A3c (playable: bridge, input, render, HUD, look hardening)
+
+- **Full gate (touched `scripts/`):** `bash scripts/gate.sh` → exit **`0`** (lock acquired)
+  on the rebased tree; full suite **77/77 in 14 files**, vitest 5.0.5. Raw
+  `.gate-logs/gate.log`.
+- **Cheap/typecheck:** the full gate's cheap tier (`pnpm run build` = `tsc --noEmit &&
+  vite build`) is green; `pnpm exec tsc --noEmit` independently exit 0.
+- **Playable scene:** two sim tanks on the real A1 world, one static dummy; the app's
+  scene measured **19 draw objects / 3,536 triangles / 10,648 vertices** in node, and
+  **34 renderer calls** through the post pipeline at 1920×1080. The old A2 103-object
+  fixture remains a separate `sceneBudget.test` ceiling, not the app count.
+- **Hull/body:** `TANK.hullWidthMetres` is 2.0 m → measured half-width **1.00 m**, body
+  radius 1.0 m; the pin allows ≤1.05. Hull length is 2.6 m (nose/tail extend beyond the
+  circle; recorded debt).
+- **Input:** pure mapping pinned; no pointer lock (cursor position is aim); WASD,
+  hull-relative mouse yaw ±60°, vertical pitch +25…−30°, click/Space fire.
+- **Demo scenario:** `?demo=duel&ticks=122` freezes after 122 ticks: dummy at **1 HP**,
+  **1 shell in flight**, one wall cell breached, shots 3 / hits 2 / kills 0. At ticks
+  **123** the third shell kills the dummy (winner team 0, `last-team`); the session pin
+  proves death/win, while `shot.sh combat` uses 122.
+- **Screenshots (all read with the image tool; 1920×1080):**
+
+  | pose | void | surface median | mid-band | line p99 | contrast | tile p90 | verdict |
+  | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+  | `wide` | 42.3 % | 12 L (4.7 %) | 9.1 % | 188 | 15.67 | 26 L (10.2 %) | PASS |
+  | `tank` | 33.2 % | 8 L (3.1 %) | 5.5 % | 187 | 23.38 | 22 L (8.6 %) | PASS |
+  | `first` | 43.9 % | 6 L (2.4 %) | 4.4 % | 156 | 26.00 | 17 L (6.7 %) | PASS |
+  | `combat` | 29.6 % | 8 L (3.1 %) | 5.3 % | 188 | 23.50 | 24 L (9.4 %) | PASS |
+
+  `scripts/shot.sh` prints `chrome processes after cleanup: 0 (expected 0)` on every
+  pose. `wide` shows the compact player and dummy in the arena; `tank` the player view;
+  `first` the dummy down the corridor; `combat` the player, damaged orange dummy, shell
+  streak and the single-cell wall breach.
+- **Spatial look proof:** a temporary white rectangle injection in
+  `.gate-logs/tile-injection.png` measured **tile p90 255 L (100 %)** and the tool
+  exited **1** with `tile p90 ... > 30.6 L (12%)`; JSON
+  `.gate-logs/look-tile-injection.json`. The four final poses pass at 17–26 L.
+- **Performance:** SwiftShader measured **3.48–3.69 fps** / 34 draw calls at
+  1920×1080; this host has no reachable GPU. The screenshot counter reads 4 fps because
+  `--virtual-time-budget` fast-forwards the page clock.
+- **First-run reds, recorded:**
+  - the first input test failed twice on `-0` vs `+0` for the centre pitch; the mapping
+    was corrected to return exact `0` at pointer centre.
+  - the first-person pose initially failed the line-p99 floor (88; a near wall supplied
+    too few bright pixels), and later intermediate wide/combat trials failed the new
+    tile p90 (44 / 35) when grid/structure gains were raised globally. The final pass
+    uses a closer dummy/target, a single-cell breach and a team-edge gain of 3.0 while
+    keeping grid gains at their A2c values; all four frames then pass.
+  - no simulation or bridge assertion was red; the full suite was green on its first
+    A3c run after those test/visual corrections.
+- **Not run:** a GPU frame-rate claim, a browser-level synthetic click/key test (the
+  pure mapping is pinned), publish. The screenshot script owns the Chrome tree and the
+  full gate owns the suite.
 
 ## Honest records
 

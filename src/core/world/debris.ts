@@ -21,7 +21,7 @@ import {
   MIRROR_ANGLE_STEPS,
   SHARD_CAP,
 } from './constants.ts';
-import { cellIndex, isCellPassable, type BigBlock, type Cell, type Shard, type World } from './state.ts';
+import { cellIndex, isCellPassable, markWorldChanged, type BigBlock, type Cell, type Shard, type World } from './state.ts';
 
 /** A direction on the x/z plane. Not required to be normalised. */
 export interface Direction {
@@ -92,7 +92,7 @@ const SHOVE_LATERAL_ORDER: readonly Step[] = [
  * applies the shard cap. The caller (`damageCell`) owns the decision that the cell is
  * destroyed; this owns what that means.
  */
-export function spawnDebris(world: World, cell: Cell, rng: Rng): DebrisSpawn {
+export function spawnDebris(world: World, cell: Cell, rng: Rng, markRevision = true): DebrisSpawn {
   const profile = MATERIAL_PROFILES[cell.material];
   const blocks: BigBlock[] = [];
   const shards: Shard[] = [];
@@ -133,6 +133,9 @@ export function spawnDebris(world: World, cell: Cell, rng: Rng): DebrisSpawn {
   }
 
   enforceShardCap(world);
+  if (markRevision && (blocks.length > 0 || shards.length > 0)) {
+    markWorldChanged(world);
+  }
 
   return { blocks, shards };
 }
@@ -166,6 +169,7 @@ export function shatterShard(world: World, shardId: number): Shard {
     throw new Error(`world: shard ${shardId} is missing from the list`);
   }
   world.shards.splice(index, 1);
+  markWorldChanged(world);
   return shard;
 }
 
@@ -201,6 +205,7 @@ export function shoveShard(world: World, shardId: number, direction: Direction):
     }
     shard.x = x;
     shard.z = z;
+    markWorldChanged(world);
     return { x, z, moved: true };
   }
 
@@ -211,7 +216,7 @@ export function shoveShard(world: World, shardId: number, direction: Direction):
  * Removes every shard lying in `(x, z)` — the cell healed under them. Returns how many
  * were absorbed. Not an error when the cell is empty.
  */
-export function absorbShardsIn(world: World, x: number, z: number): number {
+export function absorbShardsIn(world: World, x: number, z: number, markRevision = true): number {
   cellIndex(world, x, z);
   const before = world.shards.length;
   for (let index = world.shards.length - 1; index >= 0; index -= 1) {
@@ -220,7 +225,11 @@ export function absorbShardsIn(world: World, x: number, z: number): number {
       world.shards.splice(index, 1);
     }
   }
-  return before - world.shards.length;
+  const removed = before - world.shards.length;
+  if (markRevision && removed > 0) {
+    markWorldChanged(world);
+  }
+  return removed;
 }
 
 function enforceShardCap(world: World): void {

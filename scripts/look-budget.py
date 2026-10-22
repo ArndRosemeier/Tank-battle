@@ -14,6 +14,8 @@ Budgets:
             WHOLE frame with 26 <= L <= 51 (10–20 %) is <= 25 %;
   lines     p99 of the whole frame is >= 150 (>= 58.8 %);
   contrast  p99 / median(surface) is >= 6 (the brief's aim is >= 8);
+  tiles     a 24×14 grid of tile medians, p90 <= 12 % of white (L <= 30.6),
+            which catches a locally bright wall a whole-frame median misses (A3c);
   void      share with L < 5 is reported (the brief gives no minimum; INFO);
   team      hull segmentation is skipped BY DESIGN: A2c makes hull surfaces neutral
             and shared, so saturation segmentation would measure the thin team trim,
@@ -46,6 +48,9 @@ SURFACE_MEDIAN_MAX = 22
 MID_SHARE_MAX = 0.25
 LINE_P99_MIN = 150
 CONTRAST_MIN = 6.0
+TILE_COLUMNS = 24
+TILE_ROWS = 14
+TILE_P90_MAX_L = 30.6
 VOID_LOW = 5
 
 
@@ -74,6 +79,36 @@ def median_in_range(hist: list[int], low: int, high: int) -> float | None:
         if seen >= target:
             return float(low + offset)
     return float(high - 1)
+
+
+def median_of_hist(hist: list[int]) -> int:
+    total = sum(hist)
+    if total == 0:
+        return 0
+    target = total / 2.0
+    seen = 0
+    for value, count in enumerate(hist):
+        seen += count
+        if seen >= target:
+            return value
+    return 255
+
+
+def tile_p90(luminance: Image.Image) -> tuple[int, list[int]]:
+    """The A3c spatial check: p90 of the 24×14 tile medians."""
+    width, height = luminance.size
+    medians: list[int] = []
+    for row in range(TILE_ROWS):
+        y0 = (height * row) // TILE_ROWS
+        y1 = (height * (row + 1)) // TILE_ROWS
+        for column in range(TILE_COLUMNS):
+            x0 = (width * column) // TILE_COLUMNS
+            x1 = (width * (column + 1)) // TILE_COLUMNS
+            tile = luminance.crop((x0, y0, x1, y1))
+            medians.append(median_of_hist(tile.histogram()))
+    medians.sort()
+    index = max(0, min(len(medians) - 1, int(len(medians) * 0.9 + 0.999999) - 1))
+    return medians[index], medians
 
 
 def team_trim(rgb: Image.Image) -> dict[str, object]:
@@ -132,6 +167,7 @@ def measure(path: Path) -> dict[str, object]:
     void_share = sum(hist[:VOID_LOW]) / total
     line_share = sum(hist[LINE_LOW:]) / total
     contrast = (line_p99 / surface_median) if surface_median else 0.0
+    tile_p90_l, tile_medians = tile_p90(luminance)
 
     failures: list[str] = []
     if surface_median is None:
@@ -147,6 +183,10 @@ def measure(path: Path) -> dict[str, object]:
         failures.append(f"line p99 {line_p99} < {LINE_P99_MIN}")
     if contrast < CONTRAST_MIN:
         failures.append(f"contrast {contrast:.2f} < {CONTRAST_MIN}")
+    if tile_p90_l > TILE_P90_MAX_L:
+        failures.append(
+            f"tile p90 {tile_p90_l} L ({tile_p90_l / 2.55:.1f}%) > {TILE_P90_MAX_L:.1f} L (12%)"
+        )
 
     return {
         "file": str(path),
@@ -160,6 +200,11 @@ def measure(path: Path) -> dict[str, object]:
         "lineSharePercent": round(line_share * 100, 1),
         "lineP99": line_p99,
         "contrast": round(contrast, 2),
+        "tileGrid": f"{TILE_COLUMNS}×{TILE_ROWS}",
+        "tileP90L": tile_p90_l,
+        "tileP90Percent": round(tile_p90_l / 2.55, 1),
+        "tileP90MaxL": TILE_P90_MAX_L,
+        "tileCount": len(tile_medians),
         "teamHulls": {
             "status": "skipped",
             "reason": "hull fill is neutral/shared in A2c; saturation measures trim, not hull surface",
@@ -197,6 +242,12 @@ def print_report(result: dict[str, object]) -> None:
     print(
         f"  contrast p99/median(surface): {result['contrast']:.2f} "
         f"[{'FAIL' if contrast_fail else 'PASS'} >= {CONTRAST_MIN:.0f}]"
+    )
+    tile_fail = any(item.startswith("tile p90") for item in result["failures"])
+    print(
+        f"  tile p90 ({result['tileGrid']}, {result['tileCount']} tiles): "
+        f"L={result['tileP90L']} ({result['tileP90Percent']:.1f}%) "
+        f"[{'FAIL' if tile_fail else 'PASS'} <= {result['tileP90MaxL']:.1f} L / 12%]"
     )
     trim = result["teamTrim"]
     print(

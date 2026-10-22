@@ -10,10 +10,11 @@ Dependencies point **downward only**; nothing below a layer may import from abov
 | **entry · DOM** | `src/entry/dom.ts` | The one way to obtain a DOM node the app cannot run without, with the narrowed type. |
 | **core** | `src/core/*.ts` | Pure simulation: no DOM, no time source, no globals. Takes numbers in, returns numbers out, so it tests in `node`. |
 | **core · sim** | `src/core/sim/*.ts`, entrance `src/core/sim.ts` | The combat layer over A1: builds a match from teams/spawns, validates commands, advances one fixed tick (drive with tank bodies, turret/pitch, world, bleed, swept-muzzle fire, shells), resolves 3D shell collisions, owns last-team/tick-cap outcomes and stats, and exposes the `Controller` seam and the match hash. **No renderer, DOM, input, AI, host clock or per-tank `isPlayer`.** |
+| **game** | `src/game/*.ts` | The app's pure game layer ABOVE the core: the playable level data, the pure pointer/keys→`TankCommand` mapping, browser event gathering, and the `PlayableSession` bridge (FixedStep + MatchState + interpolation + demo seeding). `input.ts`, `level.ts` and `session.ts` are renderer-free/clock-free and node-tested; `browserInput.ts` is the only DOM reader. |
 | **core · world** | `src/core/world/*.ts`, entrance `src/core/world.ts` | The world model: cells with height, destruction, two debris tiers, slow regeneration with displacement, and the state hash. Pure data and functions — it has **no tank, shell or AI concept**; tanks arrive as occupant positions and shells as damage calls. |
 | **render · tuning** | `src/render/config.ts` | The ONE tuning module: palette, team-luma gains, HDR gains, §9 albedo band, neutral rim tint, bloom, post, fog, camera distances, grid presentation, surface seams, scene budget, `SURFACE_DETAIL`; the shared cell size is imported from `src/core/world.ts`. Every render constant lives here; a source scan fails on a hex colour anywhere else. |
 | **render · surface** | `src/render/neonSurface.ts` | The ONE material seam: near-neutral dark fill + emissive team/structure edge lines + a NEUTRAL fresnel/wall-sheen/top-band rim + procedural panel seams + an (unused) detail-map slot, merged so a whole world is one fill/rim/line buffer. The fill is polygon-offset; one global `setSurfaceDetail`. |
-| **render · world** | `src/render/worldMesh.ts`, `gridFloor.ts`, `demoWorld.ts` | Meshes the REAL A1 cells, owns the one rebuild path for destruction, and draws the shader grid floor with black void quads for holes. The placeholder arena/perimeter is A2's; A4 owns the authored level. Big blocks and shards are A3 VFX. |
+| **render · world** | `src/render/worldMesh.ts`, `gridFloor.ts`, `playableScene.ts`, `debrisView.ts`, `shellView.ts` | Meshes the REAL A1 cells, owns the one rebuild path for destruction, and draws the shader grid floor with black void quads for holes. `playableScene` builds the app scene from the match, rebuilds world+debris only on `world.revision`, and updates tanks/shells per frame. The A2 `demoWorld` showcase remains a budget fixture; A4 owns the authored level. |
 | **render · assembly** | `src/render/sceneAssembly.ts`, `sceneStats.ts`, `gateways.ts` | Builds the EXACT showcase the app renders (world + 16 tanks + merged gateway arches), exposes its scene-build stats, and keeps the presentation-only gateways out of the world model. |
 | **render · camera** | `src/render/cameraMath.ts` (pure), `cameraRig.ts` (three), `placeholderTank.ts` | Camera poses, zoom clamp and first-person boundary as pure node-tested maths; the `three` spring and camera object; the A2-only tank placeholder with a real gun/turret silhouette. |
 | **app shell** | `index.html`, `vite.config.ts`, `tsconfig.json` | The mount point, the build, the base path. |
@@ -42,7 +43,7 @@ running headless in `node`.
 | orbit → camera pose | `orbitPose(input)` | `src/render/cameraMath.ts:97` | Behind-a-forward-vector orbit; as the arm collapses into first person the target slides forward, with zero look-ahead at the boundary. |
 | the zoom clamp and the first-person boundary | `zoomDistance` · `clampDistance` · `isFirstPerson` | `src/render/cameraMath.ts:58` | One clamp (0.55…16 m) and an exclusive 2 m first-person boundary (below it the hull hides); malformed numbers throw. |
 | the camera object and spring | `new CameraRig(...)` · `.update(dt)` | `src/render/cameraRig.ts:50` | The only place a `PerspectiveCamera` is posed. A selected screenshot pose freezes the rig. |
-| a placeholder tank | `createPlaceholderTank(teamIndex, phase)` | `src/render/placeholderTank.ts:46` | A2-only, not a game entity: two `NeonSurface` calls (hull, turret+barrel) = six draw calls per tank. |
+| a tank view | `createPlaceholderTank(teamIndex, phase)` · `setSimPose(...)` | `src/render/placeholderTank.ts:46` · `src/render/placeholderTank.ts:170` | The compact 2.0×2.6 m view; `setSimPose` applies hull yaw, relative turret yaw and pitch. Two `NeonSurface` calls (hull, turret+barrel) = six draw calls per tank. |
 | the showcase world (perimeter, gates, holes, spawns) | `createShowcaseScene()` | `src/render/demoWorld.ts:72` | Real `createWorld` + `damageCell` data; the perimeter/gates are A2b presentation scaffolding, A4 replaces all of it. |
 | building and measuring the rendered scene | `buildArenaScene()` · `measureScene(root)` | `src/render/sceneAssembly.ts:37` · `src/render/sceneStats.ts:25` | ONE assembly shared by the app and the GPU-independent budget pin; measures draw objects, triangles and vertices in `node`. |
 | the four team hues' rendered luminance | `rec709Luminance(hex)` · `teamEdgeGainFor(index)` | `src/render/config.ts:103` · `src/render/config.ts:143` | The hue stays the owner's; the linear Rec.709 gain is normalised (D5) with a small ACES render correction inside its ±10 % band. Never apply a raw team colour to an edge. |
@@ -71,22 +72,36 @@ running headless in `node`.
 | the per-match counters | `MatchStats` · `createMatchStats()` | `src/core/sim/stats.ts:23` · `src/core/sim/stats.ts:37` | The ONE stats shape for the HUD and batch rig: `shotsFired` counts trigger pulls that spent the reload (spawned or muzzle-blocked), `hits`/`damageDealt` count tank damage only, `kills` equals `causes.shell`; clock deaths are `causes.clock`. |
 | a run's combat identity | `hashMatch(state)` | `src/core/sim/hash.ts:18` | The ONE match hash: canonical state text including RNG state, the A1 world hash, tanks, shells, match status and stats. An equality witness, not a measurement. |
 | the simulation's public surface | `src/core/sim.ts` | `src/core/sim.ts:1` | The ONE entrance: constants, geometry, commands, stats, match, step, hash and controller re-exported. Callers outside the sim package import from here, never from `sim/*.ts` except a deliberate internal seam. |
+| the world's visible version | `World.revision` · `markWorldChanged(world)` | `src/core/world/state.ts:75` · `src/core/world/state.ts:103` | ONE monotonic counter bumped once per changed public mutation (damage, block/rubble, shard spawn/remove/shove, regeneration HP, displacement). A regen-timer tickdown alone does NOT bump it. The renderer rebuilds only on a changed integer. |
+| the frame→ticks bridge | `PlayableSession.advance(frameSeconds, input)` · `.step(command)` | `src/game/session.ts:164` · `src/game/session.ts:182` | The ONLY place a frame delta becomes `FixedStep` ticks for the app; one `stepMatch` per tick, with the dummy idling. No simulation call exists in a render module. |
+| a player's command | `commandFromInput(input, hullYawDegrees)` | `src/game/input.ts:64` | The pure mapping: WASD→throttle/steer, pointer X→RELATIVE turret yaw (±60°), pointer Y→pitch (top +25°, centre 0°, bottom −30°), fire boolean. Unit-tested in node; malformed numbers throw. |
+| browser events | `createBrowserInput(canvas)` | `src/game/browserInput.ts:26` | The only DOM reader: key set, canvas-normalised pointer, click/Space fire. No pointer lock (deliberate): the cursor position is the aim, so there is no hidden/recentre state. |
+| the playable level | `PLAYABLE_LEVEL` · `PLAYER_SPAWN` · `DUMMY_SPAWN` | `src/game/level.ts:64` · `src/game/level.ts:86` · `src/game/level.ts:92` | A3c's compact placeholder arena and the two spawns; A4 owns the authored level/loader. The dummy is a static team-1 tank with no controller. |
+| the demo/screenshot scenario | `?demo=duel&ticks=122` · `PlayableSession.runDemo(ticks)` | `src/main.ts:64` · `src/game/session.ts:205` | Runs a fixed scripted sequence, freezes before the first frame, and seeds one visible wall breach. At tick 122 the dummy is at 1 HP and the third shell is in flight. |
+| interpolation | `PlayableSession.interpolatedTanks(alpha)` | `src/game/session.ts:230` | Tanks interpolate x/z/hull/turret/pitch between the previous and current tick; yaw uses the shortest arc. Shells render at the latest state (no interpolation), chosen because their flight is short and a trail already reads motion. |
+| the app scene | `createPlayableScene(state, ids)` | `src/render/playableScene.ts:40` | Builds the real world mesh, debris, two tank views and the shell streak buffer. This is the app path; the A2 showcase remains the budget fixture. |
+| rebuilding on revision | `PlayableScene.syncWorld()` | `src/render/playableScene.ts:77` | The ONE rebuild gate: compares `World.revision` with the last built revision; only a change calls `worldMesh.rebuild()` / `debrisView.rebuild()`. Never per frame. |
+| shells/debris views | `createShellView()` · `createDebrisView(world)` | `src/render/shellView.ts:31` · `src/render/debrisView.ts:24` | One merged streak line buffer for shells; one merged `NeonSurface` for A1 blocks and shards. Both are data-derived, never patched. |
+| the in-style HUD | `createHud()` | `src/entry/hud.ts:42` | DOM only: 3-segment player/target HP, reload ring, fps and the victory/defeat banner. Colours come from `PALETTE`/`teamColor`; no HTML controls. |
+| the combat screenshot pose | `cameraPose('combat', ...)` | `src/render/cameraMath.ts:228` | Deterministic behind/above player frame for the demo breach, target and in-flight shell. Added to `CAMERA_POSE_NAMES`; `shot.sh combat` selects it. |
+| the spatial look budget | `tile_p90(luminance)` | `scripts/look-budget.py:97` | Splits a frame into 24×14 tiles, takes each tile median, and requires p90 ≤ 30.6 L (12 %); alongside the existing whole-frame gates. Proof injection reaches 255 L / 100 % and FAILS. |
+| the screenshot command | `scripts/shot.sh [pose] [detail] [out]` | `scripts/shot.sh:1` | Adds `combat`; it appends `&demo=duel&ticks=122`, runs the look budget and keeps the trapped-browser cleanup (`chrome processes after cleanup: 0`). |
 | a canonical core hash | `fnv1a(text)` | `src/core/fnv1a.ts:14` | The ONE FNV-1a implementation; both `hashState` (world) and `hashMatch` (combat) feed it. Do not copy the offset basis/prime into a third hasher. |
 | seeded randomness in the simulation | `createRng(seed)` | `src/core/rng.ts:35` | The ONLY draw source under `src/core`: integer-only mulberry32, so a seed reproduces its sequence on every engine. A source scan (`src/core/purity.test.ts`) fails the build on `Math.random`. |
-| building the world | `createWorld(spec)` | `src/core/world/state.ts:97` | Validates the spec loudly (integer dimensions, a height above the floor plane, no double placement) and builds the row-major grid. Level data fills the same shape. |
-| addressing a cell | `cellAt(world, x, z)` | `src/core/world/state.ts:178` | The ONE integer + bounds check (`cellIndex`, `src/core/world/state.ts:167`). Never index `world.cells` directly. |
-| is there material at a height | `isSolidAt(world, x, z, metres)` | `src/core/world/state.ts:208` | Height-aware by construction: below a big block's top, or an intact cell's top; nothing at all over a hole. This is what stops a low wall from blocking a high shot. |
-| can a tank stand in a cell | `isCellPassable(world, x, z)` | `src/core/world/state.ts:229` | The ONE definition of "free", used by displacement and shard shoves. A DIFFERENT question from `isSolidAt`: an intact floor is solid at 0.1 m and still passable. |
-| the drivable surface through a hole | `floorSurfaceHeightAt(world, x, z)` | `src/core/world/state.ts:193` | The floor plane, holes included — the contract that tanks stand on the bedrock and never fall. |
+| building the world | `createWorld(spec)` | `src/core/world/state.ts:108` | Validates the spec loudly (integer dimensions, a height above the floor plane, no double placement) and builds the row-major grid. Level data fills the same shape. |
+| addressing a cell | `cellAt(world, x, z)` | `src/core/world/state.ts:190` | The ONE integer + bounds check (`cellIndex`, `src/core/world/state.ts:167`). Never index `world.cells` directly. |
+| is there material at a height | `isSolidAt(world, x, z, metres)` | `src/core/world/state.ts:220` | Height-aware by construction: below a big block's top, or an intact cell's top; nothing at all over a hole. This is what stops a low wall from blocking a high shot. |
+| can a tank stand in a cell | `isCellPassable(world, x, z)` | `src/core/world/state.ts:241` | The ONE definition of "free", used by displacement and shard shoves. A DIFFERENT question from `isSolidAt`: an intact floor is solid at 0.1 m and still passable. |
+| the drivable surface through a hole | `floorSurfaceHeightAt(world, x, z)` | `src/core/world/state.ts:205` | The floor plane, holes included — the contract that tanks stand on the bedrock and never fall. |
 | a cell taking damage | `damageCell(world, x, z, amount, rng)` | `src/core/world/destruction.ts:40` | The ONE destruction path: clamps HP, restarts the regen clock, and on destruction spawns the material's debris from `MATERIAL_PROFILES`. A hole reports a no-op, never a silent hit. |
-| rubble taking damage | `damageBlock(world, x, z, amount)` | `src/core/world/destruction.ts:71` | A big block clears only through this; the cell's frozen regeneration resumes when the block is gone. |
+| rubble taking damage | `damageBlock(world, x, z, amount)` | `src/core/world/destruction.ts:73` | A big block clears only through this; the cell's frozen regeneration resumes when the block is gone. |
 | what a destroyed cell yields | `spawnDebris(world, cell, rng)` | `src/core/world/debris.ts:95` | Internal to the world package. The material profile is the only switch, and the shard cap is applied here. |
-| a shard's mirror | `shardDeflection(shard, direction)` | `src/core/world/debris.ts:145` | The only reflection geometry: `d - 2(d·n)n` with a stored normal from a 16-entry **literal** table (no trigonometry, so every engine sees the identical double). |
-| a shell hit on a shard | `shatterShard(world, shardId)` | `src/core/world/debris.ts:162` | One shard, one hit, gone. |
-| shoving a shard | `shoveShard(world, shardId, direction)` | `src/core/world/debris.ts:181` | One cell along the shove, else a fixed side order, else it stays (`moved: false`). Never through material. |
+| a shard's mirror | `shardDeflection(shard, direction)` | `src/core/world/debris.ts:148` | The only reflection geometry: `d - 2(d·n)n` with a stored normal from a 16-entry **literal** table (no trigonometry, so every engine sees the identical double). |
+| a shell hit on a shard | `shatterShard(world, shardId)` | `src/core/world/debris.ts:165` | One shard, one hit, gone. |
+| shoving a shard | `shoveShard(world, shardId, direction)` | `src/core/world/debris.ts:185` | One cell along the shove, else a fixed side order, else it stays (`moved: false`). Never through material. |
 | advancing the world | `stepWorld(world, ticks, occupants)` | `src/core/world/regeneration.ts:63` | The tick loop: heals one frame per delay, absorbs shards, and displaces occupants by a fixed-order nearest-free search. Returns `Displacement[]`; the CALLER applies them, and the world never writes to the caller's occupants. |
-| iterating debris | `listBlocks(world)` / `listShards(world)` | `src/core/world/state.ts:246` | Blocks in a stable cell order, shards oldest first; `blockAt` / `shardAt` for one cell. |
-| a run's identity | `hashState(world)` | `src/core/world/hash.ts:17` | FNV-1a over canonical state text (ids, HP, timers, mirror angles, tick) — the pin that proves two identical runs stayed identical. |
+| iterating debris | `listBlocks(world)` / `listShards(world)` | `src/core/world/state.ts:258` | Blocks in a stable cell order, shards oldest first; `blockAt` / `shardAt` for one cell. |
+| a run's identity | `hashState(world)` | `src/core/world/hash.ts:15` | FNV-1a over canonical state text (ids, HP, timers, mirror angles, tick, revision) — the pin that proves two identical runs stayed identical. |
 | the shared cell size | `CELL_SIZE_METRES` | `src/core/world/constants.ts:18` | The ONE 2 m definition, exported by `src/core/world.ts:51` and re-exported by `src/core/sim/constants.ts:22`. `src/render/config.ts` imports it from the world entrance; the source-scan pin fails if a second `CELL_SIZE_METRES = 2` definition appears. |
 | the world's numbers | `MATERIAL_PROFILES` · `SHARD_CAP` · `CELL_SIZE_METRES` · `secondsToTicks` | `src/core/world/constants.ts:46` | The ONE world tuning module. `secondsToTicks` (`src/core/world/constants.ts:79`) is the only seconds→ticks conversion, and a tick IS `STEP_SECONDS`. |
 | the world's public surface | `src/core/world.ts` | `src/core/world.ts:1` | The ONE entrance: the model's doc, its types and its seams, re-exported. Callers outside the world package import from here, never from `world/*.ts`. |
@@ -106,10 +121,7 @@ running headless in `node`.
   game resumes where it was left. A death spiral is worse than lost wall-clock time.
 - **`alpha` is for rendering interpolation only.** It is not simulation state; do not
   store game state in it.
-- **The arena, the tanks and the debug readout are A2 placeholders, not the product.**
-  `demoWorld.ts` is a hand-authored showcase (A4 owns the authored level), the tank is
-  not a game entity (A3 owns drive/aim/fire), and the `#debug` readout is a development
-  affordance, not the §9 HUD (A5). Do not scope work from them.
+- **The A2 showcase is now a FIXTURE, not the app path.** `demoWorld.ts`/`sceneAssembly.ts` remain the hand-authored 16-tank scene the A2 `sceneBudget.test` measures; the live app uses `createPlayableScene` over the real match. A4 owns the authored level; A5 owns the full HUD.
 - **`LineBasicMaterial.linewidth` is ignored on almost every WebGL platform.** The
   spec permits only 1 px lines and ANGLE follows it, so the look is 1 px lines plus
   `UnrealBloomPass` for the glow. Do not "fix" this with a screen-space line-width
@@ -125,8 +137,8 @@ running headless in `node`.
 - **Merged buffers are a snapshot, not live geometry.** `WorldMesh.rebuild()` re-reads
   every cell and rebuilds the fill, rim and ONE edge buffer (hole rims, vertical
   accents, panel/hole line batches included); the fill and rim share one uploaded
-  `BufferGeometry`. A3 must call `rebuild()` after a breach or a regeneration instead
-  of mutating merged geometry in place. Disposing a surface frees its merged
+  `BufferGeometry`. A3c's `PlayableScene.syncWorld()` calls it only when
+  `world.revision` changes — never per frame. Disposing a surface frees its merged
   geometries, never the shared materials.
 - **The fill albedo is a §9 BUDGET and the rim is the volume cue.** A2c measures the
   band on **sRGB ITU-R 601 L**, the same L as `scripts/look-budget.py`: `surfaceFill`
@@ -146,8 +158,8 @@ running headless in `node`.
 - **The §9 look budget is a SCRIPT, not a vitest pin.** `python3 scripts/look-budget.py
   <png>` measures sRGB ITU-R 601 L, and `scripts/shot.sh` runs it after the final
   capture; a FAIL makes the screenshot command exit 1. It gates surface median ≤22,
-  frame share in L 26–51 ≤25 %, line p99 ≥150 and contrast ≥6. Void is INFO because the
-  brief gives no void threshold. Team hulls are SKIP: A2c's hull fill is neutral and
+  frame share in L 26–51 ≤25 %, line p99 ≥150, contrast ≥6 and the 24×14 tile p90
+  ≤30.6 L (12 %). Void is INFO because the brief gives no void threshold. Team hulls are SKIP: A2c's hull fill is neutral and
   shared, so saturation segmentation measures trim, not hull surface; the trim line is
   diagnostic only and is confounded by distance/coverage. Do not "fix" a failing
   surface by changing the L definition or the thresholds — that is the thing the
@@ -182,12 +194,12 @@ running headless in `node`.
   gate gaps; `gateways.ts` adds the arch geometry outside the world model. A4 owns the
   final level and must decide the collision/threshold story; do not read gameplay
   bounds from the arches.
-- **The scene budget is the performance gate on this host.** `buildArenaScene()` is the
-  one assembly the app and `sceneBudget.test.ts` share, so the budget cannot measure a
-  scene different from the rendered one. The pin is 20 % over measured
-  (103 objects / 13,344 triangles / 39,232 vertices) with an absolute 200 draw-object
-  ceiling; the SwiftShader fps floor (≥ 3.0) is a regression signal, not the target.
-  Adding a tank or unmerging a surface must raise the budget deliberately, not drift.
+- **The scene budget is still the A2 16-tank fixture.** `buildArenaScene()` is what
+  `sceneBudget.test.ts` measures (103 objects / 13,344 triangles / 39,232 vertices,
+  20 % headroom); the A3c app's playable scene measured **19 draw objects / 3,536
+  triangles / 10,648 vertices** in node and **34 renderer calls** through the composer
+  at 1920×1080. Do not quote the old fixture as the app's object count; the 34 calls
+  are the live frame.
 - **`SURFACE_DETAIL` is one module-global scalar.** It scales the fresnel rim, wall
   sheen, top band, procedural seams and the reserved detail-map slot on the shared
   material; it never touches the edge lines or bloom. The detail slot is deliberately
@@ -196,7 +208,8 @@ running headless in `node`.
   control: zero leaves albedo + edge lines; the default adds richness, never dominance.
 - **The interactive camera and the screenshot poses are two different things.** The
   follow arm stays dead astern; `cameraPose('tank')` is a frozen over-the-shoulder 3/4
-  framing for review. Do not use the pose offset as gameplay camera behaviour.
+  framing, and `cameraPose('combat')` is the demo's behind/above corridor frame. Do not
+  use either pose offset as gameplay camera behaviour.
 - **`isSolidAt` and `isCellPassable` are two questions, not two copies.** "Is there material at
   this height?" (shells) and "can a ground unit stand here?" (tanks, shoves) are answered
   differently for the same cell: an intact floor slab is solid at 0.1 m and passable. A pin
@@ -284,18 +297,64 @@ running headless in `node`.
   `src/core/purity.test.ts` fails if a second `CELL_SIZE_METRES = 2` definition or a
   literal `cellMetres: 2` appears; do not copy 2 m into a layer.
 
+- **`world.revision` is a VISIBLE-change counter, not a tick count.** A public mutation
+  that changes cells/blocks/shards or displaces an occupant bumps it once; a no-op hole
+  hit, a blocked shove and a regen-timer tickdown do NOT. It is in
+  `hashState`, so two runs cannot share a world hash while differing in rebuild state.
+  Do not increment it from the renderer or from a per-frame poll.
+- **World + debris rebuild exactly on a revision change.** `PlayableScene.syncWorld()`
+  stores the revision it last built and returns false on equality; only a change calls
+  `worldMesh.rebuild()` and `debrisView.rebuild()`. A per-frame rebuild would be both
+  wasteful and a second source of truth.
+- **The bridge interpolates TANKS, not shells.** `FixedStep.alpha` is passed to
+  `PlayableSession.interpolatedTanks`, which lerps x/z/pitch and uses the shortest arc
+  for hull/turret yaw between the previous and current tick. Shells are drawn at their
+  latest simulation position (a 1.8 m streak conveys motion); this is deliberate. The
+  renderer never calls `stepMatch`.
+- **Input is a pure mapping, and there is deliberately NO pointer lock.** WASD becomes
+  throttle/steer, pointer X becomes a ±60° turret yaw RELATIVE to the hull, pointer Y
+  maps top +25° / centre 0° / bottom −30°, and click/Space fires. `browserInput.ts` only
+  gathers events; `input.ts` is unit-tested. Pointer lock would add hidden cursor,
+  Escape and recentre states for no gain in a third-person cursor-aim control.
+- **The hull is 2.0 × 2.6 m, inside the 1 m body radius by width.** `config.test.ts`
+  pins `TANK.hullWidthMetres / 2 <= TANK_RADIUS_METRES * 1.05` (measured 1.00 m). The
+  turret/barrel are scaled with it. The whole turret group is the pitch pivot, so pitch
+  tilts the turret body as well as the gun; a gun-only pivot would need a third
+  `NeonSurface` and is deferred until the visual complaint is measured.
+- **The demo is frozen before the camera is built.** `?demo=duel&ticks=122` runs
+  `runDemo` synchronously, seeds one wall breach through the real destruction seams,
+  then constructs the scene/camera. At 122 the dummy is at 1 HP and the third shell is
+  in flight; ticking it to 123 produces a real last-team win/death. Do not animate a
+  screenshot past the freeze.
+- **The look budget now includes a 24×14 tile p90.** `scripts/look-budget.py` takes
+  each tile's median and requires p90 ≤ 30.6 L (12 % of white) in addition to the
+  whole-frame gates. A white injection rectangle measured 255 L / 100 % and FAILED,
+  proving the check catches a locally bright wall; the four final poses pass at 17–26 L.
+  Thresholds are the gate; do not widen them to fit a frame.
+- **The HUD is DOM, not canvas.** `createHud()` owns the three-segment HP bars, reload
+  ring and banner; colours come from `PALETTE`/`teamColor`, and the element has
+  `pointer-events: none`. There are no HTML controls. The HUD is a minimal A3c readout,
+  not the A5 interface.
+
 ## 4 · Known debt
 
-- **The combat core exists, but nothing drives it yet.** A3a/A3b have drive/aim/fire,
-  shell and body collision, the damage clock and match outcomes in `src/core/sim/`, but
-  there is no input-to-command adapter, no AI controller, no renderer for tanks/shells/
-  debris and no HUD. A3c owns input + the renderer, A5 the HUD; A4 owns the authored
-  level that replaces `src/render/demoWorld.ts` and the presentation-only gateways.
-- **Circle bodies are the documented radius, not the render hull.** `TANK_RADIUS_METRES`
-  is 1 m, while the A2 placeholder hull is 3.4 m long and 2.5 m wide. A3c must align the rendered
-  hull to the body (or move to a capsule/oriented box) or tanks will visibly clip walls
-  and each other at their long corners; this is the row-38 unproven, not a hidden copy
-  of the radius.
+- **A3c is a single playable duel, not the full game.** One player tank, one static
+  dummy, one placeholder arena and a minimal HUD. Slice B owns AI profiles/batch play;
+  A4 owns the authored level/loader; A5 owns the full interface. The A2 showcase and
+  its 16-tank budget fixture are retained only for the existing look/budget pins.
+- **The body is a circle but the hull is a 2.6 m box.** The width fits the 1 m radius
+  (1.00 m half-width), but the nose/tail extend beyond the circle and the whole turret
+  tilts for pitch. A capsule/oriented body and a gun-only pitch pivot remain future
+  visual/physics debt; row 40 explicitly deferred them.
+- **A2 scene-budget numbers no longer describe the app.** The 103-object / 13,344-triangle
+  fixture measures `buildArenaScene` (16 showcase tanks), while the app's playable scene
+  is 19 objects and 34 renderer calls. Keep the old pin as a ceiling, not an app claim.
+- **No browser-level input test.** Pointer/keyboard gathering is untested DOM glue; the
+  pure `commandFromInput` mapping is pinned. A synthetic click/key browser test would
+  need the Chrome lifecycle already owned by `shot.sh`.
+- **The demo seeds one breach directly through `damageCell`/`damageBlock`.** That is a
+  deterministic stage setup, not a shot; the shell/damage/win after it comes through the
+  real `stepMatch`. Do not mistake the seeded breach for a simulated wall hit.
 - **Regeneration displacement is still cell-grained.** A1 `stepWorld` displaces an
   occupant to a nearest free CELL, using cell occupancy, while tank bodies are circles.
   A pathological layout with a tank body overhanging an adjacent healing cell could
@@ -318,6 +377,5 @@ running headless in `node`.
   not a Vitest pin. Making it a browser test would mean threading the Chrome lifecycle
   and image fixtures through the suite; the script is the deliberate cheaper gate (see
   [`TESTING.md`](TESTING.md)).
-- **The debug readout, the showcase arena and the gateway arches are placeholders.**
-  They are review affordances for A2/A2b/A2c, not product surfaces; A5 replaces the
-  readout with the real HUD and A4 replaces the arena and owns the final architecture.
+- **The A2 showcase and gateway arches remain placeholders.** They are budget/review
+  fixtures, not the app's level; A4 replaces them and owns the final architecture.

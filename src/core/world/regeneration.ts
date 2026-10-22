@@ -18,7 +18,7 @@
 
 import { MATERIAL_PROFILES, secondsToTicks } from './constants.ts';
 import { absorbShardsIn } from './debris.ts';
-import { blockAt, cellAt, cellIndex, isCellPassable, type Cell, type World } from './state.ts';
+import { blockAt, cellAt, cellIndex, isCellPassable, markWorldChanged, type Cell, type World } from './state.ts';
 
 /**
  * A caller-supplied position. Tanks arrive as this, and nothing else — the world has no
@@ -77,6 +77,7 @@ export function stepWorld(world: World, ticks: number, occupants: readonly Occup
 
   for (let tick = 0; tick < ticks; tick += 1) {
     world.tick += 1;
+    let changed = false;
     for (const cell of world.cells) {
       if (cell.hp >= cell.maxHp) {
         continue;
@@ -91,14 +92,22 @@ export function stepWorld(world: World, ticks: number, occupants: readonly Occup
       }
 
       cell.hp += 1;
-      absorbShardsIn(world, cell.x, cell.z);
+      changed = true;
+      const absorbed = absorbShardsIn(world, cell.x, cell.z, false);
+      if (absorbed > 0) {
+        changed = true;
+      }
       cell.regenTicksRemaining =
         cell.hp < cell.maxHp ? secondsToTicks(MATERIAL_PROFILES[cell.material].regenDelaySeconds) : 0;
 
       if (cell.hp === 1) {
         // The hole just closed, so the cell is solid again under whoever stands there.
         displaceOccupantsOf(world, cell, positions, occupantOrder, occupied, displacements);
+        changed = true;
       }
+    }
+    if (changed) {
+      markWorldChanged(world);
     }
   }
 

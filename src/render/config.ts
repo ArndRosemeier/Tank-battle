@@ -70,7 +70,7 @@ export const PALETTE = {
  */
 export const NEON = {
   structureEdgeGain: 1.25,
-  teamEdgeGain: 1.8,
+  teamEdgeGain: 3.0,
   coreGain: 1.9,
   /** Hole rims are deliberately the hottest structural line: a mechanic must read. */
   holeRimGain: 2.2,
@@ -283,21 +283,32 @@ export const CAMERA = {
    * composition work instead of a cropped foreground tank.
    */
   wideOffsetFractions: { x: 0.36, y: 0.56, z: 0.55 },
+  /** The `combat` demo pose: behind/right of the player, looking down the corridor. */
+  combatBackMetres: 8.0,
+  combatSideMetres: 0,
+  combatUpMetres: 7.0,
+  combatLookAheadMetres: 9.0,
+  combatTargetHeightMetres: 1.0,
 } as const;
 
-/** The placeholder tanks: dimensions in metres, and the sweep of the debug animation. */
+/**
+ * The playable tank: the A3b body is a 1 m-radius circle, so the rendered hull is
+ * 2.0 m wide (half-width 1.0 ≤ radius × 1.05) and 2.6 m long. The turret and gun scale
+ * with it. The sweep fields remain for the A2 showcase fixture; the app drives the
+ * turret from sim state instead.
+ */
 export const TANK = {
-  hullWidthMetres: 2.5,
-  hullHeightMetres: 0.5,
-  hullLengthMetres: 3.4,
-  turretWidthMetres: 2.0,
-  turretHeightMetres: 0.56,
-  turretLengthMetres: 1.7,
-  barrelLengthMetres: 2.0,
+  hullWidthMetres: 2.0,
+  hullHeightMetres: 0.45,
+  hullLengthMetres: 2.6,
+  turretWidthMetres: 1.4,
+  turretHeightMetres: 0.46,
+  turretLengthMetres: 1.2,
+  barrelLengthMetres: 1.4,
   /** The barrel tube and its muzzle brake. */
-  barrelDiameterMetres: 0.32,
-  muzzleDiameterMetres: 0.55,
-  muzzleLengthMetres: 0.46,
+  barrelDiameterMetres: 0.24,
+  muzzleDiameterMetres: 0.4,
+  muzzleLengthMetres: 0.32,
   /** A small rest yaw so the gun reads from the follow pose. */
   turretRestYawRadians: -0.8,
   /** The trivial animation: turret yaw sweep amplitude, in radians. */

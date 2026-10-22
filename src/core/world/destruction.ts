@@ -8,7 +8,7 @@
 import type { Rng } from '../rng.ts';
 import { MATERIAL_PROFILES, secondsToTicks } from './constants.ts';
 import { spawnDebris } from './debris.ts';
-import { blockAt, cellAt, cellIndex, cellState, type World } from './state.ts';
+import { blockAt, cellAt, cellIndex, cellState, markWorldChanged, type World } from './state.ts';
 
 /** What one `damageCell` call did. */
 export interface CellDamageResult {
@@ -51,10 +51,12 @@ export function damageCell(world: World, x: number, z: number, amount: number, r
   cell.regenTicksRemaining = secondsToTicks(MATERIAL_PROFILES[cell.material].regenDelaySeconds);
 
   if (cell.hp > 0) {
+    markWorldChanged(world);
     return { damageApplied: applied, hpRemaining: cell.hp, destroyedNow: false, blocksSpawned: 0, shardsSpawned: 0 };
   }
 
-  const spawn = spawnDebris(world, cell, rng);
+  const spawn = spawnDebris(world, cell, rng, false);
+  markWorldChanged(world);
   return {
     damageApplied: applied,
     hpRemaining: 0,
@@ -77,9 +79,11 @@ export function damageBlock(world: World, x: number, z: number, amount: number):
   const applied = Math.min(amount, block.hp);
   block.hp -= applied;
   if (block.hp > 0) {
+    markWorldChanged(world);
     return { damageApplied: applied, hpRemaining: block.hp, destroyedNow: false };
   }
   world.blocks.delete(cellIndex(world, x, z));
+  markWorldChanged(world);
   return { damageApplied: applied, hpRemaining: 0, destroyedNow: true };
 }
 

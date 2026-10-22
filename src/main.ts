@@ -5,8 +5,8 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { FixedStep } from './core/timestep.ts';
 import { requireElement } from './entry/dom.ts';
+import { createHud } from './entry/hud.ts';
 import { CameraRig } from './render/cameraRig.ts';
 import { isCameraPoseName, type CameraPoseName } from './render/cameraMath.ts';
 import {
@@ -16,28 +16,32 @@ import {
   PALETTE,
   POST,
   SURFACE_DETAIL,
+  TANK,
 } from './render/config.ts';
 import { getSurfaceDetail, setSurfaceDetail } from './render/neonSurface.ts';
-import { buildArenaScene } from './render/sceneAssembly.ts';
+import { createPlayableScene } from './render/playableScene.ts';
+import { measureScene } from './render/sceneStats.ts';
+import { createBrowserInput } from './game/browserInput.ts';
+import { RELOAD_TICKS } from './core/sim.ts';
+import { PLAYABLE_BOUNDS } from './game/level.ts';
+import { PlayableSession } from './game/session.ts';
 
 /**
- * Slice A2's wiring: the three.js renderer, the post pipeline, the real A1 world, the
- * placeholder tanks and the fixed-step loop. It deliberately holds NO gameplay —
- * drive/aim/fire is A3 (`docs/DESIGN.md` §8). The one animation is the turret sweep,
- * so the loop's honesty (a fixed step feeding the renderer) is visible.
+ * Slice A3c's wiring: the real MatchState on a fixed 60 Hz bridge, two sim tanks, a
+ * pointer/keyboard player controller, shells/debris and the in-style HUD. It holds no
+ * gameplay rules of its own: input mapping lives in `src/game/input.ts`, the match and
+ * interpolation in `src/game/session.ts`, and every render choice in `src/render/`.
  *
- * Seams this file must keep:
- *  - `reportError` is still the app's ONE visible failure surface;
- *  - `FixedStep.advance` is still the ONE frame-delta-to-steps conversion;
- *  - every colour/bloom/camera number comes from `src/render/config.ts`;
- *  - `requestAnimationFrame` still appears here and nowhere else.
+ * Seams kept here:
+ *  - `reportError` is the app's ONE visible failure surface;
+ *  - `FixedStep` (inside the session) is the ONE frame-delta-to-steps conversion;
+ *  - no simulation runs in the render layer;
+ *  - the world/debris meshes rebuild only when `world.revision` changes.
  */
 
 const canvas = requireElement('app', HTMLCanvasElement, 'canvas');
 const errorBox = requireElement('error', HTMLElement, 'error surface');
-const debugBox = requireElement('debug', HTMLElement, 'debug readout');
 
-/** The app's ONE error surface: a visible banner plus the console. */
 function reportError(cause: unknown): void {
   const text = cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause);
   errorBox.textContent = text;
@@ -50,16 +54,13 @@ window.addEventListener('error', (event) => reportError(event.error ?? event.mes
 window.addEventListener('unhandledrejection', (event) => reportError(event.reason));
 
 interface LaunchOptions {
-  /** `null` leaves `SURFACE_DETAIL` at its configured default. */
   readonly detail: number | null;
-  /** A frozen screenshot pose, or `null` for the follow arm. */
   readonly pose: CameraPoseName | null;
+  readonly demo: boolean;
+  readonly ticks: number;
 }
 
-/**
- * `?detail=0…1&pose=wide|tank|first` — validated loudly: an unknown pose or a
- * malformed detail must fail visibly, never silently fall back to the default.
- */
+/** `?detail=0…1&pose=…&demo=duel&ticks=122`. Unknown values fail visibly. */
 function readLaunchOptions(): LaunchOptions {
   const query = new URLSearchParams(window.location.search);
 
@@ -76,12 +77,32 @@ function readLaunchOptions(): LaunchOptions {
   let pose: CameraPoseName | null = null;
   if (poseText !== null) {
     if (!isCameraPoseName(poseText)) {
-      throw new Error(`launch: unknown ?pose "${poseText}" — expected wide, tank or first`);
+      throw new Error(
+        `launch: unknown ?pose "${poseText}" — expected wide, tank, first or combat`,
+      );
     }
     pose = poseText;
   }
 
-  return { detail, pose };
+  const demoText = query.get('demo');
+  const demo = demoText !== null;
+  if (demo && demoText !== 'duel') {
+    throw new Error(`launch: unknown ?demo "${demoText}" — expected duel`);
+  }
+
+  const ticksText = query.get('ticks');
+  let ticks = 122;
+  if (ticksText !== null) {
+    ticks = Number(ticksText);
+    if (!Number.isInteger(ticks) || ticks < 0 || ticks > 10000) {
+      throw new Error(`launch: ?ticks must be an integer within 0…10000, got "${ticksText}"`);
+    }
+    if (!demo) {
+      throw new Error('launch: ?ticks is only valid with ?demo=duel');
+    }
+  }
+
+  return { detail, pose, demo, ticks };
 }
 
 const VIGNETTE_SHADER = {
@@ -112,14 +133,31 @@ const VIGNETTE_SHADER = {
   `,
 };
 
-/** Boots the renderer and returns the frame function for the one rAF chain. */
 function boot(): (nowMilliseconds: number) => void {
   const launch = readLaunchOptions();
   if (launch.detail !== null) {
     setSurfaceDetail(launch.detail);
   }
-
   document.body.style.background = PALETTE.background;
+
+  // The demo is frozen BEFORE the scene/camera is built, so the screenshot pose sees
+  // the final deterministic state, not an intermediate tick.
+  const session = new PlayableSession({ demo: launch.demo });
+  if (launch.demo) {
+    session.runDemo(launch.ticks);
+  }
+
+  const scene = createPlayableScene(session.state, {
+    playerTankId: session.playerTankId,
+    dummyTankId: session.dummyTankId,
+  });
+  const initialPlayer = session.player;
+  const sceneStats = measureScene(scene.group);
+  console.log(
+    `[tank-battle] playable scene: ${sceneStats.drawObjects} draw objects · ` +
+      `${sceneStats.triangles} triangles · ${sceneStats.vertices} vertices · ` +
+      `hull half-width ${TANK_HALF_WIDTH_METRES.toFixed(2)} m`,
+  );
 
   const renderer = new WebGLRenderer({
     canvas,
@@ -132,42 +170,25 @@ function boot(): (nowMilliseconds: number) => void {
   renderer.toneMapping = ACESFilmicToneMapping;
   renderer.toneMappingExposure = POST.exposure;
   renderer.outputColorSpace = SRGBColorSpace;
-  // We read the TOTAL draw calls of a composed frame, not just the last pass's.
   renderer.info.autoReset = false;
 
-  const scene = new Scene();
-  scene.background = new Color(PALETTE.background);
-  // D4's horizon falloff. Standard materials take the fog from the scene; the two
-  // custom ShaderMaterials (grid floor, rim) carry the same range in their uniforms.
-  scene.fog = new Fog(PALETTE.background, FOG.nearMetres, FOG.farMetres);
-
-  // The ONE scene assembly: the same call the budget pin measures in node.
-  const arena = buildArenaScene();
-  scene.add(arena.group);
-  const { showcase, worldMesh, tanks, focusTank, stats } = arena;
-
-  const focusSpawn = showcase.spawns[showcase.focusSpawnIndex];
-  if (!focusSpawn) {
-    throw new Error(`main: focus spawn ${showcase.focusSpawnIndex} is missing`);
-  }
-  console.log(
-    `[tank-battle] scene: ${stats.drawObjects} draw objects · ${stats.triangles} triangles · ` +
-      `${stats.vertices} vertices · budget pinned in sceneBudget.test.ts`,
-  );
+  const threeScene = new Scene();
+  threeScene.background = new Color(PALETTE.background);
+  threeScene.fog = new Fog(PALETTE.background, FOG.nearMetres, FOG.farMetres);
+  threeScene.add(scene.group);
 
   const rig = new CameraRig({
-    arena: showcase.bounds,
-    floorY: showcase.world.floorSurfaceHeightMetres,
+    arena: PLAYABLE_BOUNDS,
+    floorY: session.floorY,
     focus: {
-      position: { x: focusSpawn.xMetres, y: focusSpawn.yMetres, z: focusSpawn.zMetres },
-      yawDegrees: focusSpawn.yawDegrees,
+      position: { x: initialPlayer.x, y: session.floorY, z: initialPlayer.z },
+      yawDegrees: initialPlayer.hullYawDegrees,
     },
     pose: launch.pose,
   });
 
   const composer = new EffectComposer(renderer);
-  composer.addPass(new RenderPass(scene, rig.camera));
-
+  composer.addPass(new RenderPass(threeScene, rig.camera));
   const bloomPass = new UnrealBloomPass(
     new Vector2(1, 1),
     BLOOM.strength,
@@ -178,13 +199,14 @@ function boot(): (nowMilliseconds: number) => void {
   composer.addPass(new ShaderPass(VIGNETTE_SHADER));
   composer.addPass(new OutputPass());
 
-  const sim = { elapsed: 0, ticks: 0 };
-  const fixed = new FixedStep();
+  const hud = createHud();
+  const input = createBrowserInput(canvas);
 
   let lastFps = 0;
   let framesInWindow = 0;
   let windowStartMilliseconds = 0;
-  let readoutDirty = true;
+  let drawCalls = 0;
+  let lastSeconds: number | null = null;
 
   function resize(): void {
     const width = Math.max(window.innerWidth, 1);
@@ -197,32 +219,33 @@ function boot(): (nowMilliseconds: number) => void {
 
     composer.setPixelRatio(pixelRatio);
     composer.setSize(width, height);
-    // The bloom is the quality knob: it may render at a lower internal resolution,
-    // never at a different world resolution (§9's performance budget).
     bloomPass.setSize(
       Math.max(1, Math.floor(width * pixelRatio * BLOOM.resolutionScale)),
       Math.max(1, Math.floor(height * pixelRatio * BLOOM.resolutionScale)),
     );
-    readoutDirty = true;
   }
 
-  function updateReadout(): void {
-    const pixelWidth = renderer.domElement.width;
-    const pixelHeight = renderer.domElement.height;
-    debugBox.textContent =
-      `${pixelWidth}×${pixelHeight} · ${lastFps.toFixed(0)} fps · ` +
-      `detail ${getSurfaceDetail().toFixed(2)} · ${renderer.info.render.calls} calls · ` +
-      `${stats.drawObjects} obj · ${Math.round(stats.triangles)} tri · ` +
-      `pose ${launch.pose ?? 'follow'} · L detail`;
-    debugBox.style.color = PALETTE.debugText;
+  function updateHud(): void {
+    const player = session.state.tanks[session.playerTankId];
+    const dummy = session.state.tanks[session.dummyTankId];
+    if (!player || !dummy) {
+      throw new Error('main: the playable session lost a tank');
+    }
+    hud.update({
+      status: session.state.status,
+      outcome: session.state.outcome,
+      winnerTeamId: session.state.winnerTeamId,
+      playerTeamId: player.teamId,
+      targetTeamId: dummy.teamId,
+      playerHp: player.hp,
+      playerMaxHp: player.maxHp,
+      targetHp: dummy.hp,
+      targetMaxHp: dummy.maxHp,
+      reloadTicksRemaining: player.reloadTicksRemaining,
+      reloadTicks: RELOAD_TICKS,
+      fps: lastFps,
+    });
   }
-
-  function step(stepSeconds: number): void {
-    sim.elapsed += stepSeconds;
-    sim.ticks += 1;
-  }
-
-  let lastSeconds: number | null = null;
 
   function frame(nowMilliseconds: number): void {
     try {
@@ -234,18 +257,31 @@ function boot(): (nowMilliseconds: number) => void {
       const frameSeconds = nowSeconds - lastSeconds;
       lastSeconds = nowSeconds;
 
-      fixed.advance(frameSeconds, step);
-
-      for (const tank of tanks) {
-        tank.sweep(sim.elapsed);
+      if (!session.demo) {
+        session.advance(frameSeconds, input.read());
       }
 
+      const alpha = session.demo ? 1 : session.alpha;
+      const frames = session.interpolatedTanks(alpha);
+      const playerFrame = frames.find((frame) => frame.id === session.playerTankId);
+      if (!playerFrame) {
+        throw new Error('main: the interpolated player frame is missing');
+      }
+
+      rig.setFocus({
+        position: { x: playerFrame.x, y: session.floorY, z: playerFrame.z },
+        yawDegrees: playerFrame.hullYawDegrees,
+      });
       rig.update(frameSeconds);
-      focusTank.group.visible = !rig.firstPerson;
-      worldMesh.update(rig.camera.position);
+      scene.setPlayerHidden(rig.firstPerson);
+      scene.setTanks(frames);
+      scene.setShells(session.state.shells);
+      scene.syncWorld();
+      scene.updateCamera(rig.camera.position);
 
       renderer.info.reset();
       composer.render();
+      drawCalls = renderer.info.render.calls;
 
       framesInWindow += 1;
       const windowSeconds = (nowMilliseconds - windowStartMilliseconds) / 1000;
@@ -253,19 +289,19 @@ function boot(): (nowMilliseconds: number) => void {
         lastFps = framesInWindow / windowSeconds;
         framesInWindow = 0;
         windowStartMilliseconds = nowMilliseconds;
+        updateHud();
         console.log(
           `[tank-battle] ${lastFps.toFixed(1)} fps · ${renderer.domElement.width}×${renderer.domElement.height} · ` +
-            `${renderer.info.render.calls} draw calls · ${stats.drawObjects} draw objects · ` +
-            `${stats.triangles} triangles · ${stats.vertices} vertices · ` +
-            `detail ${getSurfaceDetail().toFixed(2)} · pose ${launch.pose ?? 'follow'} · tick ${sim.ticks}`,
+            `${drawCalls} draw calls · tick ${session.state.tick} · ` +
+            `revision ${session.state.world.revision} · detail ${getSurfaceDetail().toFixed(2)} · ` +
+            `pose ${launch.pose ?? 'follow'}`,
         );
-        readoutDirty = true;
       }
-      if (readoutDirty) {
-        updateReadout();
-        readoutDirty = false;
-      }
+      updateHud();
 
+      if (!Number.isFinite(lastFps)) {
+        throw new Error('main: fps became non-finite');
+      }
       requestAnimationFrame(frame);
     } catch (cause) {
       reportError(cause);
@@ -277,39 +313,41 @@ function boot(): (nowMilliseconds: number) => void {
     if (event.code !== 'KeyL' || event.repeat) {
       return;
     }
-    // The documented toggle: zero, then back to the configured default.
+    // The documented detail toggle: zero, then back to the configured default.
     setSurfaceDetail(getSurfaceDetail() > 0 ? 0 : SURFACE_DETAIL);
-    readoutDirty = true;
   });
   canvas.addEventListener(
     'wheel',
     (event) => {
       event.preventDefault();
       rig.zoom(event.deltaY);
-      readoutDirty = true;
     },
     { passive: false },
   );
 
-  // Exposed for the measurement harness only (fps + draw calls). It is not gameplay
-  // state and nothing in the app reads it back.
   const debugApi = {
     fps: () => lastFps,
-    drawCalls: () => renderer.info.render.calls,
+    drawCalls: () => drawCalls,
     detail: () => getSurfaceDetail(),
     pixels: () => ({ width: renderer.domElement.width, height: renderer.domElement.height }),
-    ticks: () => sim.ticks,
+    ticks: () => session.state.tick,
     pose: () => launch.pose ?? 'follow',
-    sceneStats: () => stats,
+    demo: () => session.demo,
+    revision: () => session.state.world.revision,
+    shells: () => session.state.shells.length,
+    playerHp: () => session.state.tanks[session.playerTankId]?.hp ?? -1,
+    dummyHp: () => session.state.tanks[session.dummyTankId]?.hp ?? -1,
+    sceneStats: () => sceneStats,
   };
   (window as Window & { __TANK_BATTLE__?: typeof debugApi }).__TANK_BATTLE__ = debugApi;
 
   resize();
-  updateReadout();
-  debugBox.style.display = 'block';
-
+  updateHud();
   return frame;
 }
+
+/** Measured from the render geometry constants: hull width / 2. */
+const TANK_HALF_WIDTH_METRES = TANK.hullWidthMetres / 2;
 
 try {
   const frame = boot();

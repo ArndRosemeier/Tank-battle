@@ -197,6 +197,17 @@ describe('the combat core', () => {
     ).toThrow(/shares cell|overlaps/);
   });
 
+  it('two tanks in adjacent cells whose circles overlap are rejected at match creation', () => {
+    expect(() =>
+      matchWithTeams([
+        { id: 0, tanks: [{ xMetres: 5, zMetres: 5 }] },
+        // Cell (2, 2) is x 4…6; cell (3, 2) is x 6…8. The centres are 1.9 m apart,
+        // so the SAME-CELL check cannot catch this one; only circle overlap can.
+        { id: 1, tanks: [{ xMetres: 6.9, zMetres: 5 }] },
+      ]),
+    ).toThrow(/overlaps/);
+  });
+
   it('a blocked diagonal drive slides along the free x axis', () => {
     // A wall directly north; a diagonal north-east move must slide east rather than
     // stop dead. The tank starts clear of the wall and drives until it reaches it.

@@ -31,23 +31,74 @@
         display: none;
         z-index: 2;
       }
-      #debug {
+      #hud {
         position: fixed;
-        left: 14px;
-        bottom: 12px;
-        font-size: 11px;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-        white-space: pre;
+        inset: 0;
         pointer-events: none;
         display: none;
         z-index: 1;
+        font-size: 11px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        text-shadow: 0 0 8px currentColor;
+      }
+      .hud-block {
+        position: absolute;
+        display: grid;
+        gap: 5px;
+        padding: 7px 10px;
+        border-left: 1px solid currentColor;
+        background: linear-gradient(90deg, rgba(0, 0, 0, 0.55), transparent);
+      }
+      #hud-player { left: 18px; bottom: 18px; }
+      #hud-target { right: 18px; top: 18px; text-align: right; border-left: 0; border-right: 1px solid currentColor; background: linear-gradient(270deg, rgba(0, 0, 0, 0.55), transparent); }
+      #hud-fps { right: 18px; bottom: 18px; opacity: 0.75; text-align: right; }
+      .hud-label { opacity: 0.7; font-size: 10px; }
+      .hp-bar { display: flex; gap: 3px; }
+      .hp-seg { width: 28px; height: 5px; background: currentColor; opacity: 0.16; }
+      .hp-seg.live { opacity: 0.95; box-shadow: 0 0 8px currentColor; }
+      .reload-row { display: flex; align-items: center; gap: 7px; opacity: 0.8; }
+      #hud-reload { width: 30px; height: 30px; display: block; transform: rotate(-90deg); }
+      #hud-reload-track { fill: none; stroke: currentColor; opacity: 0.17; stroke-width: 1.4; }
+      #hud-reload-arc { fill: none; stroke: currentColor; stroke-width: 2.1; stroke-linecap: butt; }
+      #hud-banner {
+        position: absolute;
+        left: 50%;
+        top: 42%;
+        transform: translate(-50%, -50%);
+        padding: 12px 24px;
+        border: 1px solid currentColor;
+        background: rgba(0, 0, 0, 0.72);
+        font-size: 22px;
+        letter-spacing: 0.28em;
+        display: none;
+        white-space: nowrap;
+        text-shadow: 0 0 14px currentColor;
       }
     </style>
   </head>
   <body>
     <canvas id="app" aria-label="Tank Battle game field"></canvas>
-    <div id="debug" aria-live="off"></div>
+    <div id="hud" aria-live="off">
+      <div id="hud-player" class="hud-block">
+        <div class="hud-label">HULL</div>
+        <div id="hud-player-hp" class="hp-bar"></div>
+        <div class="reload-row">
+          <svg id="hud-reload" viewBox="0 0 30 30" aria-hidden="true">
+            <circle id="hud-reload-track" cx="15" cy="15" r="12"></circle>
+            <circle id="hud-reload-arc" cx="15" cy="15" r="12"></circle>
+          </svg>
+          <span id="hud-reload-label">RELOAD</span>
+        </div>
+      </div>
+      <div id="hud-target" class="hud-block">
+        <div class="hud-label">TARGET</div>
+        <div id="hud-target-hp" class="hp-bar"></div>
+        <div id="hud-target-state" class="hud-label">ACTIVE</div>
+      </div>
+      <div id="hud-fps"></div>
+      <div id="hud-banner" role="status"></div>
+    </div>
     <div id="error" role="alert"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

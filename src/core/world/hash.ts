@@ -14,7 +14,7 @@ import { listBlocks, type World } from './state.ts';
 /** An 8-character hex FNV-1a hash of the world's canonical state text. */
 export function hashState(world: World): string {
   const lines: string[] = [
-    `world ${world.columns}x${world.rows} floor=${millimetres(world.floorSurfaceHeightMetres)} tick=${world.tick} nextShard=${world.nextShardId}`,
+    `world ${world.columns}x${world.rows} floor=${millimetres(world.floorSurfaceHeightMetres)} tick=${world.tick} nextShard=${world.nextShardId} revision=${world.revision}`,
   ];
   for (const cell of world.cells) {
     lines.push(

@@ -36,7 +36,7 @@ export interface ArenaBounds {
 }
 
 /** The selectable deterministic screenshot poses. */
-export const CAMERA_POSE_NAMES = ['wide', 'tank', 'first'] as const;
+export const CAMERA_POSE_NAMES = ['wide', 'tank', 'first', 'combat'] as const;
 export type CameraPoseName = (typeof CAMERA_POSE_NAMES)[number];
 
 export function isCameraPoseName(value: string): value is CameraPoseName {
@@ -221,6 +221,27 @@ export function cameraPose(request: CameraPoseRequest): CameraPose {
           x: eye.x + forward.x * CAMERA.firstPersonLookAheadMetres,
           y: eye.y + Math.tan(pitchRadians) * CAMERA.firstPersonLookAheadMetres,
           z: eye.z + forward.z * CAMERA.firstPersonLookAheadMetres,
+        },
+        up: UP,
+      };
+    }
+    case 'combat': {
+      // A deterministic over-the-shoulder combat frame: behind and to the right of
+      // the player, looking down the corridor at the dummy and the in-flight shell.
+      const right: Vec3 = { x: -forward.z, y: 0, z: forward.x };
+      const eye: Vec3 = {
+        x:
+          focus.x - forward.x * CAMERA.combatBackMetres + right.x * CAMERA.combatSideMetres,
+        y: floorY + CAMERA.combatUpMetres,
+        z:
+          focus.z - forward.z * CAMERA.combatBackMetres + right.z * CAMERA.combatSideMetres,
+      };
+      return {
+        position: eye,
+        target: {
+          x: focus.x + forward.x * CAMERA.combatLookAheadMetres,
+          y: floorY + CAMERA.combatTargetHeightMetres,
+          z: focus.z + forward.z * CAMERA.combatLookAheadMetres,
         },
         up: UP,
       };
