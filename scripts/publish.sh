@@ -2,10 +2,15 @@
 #
 # publish.sh — THE one way this game reaches https://apps.futuremagic.de/tank-battle/
 #
-# It builds with the subpath base, verifies the build actually references that base
-# (a root-absolute build served under a subpath renders a BLANK page), points the host's
-# app folder at `dist/` (a symlink, so a rebuild is live immediately), proves the live
-# bytes match the build BY CONTENT, and refreshes the hub card grid.
+# It builds with the subpath base into `release/` (NEVER `dist/`), verifies the build
+# actually references that base (a root-absolute build served under a subpath is a blank,
+# button-dead page), points the host's app folder at `release/` (a symlink), proves the
+# served bytes match the build BY CONTENT, and refreshes the hub card grid.
+#
+# WHY `release/` AND NOT `dist/`: `dist/` is the local build output that the GATE and the
+# SCREENSHOT tool write on every run (base `/`). While the host pointed at `dist/`, each
+# gate run silently redeployed the live app with root-absolute asset URLs, which 404 under
+# the subpath. The published folder is now owned solely by this script.
 #
 # Usage:  bash scripts/publish.sh            # build, publish, verify
 #         SKIP_BUILD=1 bash scripts/publish.sh   # republish an existing dist/
@@ -20,7 +25,7 @@ set -uo pipefail
 SLUG="${SLUG:-tank-battle}"
 BASE="/${SLUG}/"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DIST="$ROOT/dist"
+DIST="$ROOT/release"
 TARGET="$HOME/apps/$SLUG"
 HUB="$HOME/projects/futuremagic/scripts/publish-apps-root.sh"
 LOCAL_HOST="http://127.0.0.1:8082/${SLUG}/"

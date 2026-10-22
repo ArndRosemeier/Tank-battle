@@ -37,11 +37,11 @@
 
 ## Next action (one)
 
-**Wait for the owner's play report** (he has the live P3 build at
-`https://apps.futuremagic.de/tank-battle/`, entry `index-O9fOOoAc.js`; a hard refresh is
-needed once, because the broken page is client-cached for four hours). Then P4: audio
-unlock on the first gesture, and a single DoD verification pass with numbers. Debts: 4x4
-cap ~11 %, seed-148 parked duel, ambusher/brute naming.
+**The live app is fixed and verified** at `https://apps.futuremagic.de/tank-battle/`
+(`release/`, entry `index-O9fOOoAc.js`; gate and screenshot runs no longer touch it).
+Awaiting the owner's play report on the fixed build; next slice is P4 (audio unlock on any
+first gesture + a single DoD scoreboard). Debts: 4x4 cap ~11 %, seed-148 parked duel,
+ambusher/brute naming.
 
 ## Open questions for the owner
 

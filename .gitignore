@@ -19,3 +19,6 @@ coverage/
 
 # batch evidence (written by scripts/batch.ts)
 reports/
+
+# the published build (owned by scripts/publish.sh; dist/ is local only)
+release/

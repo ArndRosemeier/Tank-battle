@@ -166,11 +166,15 @@ RECOVERY | repo=/home/administrator/projects/Tank battle | remote=https://github
   browser a UNIQUE `--user-data-dir`, capture every PID whose command line names that dir,
   kill from the captured file, and verify with `ps -eo comm= | grep -cx "^chrome$"` == 0.
   That is what `scripts/shot-live.sh` now does.
-- `TRAP` — **a screenshot tool redeployed the live app.** `shot.sh` ran `pnpm build` into the
+- `TRAP` — **the gate redeployed the live app.** `shot.sh` ran `pnpm build` into the
   main `dist/`, which the public host serves by symlink. That build used base `/`, so the
   live page asked for `/assets/index-*.js` — which 404s under `/tank-battle/` — and EVERY
   BUTTON WAS DEAD. The owner found it, not the verification. Rule: exactly one writer of
   `dist/` (`publish.sh`), and every other tool builds into its own scratch dir. `publish.sh`
-  now stages the build and MERGES it into `dist/` (never wipes) so a CDN-cached `index.html`
-  (fixed name, four-hour TTL) still finds the asset hashes it references, and it verifies
-  the PUBLIC asset answers 200, not merely that the page names it.
+  `shot.sh` was only the first offender; **the gate itself** runs `pnpm build` with base `/`
+  on every run, so every gate run since publishing also broke the live page. Root fix: the
+  published folder is now `release/`, owned solely by `publish.sh`; `dist/` is local scratch
+  that the gate and screenshots may rewrite freely, and the host symlink points at
+  `release/`. `publish.sh` stages the build, MERGES into `release/` (never wipes, so a
+  cached `index.html` still finds its hashes) and fetches the PUBLIC asset requiring 200.
+  Verified: a gate run and a shot.sh run both leave the served entry unchanged.

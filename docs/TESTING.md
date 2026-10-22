@@ -1603,3 +1603,21 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
   - `publish.sh` fetches the **public asset** and requires 200.
 - **Browser-side:** the HTML carries a 4-hour client cache, so a browser that loaded the
   broken page needs a hard refresh (or a `?v=` URL) to see the fix.
+
+### live outage, second cause — and the structural fix
+
+- The first repair (subpath rebuild) did not hold: the origin still served
+  `src="/assets/index-DhZczskG.js"`. Cause: the **gate** runs `pnpm build` (base `/`) into
+  `dist/`, the folder the host symlinked. Every gate run redeployed the broken build.
+- Structural fix: published output moved to `release/`, written only by `publish.sh`;
+  `dist/` is disposable. Host symlink now points at `release/`.
+- **Verified after the fix:**
+  - `GATE_TESTS=0 bash scripts/gate.sh` (exit 2) — served entry still
+    `/tank-battle/assets/index-O9fOOoAc.js`.
+  - `bash scripts/shot.sh tank` — served entry unchanged.
+  - `http://127.0.0.1:8082/tank-battle/` and the public URL both name that asset; it
+    answers 200.
+  - A live `?mode=team` frame renders the arena, four teams and the HUD — so the bundle
+    loads from the public URL.
+- Browser-side: the broken HTML may still be client-cached (max-age 14400); a hard refresh
+  or a `?v=` URL is required ONCE to fetch the fixed page.
