@@ -15,9 +15,9 @@ This is an audit change, not a redesign. All branch changes require independent 
 
 ## Remaining tasks, deliberately not disguised as complete
 
-1. A **tick-level presentation-event stream**: the renderer currently discovers shell firing and impacts by frame-state diffs; rapid changes between rendered frames can be missed. Add typed event records to the simulation and consume/drain once, with deterministic tests.
-2. **Consolidated renderer bootstrap**: title, spectator and player setups still have repeated WebGL renderer/post-processing configuration. Refactor only with browser screenshots and disposal tests available.
-3. **Full Chromium interaction suite**: current smoke tests title/team boot and a few user gestures. Extend to every menu, settings, pause, resize, audio unlock, transitions, and lifecycle failure injection.
+1. **Implemented:** the simulation captures tick-level fire, impact, hit and death events for live scenes; terrain regeneration/breakage still uses world-revision snapshots and should eventually move to a world mutation event stream.
+2. **Implemented:** renderer and postprocessing creation are shared in `src/render/renderStack.ts`; browser CI verifies launch transitions. Test injected GPU/context errors before treating lifecycle resilience as fully established.
+3. **Expanded Chromium smoke:** covers title settings, reduced motion, play launch, pause/settings/resume, team play/resize, spectator controls. Audio timing, GPU context loss and prolonged title replacement still need targeted soak tests.
 4. **Documentation archival**: historical ARCHITECTURE/TESTING/LEDGER material is valuable as evidence; compact the active index only after confirming link targets and migration.
 5. **Completed:** owner selected MIT; the standard LICENSE file is committed.
 

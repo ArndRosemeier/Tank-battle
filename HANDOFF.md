@@ -36,7 +36,7 @@
 - Pull request for code-quality improvements (branch `improve/code-quality-audit-20261022`), not merged.
 - Regression fixes: AI character statistics use tank slots, Windows asset serving, title renderer failure cleanup, canvas-specific default-key suppression and context-menu cleanup.
 - Shared team match/AI setup and command collection. GitHub CI and browser smoke are newly introduced and not yet verified.
-- Remaining structural work: renderer setup unification and fully tick-driven presentation events (larger behavioral changes; defer until dedicated integration testing).
+- Renderer/postprocessing bootstrap is now unified in `renderStack.ts`. Fire, impact, hit and death use tick-level capture. Terrain events still use revision-diff detection; browser CI extended.
 - License is undecided; **do not assign a license without owner's choice**.
 
 ## Next action (one)
