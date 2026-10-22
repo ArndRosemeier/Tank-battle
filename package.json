@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "batch": "node --experimental-strip-types scripts/batch.ts",
     "gate": "bash scripts/gate.sh",
     "gate:compile": "GATE_TESTS=0 bash scripts/gate.sh",
     "board": "bash scripts/board.sh"

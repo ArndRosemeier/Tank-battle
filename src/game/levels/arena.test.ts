@@ -56,6 +56,37 @@ describe('the authored arena', () => {
     expect(() => validateLevel(level)).toThrow(/spawn \d+ is not connected on foot/);
   });
 
+  it('rejects a level whose centre objective is sealed off', () => {
+    const level = cloneArena();
+    const occupied = new Set(level.cells.placements!.map((placement) => `${placement.x},${placement.z}`));
+    const closeRing = (start: number, end: number, heightMetres: number): void => {
+      const isGate = (x: number, z: number): boolean => {
+        const nearX = x <= start + 1 || x >= end - 1;
+        const nearZ = z <= start + 1 || z >= end - 1;
+        return nearX && nearZ;
+      };
+      for (let x = start; x <= end; x += 1) {
+        for (const z of [start, end]) {
+          if (isGate(x, z) && !occupied.has(`${x},${z}`)) {
+            level.cells.placements!.push({ x, z, material: 'wall', heightMetres });
+            occupied.add(`${x},${z}`);
+          }
+        }
+      }
+      for (let z = start + 1; z < end; z += 1) {
+        for (const x of [start, end]) {
+          if (isGate(x, z) && !occupied.has(`${x},${z}`)) {
+            level.cells.placements!.push({ x, z, material: 'wall', heightMetres });
+            occupied.add(`${x},${z}`);
+          }
+        }
+      }
+    };
+    closeRing(5, 18, 4.8);
+    closeRing(8, 15, 4.2);
+    expect(() => validateLevel(level)).toThrow(/arena centre cell .* is not reachable/);
+  });
+
   it('the arena grid is invariant under 90° rotation', () => {
     // The validator's symmetry branch is the direct check; a single asymmetric cell
     // must be named by cell.

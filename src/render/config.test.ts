@@ -4,6 +4,7 @@ import {
   PALETTE,
   TANK,
   SURFACE_LUMA_BAND,
+  isLowCover,
   rec709Luminance,
   srgbLuma,
   teamEdgeGainFor,
@@ -38,6 +39,15 @@ describe('render palette', () => {
     expect(hullHalfWidth).toBeLessThanOrEqual(TANK_RADIUS_METRES * 1.05);
     // The outboard pods are the actual widest geometry: 0.9 + 0.14 / 2 = 0.97 m.
     expect(0.9 + 0.14 / 2).toBeLessThanOrEqual(hullHalfWidth + 1e-12);
+  });
+
+  it('the low-cover predicate classifies the 1.2 m barrier, not the tall walls', () => {
+    expect(isLowCover(1.2)).toBe(true);
+    expect(isLowCover(1.5)).toBe(true);
+    expect(isLowCover(4.2)).toBe(false);
+    expect(isLowCover(4.8)).toBe(false);
+    expect(() => isLowCover(-0.1)).toThrow(/height/);
+    expect(() => isLowCover(Number.NaN)).toThrow(/height/);
   });
 
   it('surface albedos sit inside §9’s 2–10 % sRGB-luminance band', () => {

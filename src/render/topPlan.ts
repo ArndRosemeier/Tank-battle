@@ -20,7 +20,7 @@ import {
 } from 'three';
 import { CELL_SIZE_METRES } from '../core/world.ts';
 import type { LevelDefinition } from '../game/levels/format.ts';
-import { LOW_COVER_MAX_HEIGHT_METRES, PALETTE, teamColor } from './config.ts';
+import { isLowCover, PALETTE, teamColor } from './config.ts';
 
 const MARKER_Y = 12;
 
@@ -129,7 +129,7 @@ export function createTopPlan(level: LevelDefinition): TopPlan {
     const color = new Color(
       central
         ? PALETTE.topObjectiveFill
-        : placement.heightMetres <= LOW_COVER_MAX_HEIGHT_METRES
+        : isLowCover(placement.heightMetres)
           ? PALETTE.topLowFill
           : PALETTE.topWallFill,
     );

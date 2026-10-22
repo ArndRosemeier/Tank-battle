@@ -16,3 +16,6 @@ coverage/
 
 # generated-asset probes (promoted into assets/ only after review)
 .probe-assets/
+
+# batch evidence (written by scripts/batch.ts)
+reports/

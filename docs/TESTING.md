@@ -93,7 +93,21 @@ never "it passed".
 | Off-grid and illegal-height data fail before a world exists | `rejects an off-grid or illegal material before a world is built` | `src/game/levels/arena.test.ts` | place at x=24, or at 0.1 m (≤ floor) → the bounds/height assertion reds |
 | No two spawns have a direct centre line | `no spawn has a clear straight line to another spawn` | `src/game/levels/arena.test.ts` | remove one screen wall (or its three rotations) → the blocked-line assertion reds |
 
-The A3a block (20 rows), the A3b block (7 rows) and the A3c block (11 rows) are direct assertions; A4 adds seven level-validation pins. **No mutation differential was run for A3a/A3b/A3c/A4**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
+| The arena centre objective is reachable from every spawn | `rejects a level whose centre objective is sealed off` | `src/game/levels/arena.test.ts` | close both rings' gateways symmetrically; without the central flood-fill check the spawn-only validator still passes |
+| A 1.2 m barrier is low cover; a 4.2–4.8 m wall is not | `the low-cover predicate classifies the 1.2 m barrier, not the tall walls` | `src/render/config.test.ts` | change `LOW_COVER_MAX_HEIGHT_METRES` to 0.5 → the 1.2 m assertion reds |
+| LOS sees over low cover and is blocked by a tall wall | `sees over a 1.2 m barrier but not through a 4.8 m wall` | `src/core/ai/perception.test.ts` | remove height awareness (`isSolidAt` at one height) → the low barrier blocks or the tall wall clears |
+| Enemy memory is team-aware and expires | `is team-aware and keeps a short last-seen memory` | `src/core/ai/perception.test.ts` | drop the team check or never expire → a dead/teammate target or a stale sighting remains |
+| A destroyed wall invalidates a cached route and a healed wall closes it | `invalidates a cached path when a wall is destroyed and routes again` | `src/core/ai/navigation.test.ts` | ignore `world.revision` in `NavigationCache` → the old null/route survives the mutation; skip regeneration → the reopened route stays |
+| The path cache only recomputes on revision or goal-cell change | `only recomputes for a new revision or a new goal cell` | `src/core/ai/navigation.test.ts` | key the cache on the start cell too, or recompute on every call → the computation count rises |
+| Every smoothed waypoint is body-clear | `keeps the body clear of walls on every smoothed waypoint` | `src/core/ai/navigation.test.ts` | remove the footprint check from `cellIsFreeForBody`/smoothing → a waypoint clips a wall |
+| The AI fires only inside the current aim cone | `fires only when the target is inside the current aim cone` | `src/core/ai/controller.test.ts` | fire whenever a visible target exists → the misaligned case reds |
+| Decisions happen every 6 ticks and hold between | `decides every six ticks and holds the command in between` | `src/core/ai/controller.test.ts` | decide on every call → the decision count rises; rebuild the command each call → object identity reds |
+| A destroyed wall changes the route within the next decision | `recomputes its route within the next decision after a wall is destroyed` | `src/core/ai/controller.test.ts` | keep the stale path past the revision → the route length/revision does not change |
+| Same seed + profile reproduces decisions | `reproduces the same decision sequence from the same seed and state` | `src/core/ai/controller.test.ts` | use `Math.random` or an unsaved counter → the two controllers diverge |
+| Profile data rejects unknown goals and bad weights | `validates vanguard and rejects unknown goals and out-of-range weights` | `src/core/ai/profile.test.ts` | skip the unknown-key or range check → a typo/weight above 1 is accepted |
+| A three-seed batch is reproducible | `reproduces the same three-seed result and trace` | `src/game/aiBatch.test.ts` | use a different controller seed derivation or drop the seed → hashes/trace differ |
+
+The A3a block (20 rows), the A3b block (7 rows) and the A3c block (11 rows) are direct assertions; A4 adds seven level-validation pins; B1a adds the two A4 gap pins and eleven AI pins. **No mutation differential was run for A3a/A3b/A3c/A4/B1a**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
 
 The differential harness is a local artifact at `.gate-logs/differential.py` (row 26)
 and `.gate-logs/differential.sh` (row 0) — both gitignored; the mutations are described
@@ -605,6 +619,76 @@ only in trim lines and small lights. The team-trim diagnostic on `wide` is orang
   (no arms were executed for A4; the matrix names the one-line red for each pin), a
   browser-level input test, publish, and AI. The top-plan arrows are authored for
   this arena, not generated from arbitrary level data.
+
+
+### row 45 — Slice B1a (AI perception, navigation, vanguard, batch)
+
+- **Full gate:** `bash scripts/gate.sh` → exit **`0`**; suite **98/98 in 21 files**
+  (vitest 5.0.5). Cheap tier (`pnpm run build`) exit `0`. Raw log at the repository
+  root `.gate-logs/gate.log`; the post-rebase run is the landing evidence.
+- **A4 findings fixed first:** `validateLevel` now floods the central objective window
+  (4×4 on this even grid) from the spawn component and requires every passable centre
+  cell; the test closes both rings' gateways symmetrically and gets a centre-cell
+  rejection. `isLowCover(height)` is the ONE predicate used by the mesh and the plan;
+  1.2 m is low, 4.2/4.8 m are not, and a 0.5 m threshold reds the pin.
+- **AI core:** `src/core/ai/` contains `perception.ts` (3D height-aware sightline,
+  `visibleEnemies`, `PerceptionMemory`), `navigation.ts` (four-neighbour A* over body-
+  free centres, body-clear smoothing, `NavigationCache` invalidated by `world.revision`
+  or a goal CELL, `reachablePointNear` patrol), `profile.ts` (`validateAIProfile`,
+  `VANGUARD_PROFILE`), `controller.ts` (`AIController implements Controller`, 6-tick
+  decisions, held command, seeded tie-break/jitter/phase), and `batch.ts` (the pure
+  match runner). `src/core/ai.ts` is the entrance. No renderer, DOM, clock or game
+  import.
+- **Batch command:** `pnpm batch --seeds 100 --teams 2` (native
+  `node --experimental-strip-types scripts/batch.ts`). It runs real arena matches through
+  the real `createMatch`/`stepMatch`/`AIController`, writes `reports/batch.json` and
+  `reports/trace-seed-0.jsonl` (gitignored), and prints the table below.
+- **First 100 matches (two teams, one vanguard each, seeds 0–99):**
+
+  | metric | value |
+  | --- | --- |
+  | matches | 100 |
+  | draws | 0 |
+  | win split | team 0: **85** · team 1: **15** |
+  | mean match ticks | **315.4** |
+  | median match ticks | **306** |
+  | cap hits | **0 / 100 (0.0 %)** |
+  | shots / hits / accuracy | 547 / 489 / **89.4 %** |
+  | kills | 100 |
+  | time-to-kill (first shot → first death) | mean **161.9** ticks; median **145**; n=100 |
+  | deaths by cause | shell **100** · clock **0** |
+
+  Match lengths range **290–367** ticks (p25 297, p75 334); 21 distinct lengths across
+  the 100 seeds. The median is the number the dispatcher asked to see; the cap was hit
+  **never** in this run.
+- **What the first batch told us that the code did not:**
+  - the **team-0/team-1 win split is 85/15** even on the 4-fold arena. The cause is the
+    simulation's ascending tank-id command/fire order plus the differing seeded
+    reaction phases, not spawn asymmetry. B1b/B2 must decide the fairness remedy; it is
+    recorded, not hidden by a batch tweak.
+  - the initial vanguard stood still for all 18,000 ticks because the geometric centre
+    is the central pillar cell and A* refused a solid goal. The fix is a reachable patrol
+    point (`reachablePointNear`); this was a real 0-shot / 100 %-cap run before the fix.
+  - a boundary lane gave the tank exactly zero side clearance (`z = 1.0006` against a
+    4 m wall); it wedged at x≈3.93. Navigation now rejects zero-clearance boundary
+    cells, and body-clear smoothing samples the real footprint.
+  - with only the six-tick cadence and no jitter every seed produced the **same** match
+    (349 ticks, team 0). Seeded decision phase + stand-off/patrol jitter now produce 21
+    lengths and both winners; the deterministic batch pin still passes.
+  - aiming at the physical body centre (0.75 m above the floor) made every shot hit the
+    low cover or miss: **0 hits and 100 % cap** in a trial. The vanguard now aims at the
+    turret point (1.0 m above the floor); the shell-over-cover limitation is recorded.
+  - all deaths were shell deaths; the lethal clock was never reached (match length is
+    far below 600 ticks). No draws.
+- **Pins:** 11 AI tests plus the two A4 gap tests above. The AI tests cover LOS over low
+  cover/tall walls, memory, destroyed/healed route invalidation, revision/goal cache,
+  body-clear waypoints, aim cone, 6-tick held decisions, route recomputation within the
+  next decision, same-seed decisions, profile validation and 3-seed batch reproduction.
+  A test-only 600-tick cap keeps the batch pin fast; the reported 100-match run uses the
+  real 18,000-tick rules.
+- **Not run:** live all-AI spectator, other characters, cover/flank/breach behaviour,
+  a GPU frame-rate claim, or a mutation differential. The vanguard's no-route stop and
+  its turret-centre aim are deliberate B1a limits, not a claim of tactical play.
 
 ## Honest records
 

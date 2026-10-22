@@ -10,6 +10,7 @@ Dependencies point **downward only**; nothing below a layer may import from abov
 | **entry · DOM** | `src/entry/dom.ts` | The one way to obtain a DOM node the app cannot run without, with the narrowed type. |
 | **core** | `src/core/*.ts` | Pure simulation: no DOM, no time source, no globals. Takes numbers in, returns numbers out, so it tests in `node`. |
 | **core · sim** | `src/core/sim/*.ts`, entrance `src/core/sim.ts` | The combat layer over A1: builds a match from teams/spawns, validates commands, advances one fixed tick (drive with tank bodies, turret/pitch, world, bleed, swept-muzzle fire, shells), resolves 3D shell collisions, owns last-team/tick-cap outcomes and stats, and exposes the `Controller` seam and the match hash. **No renderer, DOM, input, AI, host clock or per-tank `isPlayer`.** |
+| **core · ai** | `src/core/ai/*.ts`, entrance `src/core/ai.ts` | Perception (height-aware 3D sightline + last-seen memory), A* navigation with a `world.revision`/goal cache and body-clear smoothing, the validated vanguard profile, the 10 Hz `AIController`, and the pure headless batch runner. Renderer-free, DOM-free and clock-free; it uses only world and sim APIs. **No live spectator, HUD or game-layer import.** |
 | **game** | `src/game/*.ts`, `src/game/levels/*.ts` | The app's pure game layer ABOVE the core: the authored `ARENA` data plus `validateLevel`, the pure pointer/keys→`TankCommand` mapping, browser event gathering, and the `PlayableSession` bridge (FixedStep + MatchState + interpolation + demo seeding). `input.ts`, `levels/format.ts`, `levels/arena.ts` and `session.ts` are renderer-free/clock-free and node-tested; `browserInput.ts` is the only DOM reader. |
 | **core · world** | `src/core/world/*.ts`, entrance `src/core/world.ts` | The world model: cells with height, destruction, two debris tiers, slow regeneration with displacement, and the state hash. Pure data and functions — it has **no tank, shell or AI concept**; tanks arrive as occupant positions and shells as damage calls. |
 | **render · tuning** | `src/render/config.ts` | The ONE tuning module: palette, team-luma gains, HDR gains, §9 albedo band, neutral rim tint, bloom, post, fog, camera distances, grid presentation, surface seams, scene budget, `SURFACE_DETAIL`; the shared cell size is imported from `src/core/world.ts`. Every render constant lives here; a source scan fails on a hex colour anywhere else. |
@@ -76,8 +77,14 @@ running headless in `node`.
 | the frame→ticks bridge | `PlayableSession.advance(frameSeconds, input)` · `.step(command)` | `src/game/session.ts:164` · `src/game/session.ts:182` | The ONLY place a frame delta becomes `FixedStep` ticks for the app; one `stepMatch` per tick, with the dummy idling. No simulation call exists in a render module. |
 | a player's command | `commandFromInput(input, hullYawDegrees)` | `src/game/input.ts:64` | The pure mapping: WASD→throttle/steer, pointer X→RELATIVE turret yaw (±60°), pointer Y→pitch (top +25°, centre 0°, bottom −30°), fire boolean. Unit-tested in node; malformed numbers throw. |
 | browser events | `createBrowserInput(canvas)` | `src/game/browserInput.ts:26` | The only DOM reader: key set, canvas-normalised pointer, click/Space fire. No pointer lock (deliberate): the cursor position is the aim, so there is no hidden/recentre state. |
+| an AI sightline | `hasLineOfSight(world, from, to)` · `visibleEnemies(state, tank)` | `src/core/ai/perception.ts:49` · `src/core/ai/perception.ts:77` | Samples a 3D segment through `isSolidAt` at eye height (`floor + 1.6 m`) to the target's turret point (`floor + 1.0 m`); a 1.2 m barrier is below the line, a 4.8 m wall blocks it. Team-aware, no shell resolver. |
+| short enemy memory | `PerceptionMemory.update(state, tank)` · `.latest()` | `src/core/ai/perception.ts:99` | Remembers the last seen position/tick per enemy for the profile's `memoryTicks`; memory is for navigation, never for firing. |
+| AI navigation | `NavigationCache.findPath(...)` · `reachablePointNear(...)` | `src/core/ai/navigation.ts:120` · `src/core/ai/navigation.ts:209` | A* over four-neighbour body-free cell centres; the cache recomputes only on `world.revision` or a new goal CELL. Smoothing uses a sampled body-clear line. Boundary rows with zero clearance are rejected so a tank cannot wedge on an arena edge. |
+| AI character data | `validateAIProfile(input)` · `VANGUARD_PROFILE` | `src/core/ai/profile.ts:44` · `src/core/ai/profile.ts:32` | The only profile boundary: all three goal weights (`gain-line-of-sight`, `approach-preferred-range`, `fire-in-cone`) must be present and in 0…1; unknown keys and invalid ranges throw. |
+| an AI decision | `AIController.commandFor(state, tankId)` | `src/core/ai/controller.ts:119` | One controller per tank; decides on the first call and every 6 ticks (default phase 0), holds the SAME command object in between, and never reads a clock. The controller options can set the cadence/phase in tests; the vanguard weighs LOS, approach and fire. |
+| a batch of AI matches | `runBatchMatches(setup, options)` · `pnpm batch` | `src/core/ai/batch.ts:125` · `scripts/batch.ts:1` | Real `createMatch`/`stepMatch`/`hashMatch` on a supplied level, one vanguard tank per team. Writes `reports/batch.json` and one seed's JSONL trace; `reports/` is gitignored. Summary keeps mean/median length, cap hits, accuracy, TTK from first shot and deaths by cause. |
 | the authored level | `ARENA` · `spawnCentreMetres(spawn)` | `src/game/levels/arena.ts:1` | The ONE 48×48 m, 24×24-cell, 4-fold arena: four 2×2 corner spawn rooms with screened dogleg exits, outer/inner square rings with 2×2 corner gateways, breakable central pillar block, ambush pockets and low coverage. `session.ts` is the only app caller. |
-| load-time level validation | `validateLevel(level)` | `src/game/levels/format.ts:105` | The ONE boundary before `createMatch`: square grid, legal materials/heights, exactly four unique 2–4-cell spawn zones, free non-overlapping spawn cells, flood-fill on-foot connectivity from spawn 0, and 90° (therefore four-fold) cell-grid symmetry. Every cell failure names the offending `(x, z)`. Never build the app world from unvalidated data. |
+| load-time level validation | `validateLevel(level)` | `src/game/levels/format.ts:105` | The ONE boundary before `createMatch`: square grid, legal materials/heights, exactly four unique 2–4-cell spawn zones, free non-overlapping spawn cells, flood-fill on-foot connectivity from spawn 0, every passable cell in the central objective window reachable from that component, and 90° (therefore four-fold) cell-grid symmetry. Every cell failure names the offending `(x, z)`. Never build the app world from unvalidated data. |
 | the demo/screenshot scenario | `?demo=duel&ticks=122` · `PlayableSession.runDemo(ticks)` | `src/main.ts:64` · `src/game/session.ts:205` | Runs a fixed scripted sequence on the authored arena, freezes before the first frame, and seeds one visible ambush-pillar breach. At tick 122 the dummy is at 1 HP and the third shell is in flight; the win is tick 124. |
 | the top review pose | `?pose=top` · `createTopPlan(ARENA)` | `src/main.ts:191` · `src/render/topPlan.ts:26` | One orthographic camera looks straight down with `up = (0, 0, −1)`; the same app scene/composer is rendered with all tanks hidden. The overlay draws team spawn zones, white L-shaped screened-exit arrows, dark tall-wall/low-cover/objective fills, and the HTML legend. `shot.sh top` selects it. |
 | interpolation | `PlayableSession.interpolatedTanks(alpha)` | `src/game/session.ts:230` | Tanks interpolate x/z/hull/turret/pitch between the previous and current tick; yaw uses the shortest arc. Shells render at the latest state (no interpolation), chosen because their flight is short and a trail already reads motion. |
@@ -86,7 +93,7 @@ running headless in `node`.
 | shells/debris views | `createShellView()` · `createDebrisView(world)` | `src/render/shellView.ts:31` · `src/render/debrisView.ts:24` | One merged streak line buffer for shells; one merged `NeonSurface` for A1 blocks and shards. Both are data-derived, never patched. |
 | the in-style HUD | `createHud()` | `src/entry/hud.ts:42` | DOM only: 3-segment player/target HP, reload ring, fps and the victory/defeat banner. Colours come from `PALETTE`/`teamColor`; no HTML controls. |
 | the combat screenshot pose | `cameraPose('combat', ...)` | `src/render/cameraMath.ts:228` | Deterministic behind/above player frame for the demo breach, target and in-flight shell. Added to `CAMERA_POSE_NAMES`; `shot.sh combat` selects it. |
-| a low shoot-over barrier | `LOW_COVER_MAX_HEIGHT_METRES` | `src/render/config.ts:195` | ONE height threshold distinguishes low cover from tall architecture in both the 3D edge hue (`worldMesh`) and the plan fill (`topPlan`); the A1 height model remains the collision authority. |
+| a low shoot-over barrier | `isLowCover(heightMetres)` · `LOW_COVER_MAX_HEIGHT_METRES` | `src/render/config.ts:193` | ONE predicate/height threshold distinguishes low cover from tall architecture in both the 3D edge hue (`worldMesh`) and the plan fill (`topPlan`); the A1 height model remains the collision authority. |
 | the spatial look budget | `tile_p90(luminance)` | `scripts/look-budget.py:97` | Splits a frame into 24×14 tiles, takes each tile median, and requires p90 ≤ 30.6 L (12 %); alongside the existing whole-frame gates. Proof injection reaches 255 L / 100 % and FAILS. |
 | the screenshot command | `scripts/shot.sh [pose] [detail] [out]` | `scripts/shot.sh:1` | Accepts `wide \| tank \| first \| combat \| top`; `combat` appends `&demo=duel&ticks=122`, `top` selects the plan, every run executes the look budget, and the trapped Chrome tree is reaped (`chrome processes after cleanup: 0`). |
 | a canonical core hash | `fnv1a(text)` | `src/core/fnv1a.ts:14` | The ONE FNV-1a implementation; both `hashState` (world) and `hashMatch` (combat) feed it. Do not copy the offset basis/prime into a third hasher. |
@@ -341,10 +348,11 @@ running headless in `node`.
 
 ## 4 · Known debt
 
-- **A4 is a single playable duel on the authored arena, not the full game.** One
-  player tank, one static training dummy and a minimal HUD. Slice B owns AI
-  profiles/batch play; A5 owns the full interface. The A2 showcase and its 16-tank
-  budget fixture are retained only for the existing look/budget pins.
+- **A4/B1a is still not the full game.** The app is a single playable duel on the
+  authored arena; B1a adds the headless all-AI batch and one pilot, but not the live
+  spectator mode, the four-character cast or a full HUD. A5 owns the interface. The A2
+  showcase and its 16-tank budget fixture are retained only for the existing
+  look/budget pins.
 - **The body is a circle but the hull is a 2.6 m box.** The width fits the 1 m radius
   (1.00 m half-width), but the nose/tail extend beyond the circle and the whole turret
   tilts for pitch. A capsule/oriented body and a gun-only pitch pivot remain future
@@ -353,6 +361,14 @@ running headless in `node`.
   fixture measures `buildArenaScene` (16 showcase tanks), while the A4 playable scene
   measured **16 draw objects / 5,808 triangles / 17,432 vertices** and **31 renderer
   calls** in a headless 1920×937 probe. Keep the old pin as a ceiling, not an app claim.
+- **B1a's vanguard is deliberately simple.** It has no cover-seeking, flanking or
+  breaching; when A* has no ground route it stops and fires if the turret is in the
+  cone. The first 100 duplicate-free matches ended with **85 team-0 vs 15 team-1
+  wins** — a tank-id/turn-order bias, not an arena asymmetry; B1b/B2 must address the
+  fairness question. Accuracy was 89.4 % and every death was by shell.
+- **Perception is sampled at 10 cm.** It uses `isSolidAt` and not the shell resolver;
+  this is a sightline, not a guarantee that a shell clears low cover. The vanguard
+  deliberately aims at the turret centre and does not plan a shoot-over arc.
 - **The top plan is a review surface, not a game camera.** Its orthographic camera,
   hidden tanks, transparent plan fills and white exit arrows are presentation only;
   `?pose=top` is not selectable as an interactive camera. The arrows are authored to

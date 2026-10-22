@@ -1,0 +1,152 @@
+/**
+ * THE headless batch command. Native TypeScript stripping, no build, no dependency:
+ *
+ *   pnpm batch --seeds 100
+ *   node --experimental-strip-types scripts/batch.ts --seeds 100 --characters vanguard --teams 2
+ *
+ * It runs real matches on the authored ARENA through the same `createMatch` /
+ * `stepMatch` / AIController seams the game uses, writes `reports/batch.json` plus one
+ * seed's JSONL trace, and prints the table the owner judges battles with.
+ */
+
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { DEFAULT_MATCH_RULES } from '../src/core/sim.ts';
+import { runBatchMatches, type BatchOptions } from '../src/core/ai.ts';
+import { arenaBatchSetup } from '../src/game/aiBatch.ts';
+
+interface CliOptions {
+  readonly seeds: number;
+  readonly teams: number;
+  readonly character: string;
+  readonly seedStart: number;
+}
+
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
+const REPORTS = join(ROOT, 'reports');
+
+function parseArgs(argv: readonly string[]): CliOptions {
+  let seeds = 1;
+  let teams = 2;
+  let character = 'vanguard';
+  let seedStart = 0;
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === '--help' || argument === '-h') {
+      printHelp();
+      process.exit(0);
+    }
+    if (argument === '--seeds' || argument === '--teams' || argument === '--characters' || argument === '--seed-start') {
+      const value = argv[index + 1];
+      if (value === undefined) {
+        throw new Error(`batch: ${argument} needs a value`);
+      }
+      index += 1;
+      if (argument === '--seeds') seeds = positiveInteger(value, '--seeds');
+      else if (argument === '--teams') teams = positiveInteger(value, '--teams');
+      else if (argument === '--seed-start') seedStart = nonNegativeInteger(value, '--seed-start');
+      else character = value;
+      continue;
+    }
+    throw new Error(`batch: unknown argument "${argument}" (try --help)`);
+  }
+  if (character !== 'vanguard') {
+    throw new Error(`batch: B1a ships only "vanguard", got "${character}"`);
+  }
+  if (teams < 2 || teams > 4) {
+    throw new Error(`batch: --teams must be 2…4, got ${teams}`);
+  }
+  return { seeds, teams, character, seedStart };
+}
+
+function positiveInteger(value: string, label: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(`batch: ${label} must be a positive integer, got "${value}"`);
+  }
+  return parsed;
+}
+
+function nonNegativeInteger(value: string, label: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(`batch: ${label} must be a non-negative integer, got "${value}"`);
+  }
+  return parsed;
+}
+
+function printHelp(): void {
+  console.log(
+    'usage: pnpm batch [--seeds N] [--teams 2..4] [--characters vanguard] [--seed-start N]\n' +
+      '  Runs real matches on the authored arena and writes reports/batch.json + a trace.',
+  );
+}
+
+function main(): void {
+  const cli = parseArgs(process.argv.slice(2));
+  const setup = arenaBatchSetup();
+  const options: BatchOptions = {
+    seeds: cli.seeds,
+    teams: cli.teams,
+    character: cli.character,
+    seedStart: cli.seedStart,
+    rules: DEFAULT_MATCH_RULES,
+  };
+  const result = runBatchMatches(setup, options);
+  mkdirSync(REPORTS, { recursive: true });
+  const batchPath = join(REPORTS, 'batch.json');
+  writeFileSync(batchPath, `${JSON.stringify(result, null, 2)}\n`);
+  let tracePath: string | null = null;
+  if (result.traceSeed !== null) {
+    tracePath = join(REPORTS, `trace-seed-${result.traceSeed}.jsonl`);
+    writeFileSync(tracePath, result.trace.map((record) => JSON.stringify(record)).join('\n') + '\n');
+  }
+  printReport(result, batchPath, tracePath);
+}
+
+function printReport(result: ReturnType<typeof runBatchMatches>, batchPath: string, tracePath: string | null): void {
+  const s = result.summary;
+  const wins = Object.entries(s.wins)
+    .sort(([a], [b]) => Number(a) - Number(b))
+    .map(([team, count]) => `team ${team}: ${count}`)
+    .join(' · ');
+  const rows: readonly (readonly [string, string])[] = [
+    ['matches', String(s.matches)],
+    ['draws', String(s.draws)],
+    ['win split', wins || 'none'],
+    ['mean match ticks', s.meanTicks.toFixed(1)],
+    ['median match ticks', String(s.medianTicks)],
+    ['cap hits', `${s.capHits}/${s.matches} (${percent(s.capHits / s.matches)})`],
+    ['shots', String(s.shotsFired)],
+    ['hits', String(s.hits)],
+    ['accuracy', percent(s.accuracy)],
+    ['kills', String(s.kills)],
+    ['time-to-kill (ticks from first shot)', s.timeToKillTicks === null ? 'n/a' : s.timeToKillTicks.toFixed(1)],
+    ['median TTK (ticks)', s.medianTimeToKillTicks === null ? 'n/a' : String(s.medianTimeToKillTicks)],
+    ['matches with kill', String(s.matchesWithKill)],
+    ['deaths by cause', `shell ${s.deathsByCause.shell} / clock ${s.deathsByCause.clock}`],
+  ];
+  console.log(`batch: ${result.setup.character} · ${result.setup.teams} teams · seeds ${result.matches[0]?.seed ?? '-'}…${result.matches[result.matches.length - 1]?.seed ?? '-'}`);
+  console.log('| metric | value |');
+  console.log('| --- | --- |');
+  for (const [metric, value] of rows) {
+    console.log(`| ${metric} | ${value} |`);
+  }
+  console.log(`wrote ${relativeRoot(batchPath)}${tracePath ? ` and ${relativeRoot(tracePath)}` : ''}`);
+}
+
+function percent(value: number): string {
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function relativeRoot(path: string): string {
+  return path.startsWith(ROOT) ? path.slice(ROOT.length) : path;
+}
+
+try {
+  main();
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
+}

@@ -192,6 +192,14 @@ export const SURFACE_DETAIL = 0.3;
  */
 export const LOW_COVER_MAX_HEIGHT_METRES = 1.5;
 
+/** ONE classification for the shoot-over band, shared by the 3D mesh and the plan. */
+export function isLowCover(heightMetres: number): boolean {
+  if (!Number.isFinite(heightMetres) || heightMetres < 0) {
+    throw new Error(`isLowCover: height must be finite and >= 0, got ${String(heightMetres)}`);
+  }
+  return heightMetres <= LOW_COVER_MAX_HEIGHT_METRES;
+}
+
 /** Detail-map budget (§9: tileable greyscale, multiplied at ≤ 15 %). Unused in A2. */
 export const DETAIL_MAP_MAX_STRENGTH = 0.15;
 

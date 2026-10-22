@@ -185,6 +185,31 @@ export function validateLevel(level: LevelDefinition): void {
     }
   }
 
+  // The centre is the objective area: every passable cell in the central window
+  // (4×4 on an even grid, 3×3 on an odd grid) must be reachable from the spawn
+  // component. Spawn-to-spawn connectivity alone would let a sealed objective ship.
+  const centreX = (columns - 1) / 2;
+  const centreZ = (rows - 1) / 2;
+  const centreMinX = Math.ceil(centreX - 1.5);
+  const centreMaxX = Math.floor(centreX + 1.5);
+  const centreMinZ = Math.ceil(centreZ - 1.5);
+  const centreMaxZ = Math.floor(centreZ + 1.5);
+  let centreTargets = 0;
+  for (let z = centreMinZ; z <= centreMaxZ; z += 1) {
+    for (let x = centreMinX; x <= centreMaxX; x += 1) {
+      if (!passable(x, z)) continue;
+      centreTargets += 1;
+      if (!seen.has(z * columns + x)) {
+        fail(
+          `arena centre cell ${cellText(x, z)} is not reachable on foot from spawn ${level.spawns[0]!.teamId}`,
+        );
+      }
+    }
+  }
+  if (centreTargets === 0) {
+    fail('the arena centre has no passable objective cell; a sealed objective cannot be verified');
+  }
+
   // 90° rotation symmetry of the complete material/height grid.
   for (let z = 0; z < rows; z += 1) {
     for (let x = 0; x < columns; x += 1) {
