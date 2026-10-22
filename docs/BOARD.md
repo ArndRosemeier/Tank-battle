@@ -187,3 +187,9 @@ RECOVERY | repo=/home/administrator/projects/Tank battle | remote=https://github
   about a second copy step.
 
 QUEUE | row=6 | **OWNER REQUEST (2026-10-22):** "Ok, in the title screen, let a faded AI battle play in the background." Dispatched as Slice P4 (row 69) — live all-AI match behind the menu, faded and budgeted, disposed on play, plus the audio-unlock-on-any-gesture debt from P3 | src=ledger 69
+
+LANDED | row=69 | sha=9b577c7 (pushed to origin/main) | verify=MY OWN: integrated gate GREEN · 139/139 (33 files) · exit 0 | I read both frames and hashed them: `title.png` e9ae5e30 and `title-mid.png` 35ad61a7 differ, and the tanks and camera cut are visibly different moments — the background is LIVE, not a still | look, my own run on the title frame: surface median 3.1 %, tile p90 4.3 %, contrast 20.4, PASS | published P4 (`index-CavG_ZP-.js`), public page + asset + audio manifest + a clip all 200; live title captured at 1.09 MB (vs 388 KB static before) | writer findings accepted: Chrome’s `--virtual-time-budget` does not advance rAF, so the first “mid-fight” pair was the same frame; the re-shoot is real-time and `shot.sh` now warns on title/settings poses. The title needs its own renderer/composer (the game one does not exist until boot), and muted SFX still needs the event queue drained | perf: 6.8–7.3 fps at 1080p×0.75 on SwiftShader with 68–115 draw calls — a software lower bound; the owner’s GPU measured 60 fps on the game spectator. 4×4 kept, internal scale 0.75 | note=title seed is deterministic (same opening each reload); variety is a recorded candidate, not a defect.
+- `TRAP` — **`--virtual-time-budget` does not advance `requestAnimationFrame`.** Two “different”
+  title frames were the same first frame, and the hash check is what caught it. Rule: for a
+  frame that must show motion, capture in REAL time and require the two frames’ hashes to
+  differ; never trust virtual time for anything animated.

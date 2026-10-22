@@ -37,9 +37,10 @@
 
 ## Next action (one)
 
-**P4 is in flight**: a faded, live all-AI battle behind the title screen (disposed on play),
-and audio unlocking on any first gesture. Then republish and report the title look table and
-fps. Debts: 4x4 cap ~11 %, seed-148 parked duel, ambusher/brute naming.
+**Awaiting the owner's verdict** on the live P4 build (`https://apps.futuremagic.de/tank-battle/?v=8`):
+title with a live faded battle, audio on any first gesture, sounds wired. Next: P5, a single
+DoD verification pass with numbers for every clause, plus candidate polish (random title
+seed for variety). Debts: 4x4 cap ~11 %, seed-148 parked duel, ambusher/brute naming.
 
 ## Open questions for the owner
 

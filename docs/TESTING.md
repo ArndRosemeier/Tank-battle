@@ -1690,3 +1690,18 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
 - **Performance evidence from the owner's console:** spectate at **60.0 fps**, 1111×1031,
   100–121 draw calls with four AI teams. First real GPU measurement in the project; 1920×1080
   remains unconfirmed.
+
+### row 69 — the dispatcher's own verification (9b577c7)
+
+- Integrated gate 139/139, exit 0.
+- **Title frames:** captured in real time, `title.png` (tick 627) and `title-mid.png` (tick 1585)
+  are different images (hashes `e9ae5e30` / `35ad61a7`) with visibly different tank positions
+  and a different camera cut — the background is live.
+- **Look, my own run:** surface median 3.1 %, tile p90 4.3 %, contrast 20.4 → PASS. The wordmark
+  and panels stay legible over the fight.
+- **Published:** P4 entry `index-CavG_ZP-.js`; page, asset, audio manifest and a clip all 200;
+  live title frame captured at 1.09 MB.
+- **Trap recorded:** `--virtual-time-budget` does not advance `requestAnimationFrame`, so the
+  first "mid-fight" pair was one frame. Real time + differing hashes is the rule.
+- **Perf:** 6.8–7.3 fps at 1080p×0.75 on SwiftShader (software lower bound); the owner's GPU
+  measured 60 fps on the game spectator.
