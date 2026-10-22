@@ -83,8 +83,9 @@ never "it passed".
 | Tank transforms interpolate between ticks | `interpolates tank transforms between the previous and current sim tick` | `src/game/session.test.ts` | return current for every alpha, or discard the previous snapshot → the alpha0/alpha1 positions red |
 | The rendered hull half-width fits the 1 m body | `the rendered hull half-width fits inside the body radius with 5 % allowance` | `src/render/config.test.ts` | widen `TANK.hullWidthMetres` past 2.1 m → the measured half-width red |
 | The 24×14 tile p90 catches a locally bright wall | `tile_p90` gate in `python3 scripts/look-budget.py` | `scripts/look-budget.py` | remove the tile measure, or split 24×14 differently → the injection frame's 255 L p90 / FAIL would disappear |
+| The renderer rebuilds only on a world-revision change | `rebuilds only when the world revision changes` | `src/render/playableScene.test.ts` | rebuild every frame, or forget to update the stored revision → the false/false/true/false sequence reds |
 
-The A3a block (20 rows), the A3b block (7 rows) and the A3c block (10 rows) are direct assertions. **No mutation differential was run for A3a/A3b/A3c**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
+The A3a block (20 rows), the A3b block (7 rows) and the A3c block (11 rows) are direct assertions. **No mutation differential was run for A3a/A3b/A3c**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
 
 The differential harness is a local artifact at `.gate-logs/differential.py` (row 26)
 and `.gate-logs/differential.sh` (row 0) — both gitignored; the mutations are described
@@ -459,7 +460,7 @@ only in trim lines and small lights. The team-trim diagnostic on `wide` is orang
 ### row 41 — Slice A3c (playable: bridge, input, render, HUD, look hardening)
 
 - **Full gate (touched `scripts/`):** `bash scripts/gate.sh` → exit **`0`** (lock acquired)
-  on the rebased tree; full suite **77/77 in 14 files**, vitest 5.0.5. Raw
+  on the rebased tree; full suite **78/78 in 15 files**, vitest 5.0.5. Raw
   `.gate-logs/gate.log`.
 - **Cheap/typecheck:** the full gate's cheap tier (`pnpm run build` = `tsc --noEmit &&
   vite build`) is green; `pnpm exec tsc --noEmit` independently exit 0.
