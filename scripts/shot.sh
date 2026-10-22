@@ -3,7 +3,7 @@
 # shot.sh — THE one screenshot command for Tank Battle.
 #
 #   bash scripts/shot.sh [pose] [detail] [output.png]
-#   pose:   wide | tank | first | combat (default wide)
+#   pose:   wide | tank | first | combat | top (default wide)
 #   detail: 0 … 1                        (default 0.3, the SURFACE_DETAIL default)
 #   output: default .gate-logs/shots/<pose>-detail-<detail>.png
 #
@@ -40,9 +40,9 @@ case "$OUT_ABS" in
 esac
 
 case "$POSE" in
-  wide | tank | first | combat) ;;
+  wide | tank | first | combat | top) ;;
   *)
-    echo "shot: unknown pose '$POSE' — expected wide, tank, first or combat" >&2
+    echo "shot: unknown pose '$POSE' — expected wide, tank, first, combat or top" >&2
     exit 2
     ;;
 esac

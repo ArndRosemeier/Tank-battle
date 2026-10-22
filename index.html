@@ -61,6 +61,46 @@
       #hud-reload { width: 30px; height: 30px; display: block; transform: rotate(-90deg); }
       #hud-reload-track { fill: none; stroke: currentColor; opacity: 0.17; stroke-width: 1.4; }
       #hud-reload-arc { fill: none; stroke: currentColor; stroke-width: 2.1; stroke-linecap: butt; }
+      #top-legend {
+        position: fixed;
+        left: 18px;
+        bottom: 18px;
+        display: none;
+        z-index: 1;
+        color: #dffcff;
+        font-size: 11px;
+        letter-spacing: 0.12em;
+        line-height: 1.65;
+        text-transform: uppercase;
+        background: rgba(0, 0, 0, 0.72);
+        border-left: 1px solid currentColor;
+        padding: 10px 14px;
+        pointer-events: none;
+      }
+      #top-legend h2 {
+        margin: 0 0 4px;
+        font-size: 13px;
+        letter-spacing: 0.22em;
+        font-weight: normal;
+        color: currentColor;
+      }
+      #top-legend .intent {
+        max-width: 46ch;
+        opacity: 0.65;
+        font-size: 10px;
+        letter-spacing: 0.06em;
+        text-transform: none;
+        line-height: 1.45;
+        margin-bottom: 5px;
+      }
+      .legend-row { display: flex; align-items: center; gap: 7px; }
+      .legend-swatch {
+        display: inline-block;
+        width: 12px;
+        height: 5px;
+        background: currentColor;
+      }
+      .spawn-swatch { display: inline-block; width: 10px; height: 10px; border: 1px solid currentColor; }
       #hud-banner {
         position: absolute;
         left: 50%;
@@ -98,6 +138,15 @@
       </div>
       <div id="hud-fps"></div>
       <div id="hud-banner" role="status"></div>
+    </div>
+    <div id="top-legend">
+      <h2 id="top-title"></h2>
+      <div id="top-intent" class="intent"></div>
+      <div class="legend-row"><span class="legend-swatch" id="legend-wall"></span> TALL WALL / PILLAR</div>
+      <div class="legend-row"><span class="legend-swatch" id="legend-low"></span> LOW COVER (~1.2 M, SHOOT-OVER)</div>
+      <div class="legend-row"><span class="legend-swatch" id="legend-objective"></span> BREAKABLE CENTRAL OBJECTIVE</div>
+      <div class="legend-row"><span class="legend-swatch" id="legend-exit"></span> SCREENED SPAWN EXIT</div>
+      <div class="legend-row">SPAWN ZONES <span id="top-swatches"></span></div>
     </div>
     <div id="error" role="alert"></div>
     <script type="module" src="/src/main.ts"></script>

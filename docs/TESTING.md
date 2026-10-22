@@ -85,7 +85,15 @@ never "it passed".
 | The 24×14 tile p90 catches a locally bright wall | `tile_p90` gate in `python3 scripts/look-budget.py` | `scripts/look-budget.py` | remove the tile measure, or split 24×14 differently → the injection frame's 255 L p90 / FAIL would disappear |
 | The renderer rebuilds only on a world-revision change | `rebuilds only when the world revision changes` | `src/render/playableScene.test.ts` | rebuild every frame, or forget to update the stored revision → the false/false/true/false sequence reds |
 
-The A3a block (20 rows), the A3b block (7 rows) and the A3c block (11 rows) are direct assertions. **No mutation differential was run for A3a/A3b/A3c**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
+| The authored level passes every load-time check | `the authored arena passes every load-time check` | `src/game/levels/arena.test.ts` | remove a ring cell (symmetry), grow a spawn zone (bounds), or skip `validateLevel(ARENA)` in the session → the first assertion reds |
+| An overlapping spawn is rejected | `a level with an overlapping spawn is rejected` | `src/game/levels/arena.test.ts` | drop the `occupied` set, or move team 1 onto team 0's zone → the overlap assertion reds |
+| A disconnected spawn is rejected | `a level whose spawns are not all connected on foot is rejected` | `src/game/levels/arena.test.ts` | skip the flood fill, or make a spawn room an island → the connectivity assertion reds |
+| The cell grid is 4-fold rotationally symmetric | `the arena grid is invariant under 90° rotation` | `src/game/levels/arena.test.ts` | add a single asymmetric pillar → the symmetry error names `(1, 10)` |
+| Every spawn zone is free floor | `every spawn zone is free of solid cells` | `src/game/levels/arena.test.ts` | put one wall in team 0's 2×2 zone → the free-floor assertion reds |
+| Off-grid and illegal-height data fail before a world exists | `rejects an off-grid or illegal material before a world is built` | `src/game/levels/arena.test.ts` | place at x=24, or at 0.1 m (≤ floor) → the bounds/height assertion reds |
+| No two spawns have a direct centre line | `no spawn has a clear straight line to another spawn` | `src/game/levels/arena.test.ts` | remove one screen wall (or its three rotations) → the blocked-line assertion reds |
+
+The A3a block (20 rows), the A3b block (7 rows) and the A3c block (11 rows) are direct assertions; A4 adds seven level-validation pins. **No mutation differential was run for A3a/A3b/A3c/A4**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
 
 The differential harness is a local artifact at `.gate-logs/differential.py` (row 26)
 and `.gate-logs/differential.sh` (row 0) — both gitignored; the mutations are described
@@ -510,6 +518,93 @@ only in trim lines and small lights. The team-trim diagnostic on `wide` is orang
 - **Not run:** a GPU frame-rate claim, a browser-level synthetic click/key test (the
   pure mapping is pinned), publish. The screenshot script owns the Chrome tree and the
   full gate owns the suite.
+
+
+### row 43 — Slice A4 (authored arena, load validation, top plan)
+
+- **Full gate (touched `scripts/`):** `bash scripts/gate.sh` → exit **`0`** (lock
+  acquired) in-turn; full suite **85/85 in 16 files**, vitest 5.0.5. Raw log at the
+  repository root `.gate-logs/gate.log`; the worktree's post-rebase run repeats it.
+- **What is one seam, not two:** `src/game/levels/format.ts` is the ONE level format
+  and load validator; `src/game/levels/arena.ts` is the ONE authored `ARENA`; the
+  deleted `src/game/level.ts` is not imported anywhere. `PlayableSession` calls
+  `validateLevel(ARENA)` before `createMatch`, and `createMatch` receives
+  `ARENA.cells`. The A2 `demoWorld`/`sceneAssembly` remains the budget fixture, not a
+  second app render path. The top pose renders the SAME scene/composer through an
+  orthographic camera; it is not a second app.
+- **Validation pinned (7 tests):**
+  `the authored arena passes every load-time check`, `a level with an overlapping
+  spawn is rejected`, `a level whose spawns are not all connected on foot is
+  rejected`, `the arena grid is invariant under 90° rotation`, `every spawn zone is
+  free of solid cells`, `rejects an off-grid or illegal material before a world is
+  built`, and `no spawn has a clear straight line to another spawn`. The validator
+  checks square bounds, integer cells, legal materials, height above the floor,
+  exactly four unique 2–4-cell spawn zones, free non-overlapping spawn cells, a
+  four-neighbour flood fill from spawn 0, and 90° material/height symmetry (four
+  applications = four-fold). Cell failures name `(x, z)`.
+- **Layout as built:** 24×24 cells at 2 m (48×48 m). Outer square ring at cells 5…18,
+  4.8 m; inner ring at 8…15, 4.2 m; both have a 2×2 cell gateway at every corner.
+  The breakable centre is a 2×2 pillar block (cells 11…12, 4.8 m) with four 3.6 m
+  corner pillars; ambush pockets are a 3.2 m pillar at (7, 7) and 2.6 m shadows at
+  (7, 9)/(9, 7), rotated. Low 1.2 m shoot-over barriers line the cardinal lanes.
+  Each 2×2 corner spawn room has north/south walls, a camera recess on the outer
+  side, and a screened dogleg east corridor that turns south into its nearest outer
+  gateway. The original east-only exits exposed the adjacent spawn down the open
+  margin; the top plan and the new blocked-line pin show the fix. All six spawn-pair
+  centre lines are blocked by architecture at start.
+- **Look retune (dense arena):** the A3c rim was tuned for a 20×14 empty hall. In the
+  authored 48 m arena the default `SURFACE_DETAIL` rim pushed first/combat below the
+  tile gate, so `RIM_OPACITY_AT_FULL_DETAIL` is **0.75 → 0.20**,
+  `RIM_WALL_SHEEN` **0.45 → 0.28**, `RIM_TOP_BAND` **0.04 → 0.015**, the fills are
+  darker (`#0a0d0e`/`#0f1415`), and `NEON.teamEdgeGain` is **3.0 → 3.2** so the
+  denser first-person frame still clears line p99. The edge lines and the tile gate
+  are unchanged; this is a measured adjustment, not a threshold widening.
+- **Screenshots (all read with the image tool; 1920×1080; `shot.sh` reports Chrome 0):**
+
+  | pose | void | surface median | mid-band | line p99 | contrast | tile p90 | verdict |
+  | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+  | `wide` | 60.6 % | 8 L (3.1 %) | 2.5 % | 187 | 23.38 | 11 L (4.3 %) | PASS |
+  | `top` | 84.4 % | 19 L (7.5 %) | 3.6 % | 163 | 8.58 | 15 L (5.9 %) | PASS |
+  | `tank` | 66.1 % | 14 L (5.5 %) | 4.2 % | 187 | 13.36 | 23 L (9.0 %) | PASS |
+  | `first` | 57.9 % | 10 L (3.9 %) | 3.4 % | 157 | 15.70 | 21 L (8.2 %) | PASS |
+  | `combat` | 35.3 % | 13 L (5.1 %) | 5.5 % | 202 | 15.54 | 27 L (10.6 %) | PASS |
+
+  Images: `.gate-logs/shots/wide.png`, `top.png`, `tank.png`, `first.png`,
+  `combat.png`. `wide` shows the four corner rooms and ring/gate silhouette; `tank`
+  the player at its screened spawn with the training target beyond; `first` the
+  orange target down the protected corridor; `combat` the central ambush-pillar
+  breach, player and damaged orange target. The top frame hides all tanks and is
+  read as a plan: white cell grid, dark-cyan tall walls/pillars, dark-amber low
+  cover, olive breakable objective, solid team-coloured 2×2 spawn zones, white
+  L-shaped exit arrows and the HTML title/intent/legend. It is legible at 1920×1080
+  without a projected label.
+- **App numbers:** the playable scene measured **16 draw objects / 5,808 triangles /
+  17,432 vertices** and **31 renderer calls** in a headless probe at 1920×937; the
+  old A2 fixture remains **103 / 13,344 / 39,232** and is a separate ceiling, not an
+  app claim. `top` adds the plan overlay (one fill mesh + one line buffer) and hides
+  the tanks.
+- **Demo/session:** `?demo=duel&ticks=122` still freezes at 1 HP, one shell in
+  flight and a real ambush-pillar breach; the shell kill/win is at tick 124. The
+  training dummy is now at 12 m, in the protected corridor, and the opened south
+  bypass lets the player leave without driving through it. The demo stage remains
+  the NW diagonal; the app uses the authored arena in both demo and training mode.
+- **First-run reds, recorded:**
+  - the first spawn layout's east exits faced the adjacent spawn directly; the top
+    plan showed the open north/south margin. Rebuilt as walled rooms with screened
+    dogleg exits, then pinned all six pair lines.
+  - the first `first`/`combat` frames failed after the arena: the untouched rim gave
+    `combat` tile p90 **52 L (20.4 %)** and the first-person attempts 31–39 L. The
+    final pass is the rim/team-gain retune above, not a raised threshold.
+  - the first top-plan fills were too bright (surface median 44 L, contrast 3.68),
+    so the plan fills were darkened to the current `topWallFill`/`topLowFill`/
+    `topObjectiveFill`; the final top PASSES with median 19 L.
+  - the connectivity test's first island was no longer an island once the camera
+    recess and corridor existed; the test now seals both the recess and the corridor
+    mouth. The arena/session runs are green on the final tree.
+- **Not run:** a GPU frame-rate claim (no reachable GPU), a mutation differential
+  (no arms were executed for A4; the matrix names the one-line red for each pin), a
+  browser-level input test, publish, and AI. The top-plan arrows are authored for
+  this arena, not generated from arbitrary level data.
 
 ## Honest records
 

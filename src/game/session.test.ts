@@ -30,7 +30,7 @@ describe('the playable session bridge', () => {
   it('the demo reaches a real last-team win and leaves a dead dummy', () => {
     const session = new PlayableSession({ demo: true });
     session.runDemo(130);
-    expect(session.state.tick).toBe(123);
+    expect(session.state.tick).toBe(124);
     expect(session.state.status).toBe('ended');
     expect(session.state.outcome).toBe('last-team');
     expect(session.state.winnerTeamId).toBe(0);
@@ -44,12 +44,12 @@ describe('the playable session bridge', () => {
     const start = session.player;
     session.step({ ...FIRE, fire: false, throttle: 1 });
     const after = session.player;
-    expect(after.z).toBeLessThan(start.z);
+    expect(after.x).toBeGreaterThan(start.x);
 
     const atStart = session.interpolatedTanks(0).find((frame) => frame.id === session.playerTankId);
     const atEnd = session.interpolatedTanks(1).find((frame) => frame.id === session.playerTankId);
-    expect(atStart?.z).toBe(start.z);
-    expect(atEnd?.z).toBe(after.z);
+    expect(atStart?.x).toBe(start.x);
+    expect(atEnd?.x).toBe(after.x);
   });
 
   it('keeps the dummy static while the player drives and fires', () => {

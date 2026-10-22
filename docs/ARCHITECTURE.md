@@ -10,11 +10,11 @@ Dependencies point **downward only**; nothing below a layer may import from abov
 | **entry · DOM** | `src/entry/dom.ts` | The one way to obtain a DOM node the app cannot run without, with the narrowed type. |
 | **core** | `src/core/*.ts` | Pure simulation: no DOM, no time source, no globals. Takes numbers in, returns numbers out, so it tests in `node`. |
 | **core · sim** | `src/core/sim/*.ts`, entrance `src/core/sim.ts` | The combat layer over A1: builds a match from teams/spawns, validates commands, advances one fixed tick (drive with tank bodies, turret/pitch, world, bleed, swept-muzzle fire, shells), resolves 3D shell collisions, owns last-team/tick-cap outcomes and stats, and exposes the `Controller` seam and the match hash. **No renderer, DOM, input, AI, host clock or per-tank `isPlayer`.** |
-| **game** | `src/game/*.ts` | The app's pure game layer ABOVE the core: the playable level data, the pure pointer/keys→`TankCommand` mapping, browser event gathering, and the `PlayableSession` bridge (FixedStep + MatchState + interpolation + demo seeding). `input.ts`, `level.ts` and `session.ts` are renderer-free/clock-free and node-tested; `browserInput.ts` is the only DOM reader. |
+| **game** | `src/game/*.ts`, `src/game/levels/*.ts` | The app's pure game layer ABOVE the core: the authored `ARENA` data plus `validateLevel`, the pure pointer/keys→`TankCommand` mapping, browser event gathering, and the `PlayableSession` bridge (FixedStep + MatchState + interpolation + demo seeding). `input.ts`, `levels/format.ts`, `levels/arena.ts` and `session.ts` are renderer-free/clock-free and node-tested; `browserInput.ts` is the only DOM reader. |
 | **core · world** | `src/core/world/*.ts`, entrance `src/core/world.ts` | The world model: cells with height, destruction, two debris tiers, slow regeneration with displacement, and the state hash. Pure data and functions — it has **no tank, shell or AI concept**; tanks arrive as occupant positions and shells as damage calls. |
 | **render · tuning** | `src/render/config.ts` | The ONE tuning module: palette, team-luma gains, HDR gains, §9 albedo band, neutral rim tint, bloom, post, fog, camera distances, grid presentation, surface seams, scene budget, `SURFACE_DETAIL`; the shared cell size is imported from `src/core/world.ts`. Every render constant lives here; a source scan fails on a hex colour anywhere else. |
 | **render · surface** | `src/render/neonSurface.ts` | The ONE material seam: near-neutral dark fill + emissive team/structure edge lines + a NEUTRAL fresnel/wall-sheen/top-band rim + procedural panel seams + an (unused) detail-map slot, merged so a whole world is one fill/rim/line buffer. The fill is polygon-offset; one global `setSurfaceDetail`. |
-| **render · world** | `src/render/worldMesh.ts`, `gridFloor.ts`, `playableScene.ts`, `debrisView.ts`, `shellView.ts` | Meshes the REAL A1 cells, owns the one rebuild path for destruction, and draws the shader grid floor with black void quads for holes. `playableScene` builds the app scene from the match, rebuilds world+debris only on `world.revision`, and updates tanks/shells per frame. The A2 `demoWorld` showcase remains a budget fixture; A4 owns the authored level. |
+| **render · world** | `src/render/worldMesh.ts`, `gridFloor.ts`, `playableScene.ts`, `debrisView.ts`, `shellView.ts`, `topPlan.ts` | Meshes the REAL A1 cells, owns the one rebuild path for destruction, and draws the shader grid floor with black void quads for holes. `playableScene` builds the app scene from the match, rebuilds world+debris only on `world.revision`, and updates tanks/shells per frame. `topPlan` is the review-only orthographic overlay: spawn zones, exit arrows, dark wall/low/objective fills. The A2 `demoWorld` showcase remains a budget fixture, not a second app render path. |
 | **render · assembly** | `src/render/sceneAssembly.ts`, `sceneStats.ts`, `gateways.ts` | Builds the EXACT showcase the app renders (world + 16 tanks + merged gateway arches), exposes its scene-build stats, and keeps the presentation-only gateways out of the world model. |
 | **render · camera** | `src/render/cameraMath.ts` (pure), `cameraRig.ts` (three), `placeholderTank.ts` | Camera poses, zoom clamp and first-person boundary as pure node-tested maths; the `three` spring and camera object; the A2-only tank placeholder with a real gun/turret silhouette. |
 | **app shell** | `index.html`, `vite.config.ts`, `tsconfig.json` | The mount point, the build, the base path. |
@@ -37,19 +37,19 @@ running headless in `node`.
 | a render colour, albedo, bloom number, fog or camera distance | `PALETTE` · `NEON` · `TEAM_LUMA_GAIN` · `TEAM_RENDER_CORRECTION` · `SURFACE_LUMA_BAND` · `BLOOM` · `POST` · `FOG` · `CAMERA` · `GRID` · `SURFACE_DETAIL` | `src/render/config.ts:20` | The ONE tuning module. A source scan (`src/render/purity.test.ts`) fails on a hex colour outside it — nothing else hardcodes a colour or a bloom number. |
 | a neon surface | `createNeonSurface(parts, options)` | `src/render/neonSurface.ts:311` | Takes ownership of the part geometries, merges all fills into ONE `BufferGeometry` (shared by the fill and the rim) and all edges into ONE `LineSegments`; hole rims ride the same line buffer. |
 | moving the global surface detail | `setSurfaceDetail(0…1)` · `getSurfaceDetail()` | `src/render/neonSurface.ts:232` | The ONLY knob for `SURFACE_DETAIL`; it scales the rim, wall sheen, top band, panel seams and detail-map slot, never the edges. `L` toggles 0 ↔ the configured default. |
-| the world's mesh | `createWorldMesh(world)` · `rebuild()` | `src/render/worldMesh.ts:44` | Reads cells through `cellAt`/`cellState`/`isSolidAt`; `rebuild()` is the ONE path A3 calls after destruction or regeneration. Never patch the merged buffers in place. |
+| the world's mesh | `createWorldMesh(world)` · `rebuild()` | `src/render/worldMesh.ts:44` | Reads cells through `cellAt`/`cellState`/`isSolidAt`; `rebuild()` is the ONE path A3 calls after destruction or regeneration. Never patch the merged buffers in place. Low cover (height ≤ 1.5 m) gets `PALETTE.lowCoverEdge`, not the tall-wall hue. |
 | the floor grid and its voids | `createGridFloor(world)` · `update(cameraPosition)` | `src/render/gridFloor.ts:109` | One shader mesh over EVERY cell; an `aVoid` vertex flag makes a hole quad pure black and skips the grid (D6), while the rim comes from `worldMesh`. Two distance-falloff ranges; fog in the shader. |
-| a deterministic camera pose | `cameraPose(request)` | `src/render/cameraMath.ts:161` | The three screenshot poses (`wide`, `tank`, `first`); the same request reproduces the same position and target (pinned). |
+| a deterministic camera pose | `cameraPose(request)` | `src/render/cameraMath.ts:161` | The four perspective screenshot poses (`wide`, `tank`, `first`, `combat`); the same request reproduces the same position and target (pinned). `top` is a separate orthographic review camera, not a `cameraPose`. |
 | orbit → camera pose | `orbitPose(input)` | `src/render/cameraMath.ts:97` | Behind-a-forward-vector orbit; as the arm collapses into first person the target slides forward, with zero look-ahead at the boundary. |
 | the zoom clamp and the first-person boundary | `zoomDistance` · `clampDistance` · `isFirstPerson` | `src/render/cameraMath.ts:58` | One clamp (0.55…16 m) and an exclusive 2 m first-person boundary (below it the hull hides); malformed numbers throw. |
 | the camera object and spring | `new CameraRig(...)` · `.update(dt)` | `src/render/cameraRig.ts:50` | The only place a `PerspectiveCamera` is posed. A selected screenshot pose freezes the rig. |
 | a tank view | `createPlaceholderTank(teamIndex, phase)` · `setSimPose(...)` | `src/render/placeholderTank.ts:46` · `src/render/placeholderTank.ts:170` | The compact 2.0×2.6 m view; `setSimPose` applies hull yaw, relative turret yaw and pitch. Two `NeonSurface` calls (hull, turret+barrel) = six draw calls per tank. |
-| the showcase world (perimeter, gates, holes, spawns) | `createShowcaseScene()` | `src/render/demoWorld.ts:72` | Real `createWorld` + `damageCell` data; the perimeter/gates are A2b presentation scaffolding, A4 replaces all of it. |
+| the showcase world (perimeter, gates, holes, spawns) | `createShowcaseScene()` | `src/render/demoWorld.ts:72` | Real `createWorld` + `damageCell` data; retained only as the A2 budget fixture. The app loads `ARENA` through `validateLevel` and `createMatch`; there is no second app render path. |
 | building and measuring the rendered scene | `buildArenaScene()` · `measureScene(root)` | `src/render/sceneAssembly.ts:37` · `src/render/sceneStats.ts:25` | ONE assembly shared by the app and the GPU-independent budget pin; measures draw objects, triangles and vertices in `node`. |
 | the four team hues' rendered luminance | `rec709Luminance(hex)` · `teamEdgeGainFor(index)` | `src/render/config.ts:103` · `src/render/config.ts:143` | The hue stays the owner's; the linear Rec.709 gain is normalised (D5) with a small ACES render correction inside its ±10 % band. Never apply a raw team colour to an edge. |
 | the §9 surface albedo band | `srgbLuma(hex)` · `SURFACE_LUMA_BAND` | `src/render/config.ts:116` · `src/render/config.ts:95` | The band is measured on sRGB ITU-R 601 L, the SAME L as `scripts/look-budget.py`; this is a different measure from the D5 linear team luma. |
 | the GPU-independent scene budget | `SCENE_BUDGET` | `src/render/config.ts:309` | 20 % headroom over the measured showcase (103 objects / 13,344 tri / 39,232 verts): 124 / 16,100 / 47,100, with an absolute 200 draw-object ceiling. |
-| the gateway arches | `createGatewayArches(gates)` | `src/render/gateways.ts:45` | Presentation-only merged surface for the four entries; the world owns the floor gap, A4 will own collision. |
+| the gateway arches | `createGatewayArches(gates)` | `src/render/gateways.ts:45` | Presentation-only merged surface for the A2 fixture's four entries; the world owns the floor gaps. A4's ring/gate cells are collision-authoritative; these arches are not used by the app. |
 | the post pipeline | `new EffectComposer` … `OutputPass` | `src/main.ts:168` | RenderPass → UnrealBloom → vignette → OutputPass; ACES Filmic + sRGB. `renderer.info.autoReset = false` so the readout counts the whole composed frame. |
 | distance fog on every renderer | `scene.fog` plus the ShaderMaterials' `uFogNear/uFogFar` | `src/main.ts:142` · `src/render/config.ts:212` | Standard fill/edge materials take scene fog automatically; the rim and grid ShaderMaterials carry the same range in their uniforms. A new ShaderMaterial must do the same or it will visibly not fade. |
 | the measured look budget | `python3 scripts/look-budget.py <png> [--json]` | `scripts/look-budget.py:1` | The ONE pixel measurement of §9: surface median ≤22 L, frame share 26–51 ≤25 %, line p99 ≥150, contrast ≥6; `shot.sh` runs it after every capture and exits non-zero on a FAIL. Void is INFO (no threshold was specified); team hulls are SKIP (the hull fill is neutral/shared). |
@@ -76,16 +76,19 @@ running headless in `node`.
 | the frame→ticks bridge | `PlayableSession.advance(frameSeconds, input)` · `.step(command)` | `src/game/session.ts:164` · `src/game/session.ts:182` | The ONLY place a frame delta becomes `FixedStep` ticks for the app; one `stepMatch` per tick, with the dummy idling. No simulation call exists in a render module. |
 | a player's command | `commandFromInput(input, hullYawDegrees)` | `src/game/input.ts:64` | The pure mapping: WASD→throttle/steer, pointer X→RELATIVE turret yaw (±60°), pointer Y→pitch (top +25°, centre 0°, bottom −30°), fire boolean. Unit-tested in node; malformed numbers throw. |
 | browser events | `createBrowserInput(canvas)` | `src/game/browserInput.ts:26` | The only DOM reader: key set, canvas-normalised pointer, click/Space fire. No pointer lock (deliberate): the cursor position is the aim, so there is no hidden/recentre state. |
-| the playable level | `PLAYABLE_LEVEL` · `PLAYER_SPAWN` · `DUMMY_SPAWN` | `src/game/level.ts:64` · `src/game/level.ts:86` · `src/game/level.ts:92` | A3c's compact placeholder arena and the two spawns; A4 owns the authored level/loader. The dummy is a static team-1 tank with no controller. |
-| the demo/screenshot scenario | `?demo=duel&ticks=122` · `PlayableSession.runDemo(ticks)` | `src/main.ts:64` · `src/game/session.ts:205` | Runs a fixed scripted sequence, freezes before the first frame, and seeds one visible wall breach. At tick 122 the dummy is at 1 HP and the third shell is in flight. |
+| the authored level | `ARENA` · `spawnCentreMetres(spawn)` | `src/game/levels/arena.ts:1` | The ONE 48×48 m, 24×24-cell, 4-fold arena: four 2×2 corner spawn rooms with screened dogleg exits, outer/inner square rings with 2×2 corner gateways, breakable central pillar block, ambush pockets and low coverage. `session.ts` is the only app caller. |
+| load-time level validation | `validateLevel(level)` | `src/game/levels/format.ts:105` | The ONE boundary before `createMatch`: square grid, legal materials/heights, exactly four unique 2–4-cell spawn zones, free non-overlapping spawn cells, flood-fill on-foot connectivity from spawn 0, and 90° (therefore four-fold) cell-grid symmetry. Every cell failure names the offending `(x, z)`. Never build the app world from unvalidated data. |
+| the demo/screenshot scenario | `?demo=duel&ticks=122` · `PlayableSession.runDemo(ticks)` | `src/main.ts:64` · `src/game/session.ts:205` | Runs a fixed scripted sequence on the authored arena, freezes before the first frame, and seeds one visible ambush-pillar breach. At tick 122 the dummy is at 1 HP and the third shell is in flight; the win is tick 124. |
+| the top review pose | `?pose=top` · `createTopPlan(ARENA)` | `src/main.ts:191` · `src/render/topPlan.ts:26` | One orthographic camera looks straight down with `up = (0, 0, −1)`; the same app scene/composer is rendered with all tanks hidden. The overlay draws team spawn zones, white L-shaped screened-exit arrows, dark tall-wall/low-cover/objective fills, and the HTML legend. `shot.sh top` selects it. |
 | interpolation | `PlayableSession.interpolatedTanks(alpha)` | `src/game/session.ts:230` | Tanks interpolate x/z/hull/turret/pitch between the previous and current tick; yaw uses the shortest arc. Shells render at the latest state (no interpolation), chosen because their flight is short and a trail already reads motion. |
-| the app scene | `createPlayableScene(state, ids)` | `src/render/playableScene.ts:40` | Builds the real world mesh, debris, two tank views and the shell streak buffer. This is the app path; the A2 showcase remains the budget fixture. |
+| the app scene | `createPlayableScene(state, ids)` | `src/render/playableScene.ts:40` | Builds the real world mesh, debris, two tank views and the shell streak buffer. This is the app path; the A2 showcase remains the budget fixture. `setTanksHidden` is the top-plan review switch, not gameplay. |
 | rebuilding on revision | `PlayableScene.syncWorld()` | `src/render/playableScene.ts:77` | The ONE rebuild gate: compares `World.revision` with the last built revision; only a change calls `worldMesh.rebuild()` / `debrisView.rebuild()`. Never per frame. |
 | shells/debris views | `createShellView()` · `createDebrisView(world)` | `src/render/shellView.ts:31` · `src/render/debrisView.ts:24` | One merged streak line buffer for shells; one merged `NeonSurface` for A1 blocks and shards. Both are data-derived, never patched. |
 | the in-style HUD | `createHud()` | `src/entry/hud.ts:42` | DOM only: 3-segment player/target HP, reload ring, fps and the victory/defeat banner. Colours come from `PALETTE`/`teamColor`; no HTML controls. |
 | the combat screenshot pose | `cameraPose('combat', ...)` | `src/render/cameraMath.ts:228` | Deterministic behind/above player frame for the demo breach, target and in-flight shell. Added to `CAMERA_POSE_NAMES`; `shot.sh combat` selects it. |
+| a low shoot-over barrier | `cell.heightMetres <= 1.5` in `createWorldMesh` and `topPlan` | `src/render/worldMesh.ts:99` · `src/render/topPlan.ts:88` | ONE height threshold distinguishes low cover from tall architecture in both the 3D edge hue and the plan fill; the A1 height model remains the collision authority. |
 | the spatial look budget | `tile_p90(luminance)` | `scripts/look-budget.py:97` | Splits a frame into 24×14 tiles, takes each tile median, and requires p90 ≤ 30.6 L (12 %); alongside the existing whole-frame gates. Proof injection reaches 255 L / 100 % and FAILS. |
-| the screenshot command | `scripts/shot.sh [pose] [detail] [out]` | `scripts/shot.sh:1` | Adds `combat`; it appends `&demo=duel&ticks=122`, runs the look budget and keeps the trapped-browser cleanup (`chrome processes after cleanup: 0`). |
+| the screenshot command | `scripts/shot.sh [pose] [detail] [out]` | `scripts/shot.sh:1` | Accepts `wide \| tank \| first \| combat \| top`; `combat` appends `&demo=duel&ticks=122`, `top` selects the plan, every run executes the look budget, and the trapped Chrome tree is reaped (`chrome processes after cleanup: 0`). |
 | a canonical core hash | `fnv1a(text)` | `src/core/fnv1a.ts:14` | The ONE FNV-1a implementation; both `hashState` (world) and `hashMatch` (combat) feed it. Do not copy the offset basis/prime into a third hasher. |
 | seeded randomness in the simulation | `createRng(seed)` | `src/core/rng.ts:35` | The ONLY draw source under `src/core`: integer-only mulberry32, so a seed reproduces its sequence on every engine. A source scan (`src/core/purity.test.ts`) fails the build on `Math.random`. |
 | building the world | `createWorld(spec)` | `src/core/world/state.ts:108` | Validates the spec loudly (integer dimensions, a height above the floor plane, no double placement) and builds the row-major grid. Level data fills the same shape. |
@@ -121,7 +124,7 @@ running headless in `node`.
   game resumes where it was left. A death spiral is worse than lost wall-clock time.
 - **`alpha` is for rendering interpolation only.** It is not simulation state; do not
   store game state in it.
-- **The A2 showcase is now a FIXTURE, not the app path.** `demoWorld.ts`/`sceneAssembly.ts` remain the hand-authored 16-tank scene the A2 `sceneBudget.test` measures; the live app uses `createPlayableScene` over the real match. A4 owns the authored level; A5 owns the full HUD.
+- **The A2 showcase is now a FIXTURE, not the app path.** `demoWorld.ts`/`sceneAssembly.ts` remain the hand-authored 16-tank scene the A2 `sceneBudget.test` measures; the live app uses `createPlayableScene` over the real match and `ARENA`; A5 owns the full HUD.
 - **`LineBasicMaterial.linewidth` is ignored on almost every WebGL platform.** The
   spec permits only 1 px lines and ANGLE follows it, so the look is 1 px lines plus
   `UnrealBloomPass` for the glow. Do not "fix" this with a screen-space line-width
@@ -191,9 +194,9 @@ running headless in `node`.
   cell's boundary as a double rim merged into the world's ONE edge buffer. If they
   disagree, the world query is the authority: rebuild, never patch.
 - **The gateway arches are PRESENTATION-ONLY.** `demoWorld` leaves floor in the four
-  gate gaps; `gateways.ts` adds the arch geometry outside the world model. A4 owns the
-  final level and must decide the collision/threshold story; do not read gameplay
-  bounds from the arches.
+  gate gaps; `gateways.ts` adds arch geometry outside the world model for the A2 fixture.
+  A4's level uses real ring/gate cells, so cell collisions are authoritative; do not
+  read gameplay bounds from the A2 arches.
 - **The scene budget is still the A2 16-tank fixture.** `buildArenaScene()` is what
   `sceneBudget.test.ts` measures (103 objects / 13,344 triangles / 39,232 vertices,
   20 % headroom); the A3c app's playable scene measured **19 draw objects / 3,536
@@ -338,17 +341,22 @@ running headless in `node`.
 
 ## 4 · Known debt
 
-- **A3c is a single playable duel, not the full game.** One player tank, one static
-  dummy, one placeholder arena and a minimal HUD. Slice B owns AI profiles/batch play;
-  A4 owns the authored level/loader; A5 owns the full interface. The A2 showcase and
-  its 16-tank budget fixture are retained only for the existing look/budget pins.
+- **A4 is a single playable duel on the authored arena, not the full game.** One
+  player tank, one static training dummy and a minimal HUD. Slice B owns AI
+  profiles/batch play; A5 owns the full interface. The A2 showcase and its 16-tank
+  budget fixture are retained only for the existing look/budget pins.
 - **The body is a circle but the hull is a 2.6 m box.** The width fits the 1 m radius
   (1.00 m half-width), but the nose/tail extend beyond the circle and the whole turret
   tilts for pitch. A capsule/oriented body and a gun-only pitch pivot remain future
   visual/physics debt; row 40 explicitly deferred them.
 - **A2 scene-budget numbers no longer describe the app.** The 103-object / 13,344-triangle
-  fixture measures `buildArenaScene` (16 showcase tanks), while the app's playable scene
-  is 19 objects and 34 renderer calls. Keep the old pin as a ceiling, not an app claim.
+  fixture measures `buildArenaScene` (16 showcase tanks), while the A4 playable scene
+  measured **16 draw objects / 5,808 triangles / 17,432 vertices** and **31 renderer
+  calls** in a headless 1920×937 probe. Keep the old pin as a ceiling, not an app claim.
+- **The top plan is a review surface, not a game camera.** Its orthographic camera,
+  hidden tanks, transparent plan fills and white exit arrows are presentation only;
+  `?pose=top` is not selectable as an interactive camera. The arrows are authored to
+  read the A4 dogleg exits, not generated from arbitrary level data.
 - **No browser-level input test.** Pointer/keyboard gathering is untested DOM glue; the
   pure `commandFromInput` mapping is pinned. A synthetic click/key browser test would
   need the Chrome lifecycle already owned by `shot.sh`.
@@ -377,5 +385,6 @@ running headless in `node`.
   not a Vitest pin. Making it a browser test would mean threading the Chrome lifecycle
   and image fixtures through the suite; the script is the deliberate cheaper gate (see
   [`TESTING.md`](TESTING.md)).
-- **The A2 showcase and gateway arches remain placeholders.** They are budget/review
-  fixtures, not the app's level; A4 replaces them and owns the final architecture.
+- **The A2 showcase and gateway arches remain fixtures.** They are budget/review
+  fixtures, not the app's level; A4 uses `ARENA` and the real A1 world, and the
+  gateway arches are still presentation-only outside the final collision story.

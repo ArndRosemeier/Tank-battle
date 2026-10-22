@@ -97,7 +97,12 @@ export function createWorldMesh(world: World): WorldMesh {
         geometry.translate(centreX, topMetres / 2, centreZ);
         parts.push({
           geometry,
-          color: cell.material === 'wall' ? PALETTE.wallEdge : PALETTE.pillarEdge,
+          color:
+            cell.heightMetres <= 1.5
+              ? PALETTE.lowCoverEdge
+              : cell.material === 'wall'
+                ? PALETTE.wallEdge
+                : PALETTE.pillarEdge,
         });
 
         // Brighter vertical corner accents (D2): a duplicated, hotter line at each

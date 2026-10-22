@@ -33,6 +33,8 @@ export interface PlayableScene {
   setTanks(frames: readonly TankRenderFrame[]): void;
   setShells(state: MatchState['shells']): void;
   setPlayerHidden(hidden: boolean): void;
+  /** Hide every tank for the review plan; the spawn markers carry the plan. */
+  setTanksHidden(hidden: boolean): void;
   updateCamera(cameraPosition: Vector3): void;
   dispose(): void;
 }
@@ -106,6 +108,11 @@ export function createPlayableScene(
     },
     setPlayerHidden(hidden: boolean): void {
       playerHidden = hidden;
+    },
+    setTanksHidden(hidden: boolean): void {
+      for (const view of tanks.values()) {
+        view.group.visible = !hidden;
+      }
     },
     updateCamera(cameraPosition: Vector3): void {
       worldMesh.update(cameraPosition);

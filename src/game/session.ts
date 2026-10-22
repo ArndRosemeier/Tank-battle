@@ -25,14 +25,15 @@ import {
   type World,
 } from '../core/world.ts';
 import { commandFromInput, type PlayerInput } from './input.ts';
-import {
-  DEMO_BREACH_CELLS,
-  DUMMY_SPAWN,
-  INITIAL_FLOOR_HOLES,
-  PLAYABLE_FLOOR_Y,
-  PLAYABLE_LEVEL,
-  PLAYER_SPAWN,
-} from './level.ts';
+import { ARENA, spawnCentreMetres } from './levels/arena.ts';
+import { validateLevel } from './levels/format.ts';
+
+/** The demo stage sits on the NW diagonal gates, with the ambush pillar opened. */
+const DEMO_PLAYER = { xMetres: 12, zMetres: 12, hullYawDegrees: -135 } as const;
+const DEMO_DUMMY = { xMetres: 18, zMetres: 18, hullYawDegrees: 45 } as const;
+/** One-vs-dummy training starts the target close to the player's protected exit. */
+const TRAINING_DUMMY = { xMetres: 12, zMetres: 6, hullYawDegrees: 90 } as const;
+const DEMO_BREACH_CELL = { x: 7, z: 7 } as const;
 
 /** A tank transform after interpolation. The render layer maps this to a group. */
 export interface TankRenderFrame {
@@ -88,23 +89,21 @@ function lerpAngle(from: number, to: number, alpha: number): number {
   return from + shortestAngleDelta(from, to) * alpha;
 }
 
-/** Carves the demo's visible wall breach through the real destruction seams. */
+/** Opens the demo's visible ambush-pillar breach through the real destruction seams. */
 function carveDemoBreach(world: World): void {
   const rng = createRng(LEVEL_SEED);
-  for (const cell of DEMO_BREACH_CELLS) {
-    damageCell(world, cell.x, cell.z, 2, rng);
-    if (!blockAt(world, cell.x, cell.z)) {
-      throw new Error(`session: demo breach (${cell.x}, ${cell.z}) did not leave a block`);
-    }
-    damageBlock(world, cell.x, cell.z, 2);
+  damageCell(world, DEMO_BREACH_CELL.x, DEMO_BREACH_CELL.z, 3, rng);
+  if (!blockAt(world, DEMO_BREACH_CELL.x, DEMO_BREACH_CELL.z)) {
+    throw new Error(`session: demo breach (${DEMO_BREACH_CELL.x}, ${DEMO_BREACH_CELL.z}) did not leave a block`);
   }
+  damageBlock(world, DEMO_BREACH_CELL.x, DEMO_BREACH_CELL.z, 2);
 }
 
-function carveInitialFloorHoles(world: World): void {
-  const rng = createRng(LEVEL_SEED ^ 0x51ed);
-  for (const cell of INITIAL_FLOOR_HOLES) {
-    damageCell(world, cell.x, cell.z, 1, rng);
-  }
+function levelSpawn(teamId: number): { xMetres: number; zMetres: number; hullYawDegrees: number } {
+  const spawn = ARENA.spawns.find((candidate) => candidate.teamId === teamId);
+  if (!spawn) throw new Error(`session: arena has no spawn for team ${teamId}`);
+  const centre = spawnCentreMetres(spawn);
+  return { ...centre, hullYawDegrees: spawn.yawDegrees };
 }
 
 /**
@@ -122,17 +121,18 @@ export class PlayableSession {
   private demoFrozen = false;
 
   constructor(options: PlayableSessionOptions = {}) {
+    validateLevel(ARENA);
+    const demo = options.demo === true;
     this.state = createMatch({
-      level: PLAYABLE_LEVEL,
+      level: ARENA.cells,
       teams: [
-        { id: 0, tanks: [PLAYER_SPAWN] },
-        { id: 1, tanks: [DUMMY_SPAWN] },
+        { id: 0, tanks: [demo ? DEMO_PLAYER : levelSpawn(0)] },
+        { id: 1, tanks: [demo ? DEMO_DUMMY : TRAINING_DUMMY] },
       ],
       seed: LEVEL_SEED,
       rules: DEFAULT_MATCH_RULES,
     });
-    carveInitialFloorHoles(this.state.world);
-    if (options.demo === true) {
+    if (demo) {
       carveDemoBreach(this.state.world);
     }
     this.current = snapshot(this.state);
@@ -149,7 +149,7 @@ export class PlayableSession {
   }
 
   get floorY(): number {
-    return PLAYABLE_FLOOR_Y;
+    return ARENA.cells.floorSurfaceHeightMetres;
   }
 
   get player(): TankRenderFrame {

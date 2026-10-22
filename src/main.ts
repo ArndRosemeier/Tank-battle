@@ -1,5 +1,13 @@
 import { Vector2 } from 'three';
-import { WebGLRenderer, Scene, Color, Fog, ACESFilmicToneMapping, SRGBColorSpace } from 'three';
+import {
+  WebGLRenderer,
+  Scene,
+  Color,
+  Fog,
+  OrthographicCamera,
+  ACESFilmicToneMapping,
+  SRGBColorSpace,
+} from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
@@ -20,10 +28,11 @@ import {
 } from './render/config.ts';
 import { getSurfaceDetail, setSurfaceDetail } from './render/neonSurface.ts';
 import { createPlayableScene } from './render/playableScene.ts';
+import { createTopPlan, spawnMarkerColor, TOP_LEGEND_COLORS } from './render/topPlan.ts';
 import { measureScene } from './render/sceneStats.ts';
 import { createBrowserInput } from './game/browserInput.ts';
 import { RELOAD_TICKS } from './core/sim.ts';
-import { PLAYABLE_BOUNDS } from './game/level.ts';
+import { ARENA, ARENA_BOUNDS } from './game/levels/arena.ts';
 import { PlayableSession } from './game/session.ts';
 
 /**
@@ -53,9 +62,11 @@ function reportError(cause: unknown): void {
 window.addEventListener('error', (event) => reportError(event.error ?? event.message));
 window.addEventListener('unhandledrejection', (event) => reportError(event.reason));
 
+type RenderPoseName = CameraPoseName | 'top';
+
 interface LaunchOptions {
   readonly detail: number | null;
-  readonly pose: CameraPoseName | null;
+  readonly pose: RenderPoseName | null;
   readonly demo: boolean;
   readonly ticks: number;
 }
@@ -74,14 +85,17 @@ function readLaunchOptions(): LaunchOptions {
   }
 
   const poseText = query.get('pose');
-  let pose: CameraPoseName | null = null;
+  let pose: RenderPoseName | null = null;
   if (poseText !== null) {
-    if (!isCameraPoseName(poseText)) {
+    if (poseText === 'top') {
+      pose = 'top';
+    } else if (isCameraPoseName(poseText)) {
+      pose = poseText;
+    } else {
       throw new Error(
-        `launch: unknown ?pose "${poseText}" — expected wide, tank, first or combat`,
+        `launch: unknown ?pose "${poseText}" — expected wide, tank, first, combat or top`,
       );
     }
-    pose = poseText;
   }
 
   const demoText = query.get('demo');
@@ -177,18 +191,34 @@ function boot(): (nowMilliseconds: number) => void {
   threeScene.fog = new Fog(PALETTE.background, FOG.nearMetres, FOG.farMetres);
   threeScene.add(scene.group);
 
+  const isTop = launch.pose === 'top';
+  const topPlan = createTopPlan(ARENA);
+  topPlan.setVisible(isTop);
+  threeScene.add(topPlan.group);
+
   const rig = new CameraRig({
-    arena: PLAYABLE_BOUNDS,
+    arena: ARENA_BOUNDS,
     floorY: session.floorY,
     focus: {
       position: { x: initialPlayer.x, y: session.floorY, z: initialPlayer.z },
       yawDegrees: initialPlayer.hullYawDegrees,
     },
-    pose: launch.pose,
+    pose: isTop ? null : launch.pose,
   });
 
+  const topCamera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
+  const topCenterX = (ARENA_BOUNDS.minX + ARENA_BOUNDS.maxX) / 2;
+  const topCenterZ = (ARENA_BOUNDS.minZ + ARENA_BOUNDS.maxZ) / 2;
+  const TOP_HALF_HEIGHT_METRES = 26;
+  topCamera.position.set(topCenterX, 60, topCenterZ);
+  topCamera.up.set(0, 0, -1);
+  topCamera.lookAt(topCenterX, session.floorY, topCenterZ);
+  topCamera.name = 'top-orthographic-camera';
+  topCamera.updateMatrixWorld();
+
   const composer = new EffectComposer(renderer);
-  composer.addPass(new RenderPass(threeScene, rig.camera));
+  const renderPass = new RenderPass(threeScene, isTop ? topCamera : rig.camera);
+  composer.addPass(renderPass);
   const bloomPass = new UnrealBloomPass(
     new Vector2(1, 1),
     BLOOM.strength,
@@ -200,6 +230,35 @@ function boot(): (nowMilliseconds: number) => void {
   composer.addPass(new OutputPass());
 
   const hud = createHud();
+  const hudRoot = requireElement('hud', HTMLElement, 'hud');
+  const topLegend = requireElement('top-legend', HTMLElement, 'top legend');
+  const topTitle = requireElement('top-title', HTMLElement, 'top title');
+  const topIntent = requireElement('top-intent', HTMLElement, 'top intent');
+  const topSwatches = requireElement('top-swatches', HTMLElement, 'top spawn swatches');
+  const legendWall = requireElement('legend-wall', HTMLElement, 'wall legend swatch');
+  const legendLow = requireElement('legend-low', HTMLElement, 'low-cover legend swatch');
+  const legendObjective = requireElement('legend-objective', HTMLElement, 'objective legend swatch');
+  const legendExit = requireElement('legend-exit', HTMLElement, 'exit legend swatch');
+  topLegend.style.display = 'none';
+  if (isTop) {
+    hudRoot.style.display = 'none';
+    topLegend.style.display = 'block';
+    topLegend.style.color = PALETTE.debugText;
+    topTitle.textContent = ARENA.name;
+    topIntent.textContent = ARENA.intent;
+    legendWall.style.background = TOP_LEGEND_COLORS.wall;
+    legendLow.style.background = TOP_LEGEND_COLORS.lowCover;
+    legendObjective.style.background = TOP_LEGEND_COLORS.objective;
+    legendExit.style.background = TOP_LEGEND_COLORS.exit;
+    for (const spawn of ARENA.spawns) {
+      const swatch = document.createElement('span');
+      swatch.className = 'spawn-swatch';
+      swatch.style.color = spawnMarkerColor(spawn.teamId);
+      swatch.style.marginLeft = '5px';
+      swatch.title = `team ${spawn.teamId} spawn`;
+      topSwatches.append(swatch);
+    }
+  }
   const input = createBrowserInput(canvas);
 
   let lastFps = 0;
@@ -215,7 +274,13 @@ function boot(): (nowMilliseconds: number) => void {
 
     renderer.setPixelRatio(pixelRatio);
     renderer.setSize(width, height);
-    rig.resize(width / height);
+    const aspect = width / height;
+    rig.resize(aspect);
+    topCamera.left = -TOP_HALF_HEIGHT_METRES * aspect;
+    topCamera.right = TOP_HALF_HEIGHT_METRES * aspect;
+    topCamera.top = TOP_HALF_HEIGHT_METRES;
+    topCamera.bottom = -TOP_HALF_HEIGHT_METRES;
+    topCamera.updateProjectionMatrix();
 
     composer.setPixelRatio(pixelRatio);
     composer.setSize(width, height);
@@ -268,16 +333,26 @@ function boot(): (nowMilliseconds: number) => void {
         throw new Error('main: the interpolated player frame is missing');
       }
 
-      rig.setFocus({
-        position: { x: playerFrame.x, y: session.floorY, z: playerFrame.z },
-        yawDegrees: playerFrame.hullYawDegrees,
-      });
-      rig.update(frameSeconds);
-      scene.setPlayerHidden(rig.firstPerson);
-      scene.setTanks(frames);
-      scene.setShells(session.state.shells);
-      scene.syncWorld();
-      scene.updateCamera(rig.camera.position);
+      if (isTop) {
+        scene.setPlayerHidden(true);
+        scene.setTanks(frames);
+        // A review plan, not a battle frame: marks the arena, not the live targets.
+        scene.setTanksHidden(true);
+        scene.setShells(session.state.shells);
+        scene.syncWorld();
+        scene.updateCamera(topCamera.position);
+      } else {
+        rig.setFocus({
+          position: { x: playerFrame.x, y: session.floorY, z: playerFrame.z },
+          yawDegrees: playerFrame.hullYawDegrees,
+        });
+        rig.update(frameSeconds);
+        scene.setPlayerHidden(rig.firstPerson);
+        scene.setTanks(frames);
+        scene.setShells(session.state.shells);
+        scene.syncWorld();
+        scene.updateCamera(rig.camera.position);
+      }
 
       renderer.info.reset();
       composer.render();

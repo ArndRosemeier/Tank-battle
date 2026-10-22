@@ -33,9 +33,9 @@ export const PALETTE = {
    * 2–10 % linear-luminance band (2.07 % here), because the A2b verdict was that
    * wall volumes read flat: below the band, a side face is a silhouette, not a box.
    */
-  surfaceFill: '#0c1011',
+  surfaceFill: '#0a0d0e',
   /** The fill's top edge of the vertical gradient: still inside the band (8.4 %). */
-  surfaceFillTop: '#121819',
+  surfaceFillTop: '#0f1415',
   /** The floor's surface tint; the grid lines are drawn on top by a shader. */
   gridSurface: '#0c1112',
   /** A hole is a black void, not a floor tint — it must read darker than the grid. */
@@ -52,6 +52,13 @@ export const PALETTE = {
   verticalEdge: '#45d8ef',
   /** Faint horizontal panel seams on wall volumes. */
   panelSeam: '#2b8aa3',
+  /** Low shoot-over cover gets its own structural hue in every pose, especially top. */
+  lowCoverEdge: '#ffb347',
+  /** Top-plan fill tints: dark enough that the plan does not become a bright map. */
+  topWallFill: '#12353f',
+  topLowFill: '#4a330f',
+  topObjectiveFill: '#5a501e',
+  topSpawnFillAlpha: 0.22,
   /** Gateway arch trim: architecture, not team identity. */
   gatewayEdge: '#40cfe8',
   /** The rim is NEUTRAL on purpose: hue lives in the lines and small lights only. */
@@ -70,7 +77,7 @@ export const PALETTE = {
  */
 export const NEON = {
   structureEdgeGain: 1.25,
-  teamEdgeGain: 3.0,
+  teamEdgeGain: 3.2,
   coreGain: 1.9,
   /** Hole rims are deliberately the hottest structural line: a mechanic must read. */
   holeRimGain: 2.2,
@@ -183,17 +190,17 @@ export const SURFACE_DETAIL = 0.3;
 export const DETAIL_MAP_MAX_STRENGTH = 0.15;
 
 /** The rim's opacity at `SURFACE_DETAIL = 1`; the running value is scaled by detail. */
-export const RIM_OPACITY_AT_FULL_DETAIL = 0.75;
+export const RIM_OPACITY_AT_FULL_DETAIL = 0.2;
 
 /** The fresnel exponent: higher is a tighter rim, lower wraps further around. */
 export const RIM_FRESNEL_POWER = 4.2;
 
 /** A broader sheen on vertical faces, so a wall side reads as a volume (D2). */
-export const RIM_WALL_SHEEN = 0.45;
+export const RIM_WALL_SHEEN = 0.28;
 /** The vertical sheen's own exponent: lower than the rim's, so it spreads inward. */
 export const RIM_WALL_SHEEN_POWER = 2.0;
 /** A faint additive band on upward-facing surfaces (wall tops, hull decks). */
-export const RIM_TOP_BAND = 0.04;
+export const RIM_TOP_BAND = 0.015;
 
 /**
  * Procedural horizontal panel seams on vertical faces, scaled by `SURFACE_DETAIL`.
