@@ -37,12 +37,11 @@
 
 ## Next action (one)
 
-**P2 is in flight**: the player's screen — reticle on the shell path with an off-screen
-indicator, a camera that follows aim, a legible inset HUD (hull segments, reload ring,
-squad panel, kill feed, damage vignette), an attached gun and muzzle flash, and combat VFX
-inside the surface budget. Then P3: publish to the static host and the final verification.
-Debt: the 1v1 parked duel at seed 148, the 4x4 cap at 10.5 %, and the ambusher/brute
-behaviour swap (ledger rows 55, 57).
+**P2 is still in flight** (the player's screen: reticle, camera-follows-aim, HUD legibility,
+attached muzzle, combat VFX). The game is LIVE at
+`https://apps.futuremagic.de/tank-battle/` on the P1 build; when P2 lands, verify it, then
+`bash scripts/publish.sh` republishes (the host folder is a symlink, so the rebuild is
+immediate) and `bash scripts/shot-live.sh` re-verifies by content.
 
 ## Open questions for the owner
 

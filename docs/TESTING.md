@@ -1382,3 +1382,16 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
   the screen. Also recorded: a pre-existing 1v1 parked duel (seed 148), 4×4 cap at 10.5 %,
   spawn facing can point away from the arena, and a 285-tick (4.75 s) reload is a feel
   fork for the owner.
+
+### row 60 — publish verification
+
+- `bash scripts/publish.sh` → exit 0: subpath build, `dist/index.html` references
+  `/tank-battle/assets/index-B0uAapmD.js`, `~/apps/tank-battle` is a symlink to `dist/`,
+  local `http://127.0.0.1:8082/tank-battle/` answers 200 **and** names that hashed asset,
+  the hub was rebuilt, and the public page (fetched with a nonce) names the same asset.
+- `bash scripts/shot-live.sh` → exit 0, a 364 KB frame of the public page, and
+  `chrome processes after cleanup: 0`. The frame shows the game running: cyan player, orange
+  enemy, arena, HULL/READY and TARGET/ACTIVE.
+- **Process lesson recorded as a trap:** the first live attempt leaked 14 Chrome processes
+  because `setsid … &` hands back a launcher PID, not a process group; the replacement
+  captures PIDs by a unique `--user-data-dir` and kills from a file.

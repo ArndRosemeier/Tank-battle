@@ -16,7 +16,8 @@
     "player-batch": "node --experimental-strip-types scripts/player-batch.ts",
     "gate": "bash scripts/gate.sh",
     "gate:compile": "GATE_TESTS=0 bash scripts/gate.sh",
-    "board": "bash scripts/board.sh"
+    "board": "bash scripts/board.sh",
+    "publish": "bash scripts/publish.sh"
   },
   "devDependencies": {
     "@types/node": "^26.6.4",
