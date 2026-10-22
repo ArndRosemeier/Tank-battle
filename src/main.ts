@@ -33,20 +33,19 @@ import { createTopPlan, spawnMarkerColor, TOP_LEGEND_COLORS } from './render/top
 import { measureScene } from './render/sceneStats.ts';
 import { createBrowserInput } from './game/browserInput.ts';
 import {
-  MUZZLE_FORWARD_METRES,
-  MUZZLE_HEIGHT_METRES,
   RELOAD_TICKS,
-  directionFromAim,
-  forwardFromYaw,
   type MatchState,
+  type Tank,
+  type TankCommand,
 } from './core/sim.ts';
 import { ARENA, ARENA_BOUNDS } from './game/levels/arena.ts';
 import { PlayableSession, type TankRenderFrame } from './game/session.ts';
 import { SpectatorSession } from './game/spectator.ts';
 import { KillFeedTracker, describeKill, type KillFeedRow } from './game/killFeed.ts';
-import { scalePlayerInput, type PlayerInput } from './game/input.ts';
+import { type PlayerInput } from './game/input.ts';
 import { TitleAudioGate } from './game/titleAudioGate.ts';
 import { TeamSession, createVanguardStandIn } from './game/teamSession.ts';
+import { PlayerAimController, solveAim, type AimCamera, type AimSolution } from './game/aim.ts';
 
 /**
  * Slice A3c's wiring: the real MatchState on a fixed 60 Hz bridge, two sim tanks, a
@@ -428,8 +427,31 @@ interface MatchView {
   interpolatedTanks(alpha: number): readonly TankRenderFrame[];
 }
 
-/** Binds the sensitivity-scaled input source to the playable session's advance. */
-function playableMatchView(session: PlayableSession, readInput: () => PlayerInput): MatchView {
+interface AimCameraState {
+  camera: AimCamera | null;
+}
+
+/** The plain snapshot the aim solver consumes; no three.js object crosses the seam. */
+function aimCameraView(camera: PerspectiveCamera, forward: Vector3): AimCamera {
+  camera.getWorldDirection(forward);
+  return {
+    position: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+    target: {
+      x: camera.position.x + forward.x,
+      y: camera.position.y + forward.y,
+      z: camera.position.z + forward.z,
+    },
+    up: { x: camera.up.x, y: camera.up.y, z: camera.up.z },
+    fovDegrees: camera.fov,
+    aspect: camera.aspect,
+  };
+}
+
+/** Binds the player's command source to the playable session's per-tick advance. */
+function playableMatchView(
+  session: PlayableSession,
+  commandFor: (state: MatchState, player: Tank) => TankCommand,
+): MatchView {
   return {
     get state() {
       return session.state;
@@ -451,7 +473,7 @@ function playableMatchView(session: PlayableSession, readInput: () => PlayerInpu
     },
     feedNames: [],
     advance(frameSeconds: number): number {
-      return session.advance(frameSeconds, readInput());
+      return session.advance(frameSeconds, commandFor);
     },
     interpolatedTanks(alpha: number): readonly TankRenderFrame[] {
       return session.interpolatedTanks(alpha);
@@ -600,6 +622,8 @@ function bootMatch(
   session: MatchView,
   hudState: (fps: number) => HudState,
   audio: AudioEngine,
+  readInput: () => PlayerInput,
+  aimCameraState: AimCameraState,
 ): (nowMilliseconds: number) => void {
   const scene = createPlayableScene(session.state, {
     playerTankId: session.playerTankId,
@@ -616,6 +640,7 @@ function bootMatch(
   let endAnnounced = false;
   let lastBreakTick = -999;
   let lastRegenTick = -999;
+  let lastAim: AimSolution | null = null;
   const cameraDirection = new Vector3();
   const initialPlayer = session.player;
   const sceneStats = measureScene(scene.group);
@@ -838,64 +863,48 @@ function bootMatch(
           ),
         });
         rig.update(frameSeconds);
+        aimCameraState.camera = aimCameraView(rig.camera, cameraDirection);
         scene.setPlayerHidden(rig.firstPerson);
         scene.setTanks(frames);
         scene.setShells(session.state.shells);
         scene.syncWorld();
         scene.updateCamera(rig.camera.position);
 
-        const camera = rig.camera;
-        camera.getWorldDirection(cameraDirection);
+        // The reticle is the WORLD point under the pointer, projected from the
+        // current camera. It is deliberately solved from the live tank state and the
+        // camera, not from an angular offset or the screen centre.
+        const currentPlayer = session.state.tanks[session.playerTankId];
+        const aimCamera = aimCameraState.camera;
         let aim = null;
-        if (playerFrame.alive) {
-          const aimDirection = directionFromAim(
-            playerFrame.turretYawDegrees,
-            playerFrame.aimPitchDegrees,
+        lastAim = null;
+        if (playerFrame.alive && currentPlayer?.alive && aimCamera) {
+          const input = readInput();
+          lastAim = solveAim(
+            session.state,
+            currentPlayer,
+            aimCamera,
+            input.pointerX,
+            input.pointerY,
           );
-          const forward = forwardFromYaw(playerFrame.turretYawDegrees);
-          const muzzleX = playerFrame.x + forward.x * MUZZLE_FORWARD_METRES;
-          const muzzleZ = playerFrame.z + forward.z * MUZZLE_FORWARD_METRES;
-          const muzzleY = session.floorY + MUZZLE_HEIGHT_METRES;
-          // Project a point ON the shell's path, not the direction at infinity: a
-          // camera 8 m behind and above the muzzle has real parallax, and a point at
-          // the target's range is what puts the reticle over the target.
-          let distance: number = CAMERA.aimFallbackRangeMetres;
-          for (const tank of session.state.tanks) {
-            if (!tank.alive || tank.teamId === playerFrame.teamId) continue;
-            const dx = tank.x - muzzleX;
-            const dz = tank.z - muzzleZ;
-            const length = Math.hypot(dx, dz);
-            if (length < 2) continue;
-            const dot = (dx * forward.x + dz * forward.z) / length;
-            if (dot >= CAMERA.aimTargetConeDot && length < distance) {
-              distance = length;
-            }
-          }
           aim = projectAimPoint(
             {
-              cameraPosition: {
-                x: camera.position.x,
-                y: camera.position.y,
-                z: camera.position.z,
-              },
-              cameraTarget: {
-                x: camera.position.x + cameraDirection.x,
-                y: camera.position.y + cameraDirection.y,
-                z: camera.position.z + cameraDirection.z,
-              },
-              cameraUp: { x: 0, y: 1, z: 0 },
-              fovDegrees: camera.fov,
-              aspect: camera.aspect,
+              cameraPosition: aimCamera.position,
+              cameraTarget: aimCamera.target,
+              cameraUp: aimCamera.up,
+              fovDegrees: aimCamera.fovDegrees,
+              aspect: aimCamera.aspect,
             },
-            {
-              x: muzzleX + aimDirection.x * distance,
-              y: muzzleY + aimDirection.y * distance,
-              z: muzzleZ + aimDirection.z * distance,
-            },
+            lastAim.impactPoint,
           );
         }
         aimHud.update(
-          aim,
+          aim
+            ? {
+                ...aim,
+                outOfRange: lastAim?.outOfRange ?? false,
+                targetTeamId: lastAim?.targetTeamId ?? null,
+              }
+            : null,
           window.innerWidth,
           window.innerHeight,
           teamColor(playerFrame.teamId),
@@ -982,10 +991,74 @@ function bootMatch(
       state: audio.contextState,
       paused,
     }),
+    aim: () =>
+      lastAim === null
+        ? null
+        : {
+            aimYaw: lastAim.aimYaw,
+            aimPitch: lastAim.aimPitch,
+            desiredPoint: lastAim.desiredPoint,
+            impactPoint: lastAim.impactPoint,
+            outOfRange: lastAim.outOfRange,
+            clamped: lastAim.clamped,
+            targetTankId: lastAim.targetTankId,
+            targetTeamId: lastAim.targetTeamId,
+            impactKind: lastAim.impactKind,
+          },
+    cameraYaw: () => rig.yawDegrees,
+    camera: () => ({
+      x: rig.camera.position.x,
+      y: rig.camera.position.y,
+      z: rig.camera.position.z,
+      yawDegrees: rig.yawDegrees,
+      fovDegrees: rig.camera.fov,
+      aspect: rig.camera.aspect,
+    }),
+    pointer: () => {
+      const current = readInput();
+      return { x: current.pointerX, y: current.pointerY };
+    },
+    player: () => {
+      const tank = session.state.tanks[session.playerTankId];
+      return tank === undefined
+        ? null
+        : {
+            x: tank.x,
+            z: tank.z,
+            hullYawDegrees: tank.hullYawDegrees,
+            turretYawDegrees: tank.turretYawDegrees,
+            aimPitchDegrees: tank.aimPitchDegrees,
+            teamId: tank.teamId,
+            hp: tank.hp,
+            alive: tank.alive,
+          };
+    },
+    targets: () => {
+      const player = session.state.tanks[session.playerTankId];
+      const playerTeam = player?.teamId ?? -1;
+      return session.state.tanks
+        .filter((tank) => tank.alive && tank.teamId !== playerTeam)
+        .map((tank) => ({
+          id: tank.id,
+          teamId: tank.teamId,
+          x: tank.x,
+          y: session.floorY + 1.1,
+          z: tank.z,
+        }));
+    },
+    screenPoint: (x: number, y: number, z: number) => {
+      const projected = new Vector3(x, y, z).project(rig.camera);
+      return {
+        x: (projected.x * 0.5 + 0.5) * window.innerWidth,
+        y: (-projected.y * 0.5 + 0.5) * window.innerHeight,
+        z: projected.z,
+      };
+    },
   };
   (window as Window & { __TANK_BATTLE__?: typeof debugApi }).__TANK_BATTLE__ = debugApi;
 
   resize();
+  aimCameraState.camera = aimCameraView(rig.camera, cameraDirection);
   updateHud();
   return frame;
 }
@@ -998,8 +1071,9 @@ function bootGame(launch: LaunchOptions, audio: AudioEngine): (nowMilliseconds: 
   document.body.style.background = PALETTE.background;
 
   const input = createBrowserInput(canvas);
-  const readInput = (): PlayerInput =>
-    scalePlayerInput(input.read(), currentSettings.mouseSensitivity);
+  const readInput = (): PlayerInput => input.read();
+  const aimCameraState: AimCameraState = { camera: null };
+  const aimController = new PlayerAimController(readInput, () => aimCameraState.camera);
 
   // The demo is frozen BEFORE the scene/camera is built, so the screenshot pose sees
   // the final deterministic state, not an intermediate tick.
@@ -1009,18 +1083,32 @@ function bootGame(launch: LaunchOptions, audio: AudioEngine): (nowMilliseconds: 
           seed: launch.seed,
           playerController: createVanguardStandIn(launch.seed),
         })
-      : new TeamSession({ seed: launch.seed, readInput });
+      : new TeamSession({ seed: launch.seed, playerController: aimController });
     if (launch.demo) {
       session.runTicks(launch.ticks ?? 480);
     }
-    return bootMatch(launch, session, (fps) => teamHudState(session, fps), audio);
+    return bootMatch(
+      launch,
+      session,
+      (fps) => teamHudState(session, fps),
+      audio,
+      readInput,
+      aimCameraState,
+    );
   }
 
   const session = new PlayableSession({ demo: launch.demo });
   if (launch.demo) {
     session.runDemo(launch.ticks ?? 571);
   }
-  return bootMatch(launch, playableMatchView(session, readInput), (fps) => playHudState(session, fps), audio);
+  return bootMatch(
+    launch,
+    playableMatchView(session, (state, player) => aimController.commandFor(state, player.id)),
+    (fps) => playHudState(session, fps),
+    audio,
+    readInput,
+    aimCameraState,
+  );
 }
 
 /** Measured from the render geometry constants: hull width / 2. */

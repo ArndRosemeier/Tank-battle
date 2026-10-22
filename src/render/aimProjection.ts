@@ -166,9 +166,9 @@ export function projectAimPoint(
 
 /**
  * The camera's yaw target for the player: the hull heading plus a fixed fraction of
- * the turret's offset. At the ±60° turret limit this puts the gun 27° off the camera
- * axis, inside the ~39.8° horizontal half-frame at 16:9, so the gun stays visible
- * while the camera still reads the hull. The spring in `cameraRig.ts` is the lag.
+ * the turret's offset. P6's live fraction is 0 (hull only) because a camera that chased
+ * the turret would move the world point under the cursor. The spring in `cameraRig.ts`
+ * is the lag; an explicit fraction remains available for tests and tuning.
  */
 export function aimFollowYawDegrees(
   hullYawDegrees: number,

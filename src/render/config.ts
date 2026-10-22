@@ -312,16 +312,14 @@ export const CAMERA = {
    */
   wideOffsetFractions: { x: 0.36, y: 0.56, z: 0.55 },
   /**
-   * How much of the turret's hull-relative offset the player's camera follows. At the
-   * ±60° turret limit, 0.55 puts the gun 27° off the camera axis — inside the 39.8°
-   * horizontal half-frame at 16:9, so the aim stays visible without widening the lens.
+   * How much of the turret's hull-relative offset the player's camera follows. P6 sets
+   * this to 0: the pointer selects a WORLD point, and a camera that chased the turret
+   * would move the ray under the cursor (ray → aim → camera → ray). The camera follows
+   * the hull only; on-screen points are then inside the ±60° command clamp.
    */
-  aimFollowFraction: 0.55,
+  aimFollowFraction: 0,
   /** The reticle/edge indicator stays inside this fraction of the NDC frame. */
   aimEdgeMargin: 0.9,
-  /** The reticle is projected at the nearest enemy in this cone, else this far ahead. */
-  aimTargetConeDot: 0.985,
-  aimFallbackRangeMetres: 40,
   /** The `combat` demo pose: behind/right of the player, looking down the corridor. */
   combatBackMetres: 8.0,
   combatSideMetres: 0,

@@ -91,6 +91,11 @@ export class CameraRig {
     return this.currentDistance;
   }
 
+  /** The spring's current follow yaw; for verification, not gameplay. */
+  get yawDegrees(): number {
+    return this.currentYawDegrees;
+  }
+
   /** Moves the follow target. The spring carries the camera there over a few frames. */
   setFocus(focus: CameraFocus): void {
     this.targetFocus.set(focus.position.x, this.floorY + CAMERA.focusHeightMetres, focus.position.z);

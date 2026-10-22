@@ -75,9 +75,9 @@ never "it passed".
 | The 2 m cell size has one definition and the renderer imports it | `the 2 m cell size is defined once and the renderer imports it` | `src/core/purity.test.ts` | add a second `CELL_SIZE_METRES = 2` literal, or make the renderer spell `cellMetres: 2` → the scan/import assertion reds |
 | The world revision changes only on visible mutations | `the revision counter increments on visible changes and never on a timer-only tick` | `src/core/world.test.ts` | bump on a timer tick, or skip a damage/shove/shatter/regen/displacement → the exact increments/non-increments red |
 | Adjacent-cell circles are rejected at match creation | `two tanks in adjacent cells whose circles overlap are rejected at match creation` | `src/core/sim.test.ts` | zero the circle-overlap distance (or keep only the same-cell check) → the 1.9 m-apart adjacent-cell spawn is accepted |
-| WASD maps to throttle/steer with a neutral centre aim | `maps WASD to throttle and steer without touching the centre aim` | `src/game/input.test.ts` | swap A/D, or add a non-zero aim at pointer centre → the command assertions red |
-| Mouse aim is hull-relative and pitch is clamped | `turns the turret RELATIVE to the hull and clamps the offset` · `maps pointer height to a clamped pitch, with centre = zero` | `src/game/input.test.ts` | use an absolute yaw, clamp wrongly, or map pitch from the bottom → the ±60°/25°/−30° assertions red |
-| The pure input surface rejects malformed pointer data | `passes the fire state through and rejects non-finite pointer input` | `src/game/input.test.ts` | silently coerce NaN/Infinity → the throw assertions red |
+| WASD maps to throttle/steer and carries the solver's absolute angles | `maps WASD to throttle and steer and carries the solver angles through` | `src/game/input.test.ts` | swap A/D, or map the wrong aim field → the throttle/steer/angle assertions red |
+| The button mapping no longer reads the pointer | `does not read the pointer: the world solver owns the aim` | `src/game/input.test.ts` | reintroduce a pointer→yaw offset, or make commandFromAim read pointerX/Y → the corner/centre commands differ |
+| The input surface wraps yaw and rejects malformed aim angles | `wraps the absolute yaw and keeps the requested pitch` · `passes fire through and rejects non-finite aim angles` | `src/game/input.test.ts` | skip `normaliseDegrees`, or silently coerce NaN/Infinity → the yaw/throw assertions red |
 | The demo freezes on a shell in flight and deterministic damage | `the demo is deterministic and freezes on a shell in flight at tick 571` | `src/game/session.test.ts` | stop the 571-tick run early, or run it twice non-deterministically → the shell/HP/revision assertions red |
 | The demo can reach a real last-team death/win | `the demo reaches a real last-team win and leaves a dead dummy` | `src/game/session.test.ts` | stop the match at the second hit, or leave the dummy alive → the outcome/winner/dead assertions red |
 | Tank transforms interpolate between ticks | `interpolates tank transforms between the previous and current sim tick` | `src/game/session.test.ts` | return current for every alpha, or discard the previous snapshot → the alpha0/alpha1 positions red |
@@ -126,9 +126,9 @@ never "it passed".
 | The player's team is the player plus three AI squadmates | `starts with the player plus three AI squadmates, against three teams of four` | `src/game/teamSession.test.ts` | drop a squad slot or put the player on another team → the squad/team counts red |
 | The player-team mode is deterministic for a seed and input | `is deterministic for a seed and a scripted player` | `src/game/teamSession.test.ts` | seed a controller from `Math.random`, or let the input counter drift → the state hashes differ |
 | A player's shell cannot damage a squadmate | `the player can spawn a shell and a squadmate is immune to it` | `src/game/teamSession.test.ts` | bypass the Q2 team check → the squadmate's HP drops or the shell passes through |
-| The reticle is the gun's projected direction, not a fixed centre | `projects the gun direction into the frame, not a fixed centre` | `src/render/aimProjection.test.ts` | return a constant NDC, or remove the hull/turret blend → the off-centre/`x>0` assertion reds |
-| The camera follows only part of the turret offset and wraps | `turns the camera only part of the turret offset and wraps correctly` | `src/render/aimProjection.test.ts` | follow the full turret (fixed centre) or use the raw difference at 350°/10° → the 33°/-1° assertions red |
-| The full ±60° turret aim stays inside the 16:9 frame | `keeps the full ±60° turret aim inside the horizontal frame at 16:9` | `src/render/aimProjection.test.ts` | lower `aimFollowFraction` below 0.4, or shrink the FOV → the 27° vs 39.8° invariant reds |
+| The reticle is a projected gun direction, not a fixed centre | `projects the gun direction into the frame, not a fixed centre` | `src/render/aimProjection.test.ts` | return a constant NDC, or aim the camera along the bore → the off-centre/`x<0` assertion reds |
+| The camera follows the hull only; the turret cannot rotate it | `follows the hull only by default: the turret cannot rotate the camera` | `src/render/aimProjection.test.ts` | restore a non-zero default `aimFollowFraction`, or blend the turret offset → the 0°/hull assertions red |
+| Every on-screen horizontal aim is inside the ±60° clamp at 16:9 | `keeps every on-screen horizontal aim inside the ±60° command clamp at 16:9` | `src/render/aimProjection.test.ts` | widen the lens past 60° half-frame, or claim the clamp is unnecessary → the 38…60° invariant reds |
 | An off-screen aim clamps to the edge and points outward | `clamps an off-screen aim to the edge and returns the screen direction` | `src/render/aimProjection.test.ts` | stop clamping, return angle 0 for every aim, or accept `edgeMargin` outside 0…1 → the edge/angle assertions red |
 | The reticle is a path point, not a direction at infinity | `projects a point on the shell path, not the direction at infinity` | `src/render/aimProjection.test.ts` | project the normalised direction instead of the point → near and far points report the same NDC |
 | A behind-camera aim gets no invented screen point | `handles a direction behind the camera without inventing a screen point` | `src/render/aimProjection.test.ts` | drop the `depth <= 0` branch → the behind flag/edge fallback reds |
@@ -140,15 +140,20 @@ never "it passed".
 
 | Every shipped audio file is in the manifest | `every audio file is in the manifest with a matching sha256 and provenance` | `src/render/assets.test.ts` | add an unlisted `.mp3`, change a byte without updating the sha, or strip a prompt → the file/entry assertions red |
 | Every manifest entry has a file | `every manifest entry resolves to a file` | `src/render/assets.test.ts` | delete or move `assets/audio/win.mp3` while its entry remains → `statSync` reds |
-| Settings round-trip and reject malformed data | `round-trips a valid settings object` · `rejects a malformed stored value…` · `rejects out-of-range values…` | `src/entry/settings.test.ts` | stop validating master/quality/sensitivity, or return a silent clamp → the throw/fallback assertions red |
-| Pointer sensitivity scales and clamps the aim | `scales the pointer aim by the user sensitivity and clamps it` | `src/game/input.test.ts` | ignore sensitivity, or let the scaled pointer exceed ±1 → the 1/-0.5/0.15 assertions red |
+| Settings round-trip and reject malformed data | `round-trips a valid settings object` · `rejects a malformed stored value…` · `rejects out-of-range values…` | `src/entry/settings.test.ts` | stop validating master/quality, or return a silent clamp → the throw/fallback assertions red |
+| The sensitivity row is retired while old stores still load | `retires the sensitivity row while still accepting the stored key` | `src/entry/settings.test.ts` | re-add the data-setting row, or drop the legacy key and discard an old store → the 4-slider/parse assertions red |
+| A ground ray's real shell lands within 0.5 m of the pointed point | `a camera ray at open ground solves a YAW+PITCH whose real shell lands there` | `src/game/aim.test.ts` | compare angles only, or skip the muzzle offset → the impact-distance/integration assertion reds |
+| A wall blocks the aim ray instead of being shot through | `aims at a wall, not through it, when the camera ray is blocked` | `src/game/aim.test.ts` | ignore world cells, or cast from the muzzle instead of the camera → the wall z/impact assertion reds |
+| Empty sky is out of range but still produces a valid command | `marks empty sky out of range and still produces a valid command` | `src/game/aim.test.ts` | return NaN, or throw instead of aiming at the range endpoint → the finite/range assertions red |
+| Pointer right still aims right, and the reticle projects at the impact | `pointer RIGHT still aims RIGHT, and the reticle projects at the impact point` | `src/game/aim.test.ts` | flip the camera-ray x sign, or project the screen centre → the forward.x / NDC assertions red |
+| The ±60° clamp is visible as the clamped impact | `keeps the ±60° hull-relative clamp and shows the clamped impact` | `src/game/aim.test.ts` | widen the clamp, or project the unclamped desired point → the −60°/distance assertions red |
 | A new shell emits fire and reload presentation events | `emits fire and reload presentation events for a newly spawned shell` | `src/render/playableScene.test.ts` | drop the event queue or skip the muzzle-distance gate → the fire/reload assertions red |
 | The title background is deterministic for a seed | `is deterministic for a seed and uses the slow director` | `src/game/titleSession.test.ts` | use `Math.random` or a different seed path, or change the 420-tick director → the two hashes/director assertion reds |
 | Leaving the title disposes the background match | `is disposed when the title is left and cannot advance afterwards` | `src/game/titleSession.test.ts` | keep `advance` live after `dispose`, or make dispose non-idempotent → the throw/idempotence assertions red |
 | The first pointerdown starts the menu, not a second time | `starts the menu loop on the first pointerdown and not again on a keydown` | `src/game/titleAudioGate.test.ts` | make the gate stateless, or let a keydown restart it → the `menu`/null sequence reds |
 | The first keydown starts the menu, not a second time | `starts the menu loop on the first keydown and not again on a pointerdown` | `src/game/titleAudioGate.test.ts` | wire only pointerdown, or restart on the second gesture → the key/pointer sequence reds |
 | The shell wires both gestures and disposes the title first | `wires both gestures and disposes the background before a match boots` | `src/game/titleAudioGate.test.ts` | remove either listener, or boot the match before `titleBackground.dispose()` → the source-order assertions red |
-The A3a block (20 rows), the A3b block (7 rows) and the A3c block (11 rows) are direct assertions; A4 adds seven level-validation pins; B1a adds the two A4 gap pins and eleven AI pins; B1b adds the scripted mirror pin; B1c adds the staging-symmetry pin; B2 adds the eager-profile, destruction-attribution, team-staging, team-batch, spectator and spectator-camera pins; B3 adds the body-aware arena connectivity pin and the batch-attribution arm; B4 adds the turn-order purity/rank/team-array pins; P1 adds the one-reload source/cadence pins, the player-team composition/determinism/teammate-immunity pins and the pulled-back team pose; P2 adds the six aim/reticle pins, the spawn-facing pin, the killer/clock attribution pin and the kill-feed label pin; P3 adds the two-way asset-manifest pins, the settings validation/round-trip pin, the pointer-sensitivity pin and the presentation-event pin; P4 adds the title-session determinism/disposal pins, the two first-gesture pins and the shell-wiring order pin (**139/139 tests in 33 files**). **No mutation differential was run for A3a/A3b/A3c/A4/B1a/B1b/B1c/B2/B3/B4/P1/P2/P3/P4**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
+The A3a block (20 rows), the A3b block (7 rows) and the A3c block (11 rows) are direct assertions; A4 adds seven level-validation pins; B1a adds the two A4 gap pins and eleven AI pins; B1b adds the scripted mirror pin; B1c adds the staging-symmetry pin; B2 adds the eager-profile, destruction-attribution, team-staging, team-batch, spectator and spectator-camera pins; B3 adds the body-aware arena connectivity pin and the batch-attribution arm; B4 adds the turn-order purity/rank/team-array pins; P1 adds the one-reload source/cadence pins, the player-team composition/determinism/teammate-immunity pins and the pulled-back team pose; P2 adds the six aim/reticle pins, the spawn-facing pin, the killer/clock attribution pin and the kill-feed label pin; P3 adds the two-way asset-manifest pins, the settings validation/round-trip pin, the pointer-sensitivity pin and the presentation-event pin; P4 adds the title-session determinism/disposal pins, the two first-gesture pins and the shell-wiring order pin; P6 adds the world-point aim solver pins, the hull-only camera pin and the sensitivity-retirement pin (**151/151 tests in 37 files**), plus a deployed reticle-vs-pointer check in the live smoke. **No mutation differential was run for A3a/A3b/A3c/A4/B1a/B1b/B1c/B2/B3/B4/P1/P2/P3/P4/P6**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
 
 The differential harness is a local artifact at `.gate-logs/differential.py` (row 26)
 and `.gate-logs/differential.sh` (row 0) — both gitignored; the mutations are described
@@ -1755,3 +1760,35 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
   Before the fix it reported **pointer right → reticle x 464, pointer left → 817** and exited
   1; after the fix and publish it passes.
 - **Not verified:** vertical aim in the browser (semantic pins only), and the owner's feel.
+
+### row 74 — Slice P6 (point at the world)
+
+- **Gate:** `bash scripts/gate.sh` → exit **0**, **151/151 tests in 37 files**
+  (`.gate-logs/gate.log`; the pre-commit run is `.gate-logs/p6-gate-precommit.log`).
+- **Seam:** `castAimRay` in `src/core/sim/step.ts` (reuses the cell scan and the two
+  segment primitives; first enemy tank / world cell / big block / floor hit), `solveAim`
+  and `PlayerAimController` in `src/game/aim.ts` (camera snapshot → pointer ray → clamped
+  yaw/pitch from the 3 m muzzle), and `commandFromAim` in `src/game/input.ts` (buttons +
+  those angles). The camera follows the hull only (`CAMERA.aimFollowFraction = 0`).
+- **Pins:** a real shot from a ground-ray solution lands within **0.5 m** of the pointed
+  point (impact event from `stepMatch`, not an angle comparison); a wall blocks the ray;
+  empty sky is `outOfRange` and still returns a finite command; pointer right gives
+  `forward.x > 0` and the reticle projects at the impact; the ±60° clamp moves the reticle
+  to the clamped impact; the camera ignores turret yaw; the sensitivity row is gone while
+  the legacy stored key still loads. All 151 tests in 37 files pass.
+- **Browser (local built artifact, 1280×800):** `live-smoke.mjs` reads
+  `#aim-reticle` **0.0 px from the pointer** over open ground, logs camera yaw
+  **−90.00° → −90.00°**, checks `cursor: none`, and clicks to fire with **no console or
+  HTTP error**. This is the extended deployed proof; it has not yet run against a public
+  P6 deployment.
+- **Live look (1920×1080, `.gate-logs/shots/p6-aim-live.png`):** the reticle is at the
+  centre dummy with its orange team bracket (read); reticle box centre and pointer both
+  `(960, 540)`. Look budget **PASS**: void 75.2 %, surface median **12 L (4.7 %)**,
+  mid-band 1.6 %, line p99 **186**, contrast **15.50**, tile p90 **11 L (4.3 %)**.
+- **Honest limit:** on the lower screen the ground can lie *between the camera and the
+  muzzle*; the required turn then exceeds ±60° and the reticle moves to the clamped
+  impact rather than staying under the pointer. This is the brief's "on-screen points are
+  inside the clamp anyway" being too strong. The aim hit list also excludes shards and
+  teammates (both can still stop a shell), as the brief listed only enemy tanks, world
+  cells and ground. **Not verified:** the owner's hand feel, lead on a moving target,
+  touch/Safari/Firefox, real-GPU frame rate, and a public P6 deployment.

@@ -1,7 +1,9 @@
 /**
  * Per-browser settings: the ONLY place user preferences are read/written. Volumes feed
- * the audio buses, quality feeds `setSurfaceDetail` + the bloom pass, sensitivity feeds
- * the pointer→aim mapping, and reduced motion disables the title animation and VFX.
+ * the audio buses, quality feeds `setSurfaceDetail` + the bloom pass, and reduced motion
+ * disables the title animation and VFX. P6 retired the pointer-sensitivity UI and its
+ * consumer (the aim is a world point, not a scaled offset); the stored key is retained
+ * so an existing settings object still loads instead of being discarded.
  *
  * Stored values are data from the browser, so they are validated; a corrupt store is a
  * user-preference failure, not a simulation failure, and falls back to the documented
@@ -15,7 +17,7 @@ export interface GameSettings {
   readonly sfx: number;
   /** 0…1; also the SURFACE_DETAIL scalar. */
   readonly quality: number;
-  /** 0.2…2; scales the pointer's hull-relative aim offset. */
+  /** Legacy 0.2…2 key; accepted for stored-setting compatibility, no longer consumed. */
   readonly mouseSensitivity: number;
   readonly reducedMotion: boolean;
 }

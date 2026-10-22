@@ -15,6 +15,7 @@ import {
   idleTankCommand,
   stepMatch,
   type MatchState,
+  type Tank,
   type TankCommand,
   type TankCommandOrder,
 } from '../core/sim.ts';
@@ -24,7 +25,6 @@ import {
   damageCell,
   type World,
 } from '../core/world.ts';
-import { commandFromInput, type PlayerInput } from './input.ts';
 import {
   interpolateTanks,
   snapshotTanks,
@@ -122,8 +122,14 @@ export class PlayableSession {
     return this.requireCurrent(this.dummyTankId);
   }
 
-  /** One frame delta → zero or more simulation ticks. Input is sampled per tick. */
-  advance(frameSeconds: number, input: PlayerInput): number {
+  /**
+   * One frame delta → zero or more simulation ticks. The command source is sampled per
+   * tick, so a world aim point can be re-solved as the hull and targets move.
+   */
+  advance(
+    frameSeconds: number,
+    commandFor: (state: MatchState, player: Tank) => TankCommand,
+  ): number {
     if (this.demoFrozen) {
       return 0;
     }
@@ -135,8 +141,7 @@ export class PlayableSession {
       if (!player) {
         throw new Error(`session: player tank ${this.playerTankId} is missing`);
       }
-      const command = commandFromInput(input, player.hullYawDegrees);
-      this.step(command);
+      this.step(commandFor(this.state, player));
     });
   }
 

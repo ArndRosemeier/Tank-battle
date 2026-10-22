@@ -850,3 +850,181 @@ function finish(state: MatchState, winnerTeamId: number | null, outcome: MatchOu
   state.stats.winnerTeamId = winnerTeamId;
   state.stats.outcome = outcome;
 }
+
+/**
+ * A renderer-free segment cast for the player's pointer aim. It reuses the same
+ * geometry primitives and world-cell scan as shell collision, but its hit list is the
+ * one the P6 brief names: live enemy tanks, world cells/big blocks and the floor plane.
+ * Shards are deliberately absent from the AIM list (the brief lists no debris); a shell
+ * can still be stopped by one in flight, which is a recorded limit rather than a second
+ * aim implementation here.
+ *
+ * `direction` need not be unit length; `maxDistanceMetres` is in metres. The returned
+ * point is on the first hit surface, so the caller can aim a muzzle at it and project it
+ * back to the pointer. A null result means nothing was hit inside the range.
+ */
+export interface AimRayHit {
+  readonly distanceMetres: number;
+  readonly point: Vec3;
+  readonly kind: 'tank' | 'world' | 'ground';
+  readonly tankId: number | null;
+  readonly teamId: number | null;
+  readonly cellX: number;
+  readonly cellZ: number;
+  readonly block: boolean;
+}
+
+export function castAimRay(
+  state: MatchState,
+  from: Vec3,
+  direction: Vec3,
+  maxDistanceMetres: number,
+  ownerTeamId: number,
+): AimRayHit | null {
+  for (const [value, label] of [
+    [from.x, 'from.x'], [from.y, 'from.y'], [from.z, 'from.z'],
+    [direction.x, 'direction.x'], [direction.y, 'direction.y'], [direction.z, 'direction.z'],
+  ] as const) {
+    if (!Number.isFinite(value)) {
+      throw new Error(`sim.castAimRay: ${label} must be finite, got ${String(value)}`);
+    }
+  }
+  if (!Number.isFinite(maxDistanceMetres) || maxDistanceMetres <= 0) {
+    throw new Error(`sim.castAimRay: maxDistanceMetres must be finite and > 0, got ${String(maxDistanceMetres)}`);
+  }
+  if (!Number.isInteger(ownerTeamId) || ownerTeamId < 0) {
+    throw new Error(`sim.castAimRay: ownerTeamId must be a non-negative integer, got ${String(ownerTeamId)}`);
+  }
+  const magnitude = Math.hypot(direction.x, direction.y, direction.z);
+  if (magnitude < EPSILON) {
+    throw new Error('sim.castAimRay: direction must be non-zero');
+  }
+  const unit: Vec3 = {
+    x: direction.x / magnitude,
+    y: direction.y / magnitude,
+    z: direction.z / magnitude,
+  };
+  const to: Vec3 = {
+    x: from.x + unit.x * maxDistanceMetres,
+    y: from.y + unit.y * maxDistanceMetres,
+    z: from.z + unit.z * maxDistanceMetres,
+  };
+
+  let best: AimRayHit | null = null;
+  const consider = (candidate: AimRayHit): void => {
+    if (!best) {
+      best = candidate;
+      return;
+    }
+    if (candidate.distanceMetres < best.distanceMetres - EPSILON) {
+      best = candidate;
+      return;
+    }
+    if (candidate.distanceMetres > best.distanceMetres + EPSILON) {
+      return;
+    }
+    const rank = (hit: AimRayHit): number =>
+      hit.kind === 'world' ? 0 : hit.kind === 'ground' ? 1 : 2;
+    const candidateRank = rank(candidate);
+    const bestRank = rank(best);
+    if (candidateRank !== bestRank) {
+      if (candidateRank < bestRank) best = candidate;
+      return;
+    }
+    if (candidate.kind === 'tank' && best.kind === 'tank') {
+      const candidateId = candidate.tankId ?? Number.MAX_SAFE_INTEGER;
+      const bestId = best.tankId ?? Number.MAX_SAFE_INTEGER;
+      if (candidateId < bestId) best = candidate;
+      return;
+    }
+    if (candidate.kind === 'world' && best.kind === 'world') {
+      const candidateKey = candidate.cellZ * state.world.columns + candidate.cellX;
+      const bestKey = best.cellZ * state.world.columns + best.cellX;
+      if (candidateKey < bestKey) best = candidate;
+    }
+  };
+  const pointAtDistance = (distanceMetres: number): Vec3 => ({
+    x: from.x + unit.x * distanceMetres,
+    y: from.y + unit.y * distanceMetres,
+    z: from.z + unit.z * distanceMetres,
+  });
+
+  const minCellX = Math.max(0, Math.floor(Math.min(from.x, to.x) / CELL_SIZE_METRES) - 1);
+  const maxCellX = Math.min(
+    state.world.columns - 1,
+    Math.floor(Math.max(from.x, to.x) / CELL_SIZE_METRES) + 1,
+  );
+  const minCellZ = Math.max(0, Math.floor(Math.min(from.z, to.z) / CELL_SIZE_METRES) - 1);
+  const maxCellZ = Math.min(
+    state.world.rows - 1,
+    Math.floor(Math.max(from.z, to.z) / CELL_SIZE_METRES) + 1,
+  );
+  for (let cellZ = minCellZ; cellZ <= maxCellZ; cellZ += 1) {
+    for (let cellX = minCellX; cellX <= maxCellX; cellX += 1) {
+      const block = blockAt(state.world, cellX, cellZ);
+      const cell: Cell = cellAt(state.world, cellX, cellZ);
+      const topMetres = block ? block.heightMetres : cell.hp > 0 ? cell.heightMetres : 0;
+      if (topMetres <= 0) continue;
+      const t = segmentAabbIntersection(
+        from,
+        to,
+        { x: cellX * CELL_SIZE_METRES, y: 0, z: cellZ * CELL_SIZE_METRES },
+        { x: (cellX + 1) * CELL_SIZE_METRES, y: topMetres, z: (cellZ + 1) * CELL_SIZE_METRES },
+      );
+      if (t === null) continue;
+      consider({
+        distanceMetres: t * maxDistanceMetres,
+        point: pointAtDistance(t * maxDistanceMetres),
+        kind: 'world',
+        tankId: null,
+        teamId: null,
+        cellX,
+        cellZ,
+        block: block !== null,
+      });
+    }
+  }
+
+  const floorY = state.world.floorSurfaceHeightMetres;
+  for (const tank of state.tanks) {
+    if (!tank.alive || tank.teamId === ownerTeamId) continue;
+    const t = segmentCylinderIntersection(
+      from,
+      to,
+      tank.x,
+      tank.z,
+      TANK_RADIUS_METRES,
+      floorY,
+      floorY + TANK_HEIGHT_METRES,
+    );
+    if (t === null) continue;
+    consider({
+      distanceMetres: t * maxDistanceMetres,
+      point: pointAtDistance(t * maxDistanceMetres),
+      kind: 'tank',
+      tankId: tank.id,
+      teamId: tank.teamId,
+      cellX: -1,
+      cellZ: -1,
+      block: false,
+    });
+  }
+
+  if (unit.y < -EPSILON) {
+    const distanceMetres = (floorY - from.y) / unit.y;
+    if (distanceMetres >= 0 && distanceMetres <= maxDistanceMetres) {
+      consider({
+        distanceMetres,
+        point: pointAtDistance(distanceMetres),
+        kind: 'ground',
+        tankId: null,
+        teamId: null,
+        cellX: -1,
+        cellZ: -1,
+        block: false,
+      });
+    }
+  }
+
+  return best;
+}

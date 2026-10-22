@@ -60,6 +60,10 @@ export interface AimScreenState {
   readonly edgeX: number;
   readonly edgeY: number;
   readonly angleRadians: number;
+  /** True when the pointer ray hit nothing inside the aim range. */
+  readonly outOfRange?: boolean;
+  /** The team whose tank the true impact hits, so the bracket can carry its colour. */
+  readonly targetTeamId?: number | null;
 }
 
 export interface Hud {
@@ -268,18 +272,20 @@ export function createHud(): Hud {
 }
 
 /**
- * The projected gun reticle. The reticle is NEVER a fixed centre marker: its position
- * is the projected aim direction. When the aim is outside the frame it is clamped to
- * the safe edge and the chevron points outward, so the player always has a direction.
+ * The projected IMPACT reticle (P6). Its position is the clamped shell's true impact
+ * point, not a fixed centre or the pointer; a team-coloured corner bracket marks a tank
+ * hit. If the point is behind the camera the safe-edge fallback and chevron still apply.
  */
 export function createAimHud(): AimHud {
   const reticle = requireById('aim-reticle');
   const edge = requireById('aim-edge');
+  const target = requireById('aim-target');
   return {
     update(state: AimScreenState | null, width: number, height: number, color: string): void {
       if (!state || width <= 0 || height <= 0) {
         reticle.style.display = 'none';
         edge.style.display = 'none';
+        target.style.display = 'none';
         return;
       }
       const ndcX = state.onScreen ? state.x : state.edgeX;
@@ -291,11 +297,22 @@ export function createAimHud(): AimHud {
       reticle.style.left = `${x.toFixed(1)}px`;
       reticle.style.top = `${y.toFixed(1)}px`;
       reticle.classList.toggle('offscreen', !state.onScreen);
+      reticle.classList.toggle('out-of-range', state.outOfRange === true);
+
+      const targetTeamId = state.targetTeamId;
+      const showTarget = state.onScreen && targetTeamId !== null && targetTeamId !== undefined;
+      target.style.display = showTarget ? 'block' : 'none';
+      if (showTarget) {
+        target.style.color = teamColor(targetTeamId);
+        target.style.left = `${x.toFixed(1)}px`;
+        target.style.top = `${y.toFixed(1)}px`;
+      }
 
       if (state.onScreen) {
         edge.style.display = 'none';
         return;
       }
+      target.style.display = 'none';
       // Push the chevron a little outward from the clamped reticle along the aim's
       // screen direction. CSS rotate() is clockwise with y-down; the projection's
       // angle is counter-clockwise with y-up, so the sign flips.

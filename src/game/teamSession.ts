@@ -30,11 +30,11 @@ import {
   type MatchRules,
   type MatchState,
   type Tank,
-  type TankCommand,
 } from '../core/sim.ts';
 import { arenaTeamSetup, TEAM_MODE_AIM_ERROR_SCALE } from './aiBatch.ts';
 import { ARENA, ARENA_BOUNDS } from './levels/arena.ts';
-import { commandFromInput, idlePlayerInput, type PlayerInput } from './input.ts';
+import { idlePlayerInput, type PlayerInput } from './input.ts';
+import { PlayerAimController, type AimCamera } from './aim.ts';
 import { interpolateTanks, snapshotTanks, type TankRenderFrame } from './tankFrames.ts';
 
 /** The player's tank id. `createMatch` assigns team 0's tanks first, slot 0 first. */
@@ -52,32 +52,14 @@ export interface TeamSessionOptions {
   readonly characters?: readonly string[];
   /** Sampled once per simulation tick for the player's controller. */
   readonly readInput?: () => PlayerInput;
+  /** The latest render-camera snapshot; the player's world aim is solved from it. */
+  readonly readAimCamera?: () => AimCamera | null;
   /**
    * Replaces the input-backed player controller. The screenshot demo and the stand-in
    * batch pass a deterministic AI here; in play mode this is omitted.
    */
   readonly playerController?: Controller;
   readonly rules?: MatchRules;
-}
-
-/**
- * The input-to-command adapter. It reads the current hull yaw from the live state, so
- * mouse aim stays a relative turret offset as the hull turns.
- */
-export class PlayerInputController implements Controller {
-  private readonly readInput: () => PlayerInput;
-
-  constructor(readInput: () => PlayerInput) {
-    this.readInput = readInput;
-  }
-
-  commandFor(state: MatchState, tankId: number): TankCommand {
-    const tank = state.tanks.find((candidate) => candidate.id === tankId);
-    if (!tank) {
-      throw new Error(`teamSession: the player controller lost tank ${tankId}`);
-    }
-    return commandFromInput(this.readInput(), tank.hullYawDegrees);
-  }
 }
 
 /**
@@ -144,7 +126,9 @@ export class TeamSession {
     playerSpawn.aimPitchDegrees = 0;
 
     const readInput = options.readInput ?? idlePlayerInput;
-    const playerController = options.playerController ?? new PlayerInputController(readInput);
+    const playerController =
+      options.playerController ??
+      new PlayerAimController(readInput, options.readAimCamera ?? (() => null));
     for (const tank of this.state.tanks) {
       if (tank.id === PLAYER_TANK_ID) {
         this.controllers.set(tank.id, playerController);

@@ -4,6 +4,15 @@ import { ScriptedController } from '../core/sim/controller.ts';
 import type { PlayerInput } from './input.ts';
 import { ARENA_BOUNDS } from './levels/arena.ts';
 import { TeamSession, createVanguardStandIn } from './teamSession.ts';
+import type { AimCamera } from './aim.ts';
+
+const TEST_CAMERA: AimCamera = {
+  position: { x: 0, y: 6, z: 18 },
+  target: { x: 0, y: 0.2, z: 0 },
+  up: { x: 0, y: 1, z: 0 },
+  fovDegrees: 50,
+  aspect: 16 / 9,
+};
 
 function heldInput(): PlayerInput {
   return {
@@ -68,8 +77,8 @@ describe('the player team', () => {
       secondTick += 1;
       return heldInput();
     };
-    const first = new TeamSession({ seed: 11, readInput: firstInput });
-    const second = new TeamSession({ seed: 11, readInput: secondInput });
+    const first = new TeamSession({ seed: 11, readInput: firstInput, readAimCamera: () => TEST_CAMERA });
+    const second = new TeamSession({ seed: 11, readInput: secondInput, readAimCamera: () => TEST_CAMERA });
     first.runTicks(360);
     second.runTicks(360);
     expect(first.hash()).toBe(second.hash());
@@ -77,7 +86,7 @@ describe('the player team', () => {
     expect(firstTick).toBe(360);
     expect(secondTick).toBe(360);
 
-    const other = new TeamSession({ seed: 12, readInput: () => heldInput() });
+    const other = new TeamSession({ seed: 12, readInput: () => heldInput(), readAimCamera: () => TEST_CAMERA });
     other.runTicks(360);
     expect(other.hash()).not.toBe(first.hash());
   });
@@ -126,7 +135,7 @@ describe('the player team', () => {
       seed: 7,
       playerController: createVanguardStandIn(7),
     });
-    const inputSession = new TeamSession({ seed: 7, readInput: heldInput });
+    const inputSession = new TeamSession({ seed: 7, readInput: heldInput, readAimCamera: () => TEST_CAMERA });
     expect(session.playerTankId).toBe(inputSession.playerTankId);
     session.runTicks(600);
     inputSession.runTicks(600);

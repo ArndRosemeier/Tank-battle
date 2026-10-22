@@ -1,26 +1,23 @@
 /**
- * The PURE input→command mapping. The browser only gathers booleans and a normalised
- * pointer; this module owns what they mean, so the mapping is pinned in `node`.
+ * The PURE input→command mapping for the player's buttons and the aim solver's angles.
+ * The browser only gathers booleans and a normalised pointer; this module owns what
+ * those mean, so the boolean half is pinned in `node`.
  *
- * Mouse aim is a yaw OFFSET from the current hull yaw (not an absolute compass angle),
- * and pointer height maps to pitch: top of the view = +25°, centre = 0°, bottom = −30°.
- * The yaw offset is clamped to ±60° so the turret cannot snap behind the hull.
+ * P6 retired the pointer→hull-relative offset: the pointer now selects a WORLD point
+ * through the camera (`src/game/aim.ts`), and the solver supplies the absolute turret
+ * yaw and pitch. This module therefore deliberately ignores pointerX/pointerY; keeping a
+ * second pointer mapping here would fork the aim convention.
  *
- * No pointer lock: the cursor stays visible and its position IS the aim; a locked
- * pointer would add Escape/focus/recentre states without improving this third-person
- * control, and would make the screenshot harness one more browser state to fake.
+ * No pointer lock: the OS cursor is hidden while playing and the projected impact
+ * reticle is the cursor. A locked pointer would add Escape/focus/recentre states without
+ * improving a control whose reference is the world point under the pointer.
  */
 
 import {
-  AIM_PITCH_MAX_DEGREES,
-  AIM_PITCH_MIN_DEGREES,
   normaliseDegrees,
   normaliseTankCommand,
   type TankCommand,
 } from '../core/sim.ts';
-
-/** The largest turret yaw offset from the hull, in degrees. */
-export const AIM_YAW_OFFSET_MAX_DEGREES = 60;
 
 /** One frame's gathered input. Pointer coordinates are normalised to [-1, 1]. */
 export interface PlayerInput {
@@ -35,25 +32,11 @@ export interface PlayerInput {
   readonly fire: boolean;
 }
 
-/** Scales the pointer aim by a user setting, clamped to the frame. */
-export function scalePlayerInput(input: PlayerInput, sensitivity: number): PlayerInput {
-  requireFinite(input.pointerX, 'pointerX');
-  requireFinite(input.pointerY, 'pointerY');
-  if (!Number.isFinite(sensitivity) || sensitivity <= 0 || sensitivity > 4) {
-    throw new Error(`sim.input: sensitivity must be finite and within 0…4, got ${String(sensitivity)}`);
-  }
-  return {
-    ...input,
-    pointerX: clampUnit(input.pointerX * sensitivity),
-    pointerY: clampUnit(input.pointerY * sensitivity),
-  };
-}
-
 /**
  * Normalises a client coordinate against an element's left/top edge and size to [-1, 1].
  * A pointer at the RIGHT edge is +1 and at the TOP edge is -1; that is the convention
- * `commandFromInput` relies on. Pure on purpose: the browser half of the aim chain is
- * pinned in `node`, not discovered by the owner.
+ * `cameraRayFromPointer` relies on. Pure on purpose: the browser half of the aim chain
+ * is pinned in `node`, not discovered by the owner.
  */
 export function normalisePointerAxis(client: number, edge: number, size: number): number {
   requireFinite(client, 'client coordinate');
@@ -87,36 +70,27 @@ function clampUnit(value: number): number {
 }
 
 /**
- * Maps the gathered input to a command for the player's CURRENT hull yaw. A relative
- * mouse yaw is the point: if the hull turns, the turret offset turns with it.
+ * Builds the player's command from the buttons and the WORLD-aim solver's absolute
+ * angles. The pointer itself is not read: the camera ray has already selected the point
+ * and `solveAim` has applied the ±60° / −30…+25° clamps. Throttle, steer and fire keep
+ * their existing semantics.
  */
-export function commandFromInput(input: PlayerInput, hullYawDegrees: number): TankCommand {
-  requireFinite(hullYawDegrees, 'hullYawDegrees');
-  requireFinite(input.pointerX, 'pointerX');
-  requireFinite(input.pointerY, 'pointerY');
-
-  const pointerX = clampUnit(input.pointerX);
-  const pointerY = clampUnit(input.pointerY);
+export function commandFromAim(
+  input: PlayerInput,
+  aimYaw: number,
+  aimPitch: number,
+): TankCommand {
+  requireFinite(aimYaw, 'aimYaw');
+  requireFinite(aimPitch, 'aimPitch');
   const throttle = Number(input.forward) - Number(input.backward);
   // Positive sim steer turns LEFT, so A adds and D subtracts.
   const steer = Number(input.left) - Number(input.right);
-  // POSITIVE YAW IS LEFT in this simulation (`forwardFromYaw` returns `x = -sin(yaw)`),
-  // so a pointer to the RIGHT must SUBTRACT from the yaw. The owner found this the hard
-  // way: the first version added, and moving the mouse left swung the turret right.
-  const aimYaw = normaliseDegrees(hullYawDegrees - pointerX * AIM_YAW_OFFSET_MAX_DEGREES);
-  const aimPitch =
-    pointerY === 0
-      ? 0
-      : pointerY < 0
-        ? -pointerY * AIM_PITCH_MAX_DEGREES
-        : -pointerY * Math.abs(AIM_PITCH_MIN_DEGREES);
-
   return normaliseTankCommand(
     {
       throttle,
       steer,
-      aimYaw,
-      aimPitch: Math.max(AIM_PITCH_MIN_DEGREES, Math.min(AIM_PITCH_MAX_DEGREES, aimPitch)),
+      aimYaw: normaliseDegrees(aimYaw),
+      aimPitch,
       fire: input.fire,
     },
     'sim.input command',

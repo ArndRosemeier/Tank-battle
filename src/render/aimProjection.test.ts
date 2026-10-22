@@ -22,11 +22,11 @@ describe('the aiming loop', () => {
     expect(straight.x).toBeCloseTo(0, 10);
     expect(straight.y).toBeCloseTo(0, 10);
 
-    // The camera follows the hull + 55 % of a 30° turret offset; the remaining 13.5°
-    // puts the reticle off centre (positive yaw turns left, so the sign is negative).
-    // A fixed crosshair would report 0.
+    // P6's camera follows the HULL only, so the 30° turret aim is entirely off the
+    // camera axis. It must still project off centre (positive yaw turns left, so the
+    // sign is negative); a fixed crosshair would report 0.
     const cameraYaw = aimFollowYawDegrees(0, 30);
-    expect(cameraYaw).toBeCloseTo(16.5, 10);
+    expect(cameraYaw).toBe(0);
     const aimYaw = (30 * Math.PI) / 180;
     const cameraYawRad = (cameraYaw * Math.PI) / 180;
     const aim = { x: -Math.sin(aimYaw), y: 0, z: -Math.cos(aimYaw) };
@@ -46,21 +46,26 @@ describe('the aiming loop', () => {
     expect(Math.abs(moving.x)).toBeGreaterThan(0.15);
   });
 
-  it('turns the camera only part of the turret offset and wraps correctly', () => {
+  it('follows the hull only by default: the turret cannot rotate the camera', () => {
+    // The P6 feedback fix: ray → aim → camera → ray would slide the world point under
+    // the cursor. The camera yaw ignores the turret entirely; explicit fractions remain
+    // a pure API tested for their validation, but no live caller uses them.
+    expect(aimFollowYawDegrees(0, 60)).toBe(0);
+    expect(aimFollowYawDegrees(0, -60)).toBe(0);
+    expect(aimFollowYawDegrees(40, 10)).toBe(40);
+    expect(aimFollowYawDegrees(350, 10)).toBe(-10);
+    expect(aimFollowYawDegrees(10, 350)).toBe(10);
     expect(aimFollowYawDegrees(0, 60, 0.55)).toBeCloseTo(33, 10);
-    expect(aimFollowYawDegrees(0, -60, 0.55)).toBeCloseTo(-33, 10);
-    expect(aimFollowYawDegrees(350, 10, 0.55)).toBeCloseTo(1, 10);
-    expect(aimFollowYawDegrees(10, 350, 0.55)).toBeCloseTo(-1, 10);
     expect(() => aimFollowYawDegrees(0, 0, 1.1)).toThrow(/aimFollowFraction/);
     expect(() => aimFollowYawDegrees(Number.NaN, 0)).toThrow(/finite/);
   });
 
-  it('keeps the full ±60° turret aim inside the horizontal frame at 16:9', () => {
-    // The design invariant behind the 0.55 choice: the un-followed remainder must be
-    // smaller than the horizontal half-frame, with room for the reticle's body.
-    const remainder = (1 - CAMERA.aimFollowFraction) * 60;
-    expect(remainder).toBeLessThan(horizontalHalfFovDegrees() - 6);
+  it('keeps every on-screen horizontal aim inside the ±60° command clamp at 16:9', () => {
+    // With a hull-only camera, the frame edge is the ray's maximum horizontal offset.
+    // It must stay inside the turret clamp, or a pointer at the edge would demand a
+    // clamped shot. Vertical pitch is separately clamped by the solver.
     expect(horizontalHalfFovDegrees()).toBeGreaterThan(38);
+    expect(horizontalHalfFovDegrees()).toBeLessThan(60);
     expect(CAMERA.aimEdgeMargin).toBeGreaterThan(0.8);
     expect(CAMERA.aimEdgeMargin).toBeLessThan(1);
   });

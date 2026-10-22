@@ -3,8 +3,9 @@
  * DOM; it makes NO decisions about throttle, aim or pitch. It owns only which keys are
  * held, where the pointer is in canvas-normalised coordinates, and whether fire is held.
  *
- * No pointer lock: the cursor position is the aim, so there is no hidden/recentre state
- * and no Escape handling. Clicking the canvas fires and also focuses it.
+ * No pointer lock: the pointer is a camera-ray coordinate for the P6 world aim, and the
+ * OS cursor is hidden in favour of the projected impact reticle. Clicking the canvas
+ * fires and also focuses it; Escape remains the pause key.
  */
 
 import { normalisePointerAxis, type PlayerInput } from './input.ts';

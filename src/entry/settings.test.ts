@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_SETTINGS,
@@ -35,6 +36,14 @@ describe('settings persistence', () => {
     expect(loadSettings(store)).toEqual(DEFAULT_SETTINGS);
     expect(warn).toHaveBeenCalledOnce();
     warn.mockRestore();
+  });
+
+  it('retires the sensitivity row while still accepting the stored key', () => {
+    const html = readFileSync(new URL('../../index.html', import.meta.url), 'utf8');
+    expect(html).not.toContain('data-setting="mouseSensitivity"');
+    expect(html.match(/data-setting="/g)).toHaveLength(4);
+    // The persisted key survives only so an existing settings object still loads.
+    expect(parseSettings({ ...DEFAULT_SETTINGS, mouseSensitivity: 1.8 }).mouseSensitivity).toBe(1.8);
   });
 
   it('rejects out-of-range values instead of clamping them into a silent default', () => {

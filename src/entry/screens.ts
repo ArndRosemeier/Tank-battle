@@ -49,7 +49,6 @@ const SLIDERS: Readonly<Record<string, SliderSpec>> = {
   music: { min: 0, max: 1, step: 0.01, format: (v) => `${Math.round(v * 100)}` },
   sfx: { min: 0, max: 1, step: 0.01, format: (v) => `${Math.round(v * 100)}` },
   quality: { min: 0, max: 1, step: 0.01, format: (v) => `${Math.round(v * 100)}` },
-  mouseSensitivity: { min: 0.2, max: 2, step: 0.01, format: (v) => `${v.toFixed(2)}×` },
 };
 
 export function createScreens(initial: GameSettings, callbacks: ScreensCallbacks): Screens {
@@ -78,8 +77,8 @@ export function createScreens(initial: GameSettings, callbacks: ScreensCallbacks
     }
     return { element, key, spec: SLIDERS[key]! };
   });
-  if (sliders.length !== 5) {
-    throw new Error(`screens: expected 5 drawn sliders, found ${sliders.length}`);
+  if (sliders.length !== 4) {
+    throw new Error(`screens: expected 4 drawn sliders, found ${sliders.length}`);
   }
 
   const setScreen = (name: ScreenName): void => {

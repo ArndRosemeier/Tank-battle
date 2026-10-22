@@ -1,16 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
-  AIM_PITCH_MAX_DEGREES,
-  AIM_PITCH_MIN_DEGREES,
-  directionFromAim,
-  forwardFromYaw,
-} from '../core/sim.ts';
-import {
-  AIM_YAW_OFFSET_MAX_DEGREES,
-  commandFromInput,
+  commandFromAim,
   idlePlayerInput,
   normalisePointerAxis,
-  scalePlayerInput,
   type PlayerInput,
 } from './input.ts';
 
@@ -18,40 +10,33 @@ function input(overrides: Partial<PlayerInput> = {}): PlayerInput {
   return { ...idlePlayerInput(), ...overrides };
 }
 
-describe('the pure input mapping', () => {
-  it('maps WASD to throttle and steer without touching the centre aim', () => {
-    const forward = commandFromInput(input({ forward: true }), 0);
-    expect(forward).toMatchObject({ throttle: 1, steer: 0, aimYaw: 0, aimPitch: 0 });
-    expect(commandFromInput(input({ backward: true }), 0).throttle).toBe(-1);
-    expect(commandFromInput(input({ left: true }), 0).steer).toBe(1);
-    expect(commandFromInput(input({ right: true }), 0).steer).toBe(-1);
-    expect(commandFromInput(input({ forward: true, backward: true }), 0).throttle).toBe(0);
-    expect(commandFromInput(input({ left: true, right: true }), 0).steer).toBe(0);
+describe('the pure button→command mapping', () => {
+  it('maps WASD to throttle and steer and carries the solver angles through', () => {
+    const forward = commandFromAim(input({ forward: true }), -12, 7);
+    expect(forward).toMatchObject({ throttle: 1, steer: 0, aimYaw: -12, aimPitch: 7 });
+    expect(commandFromAim(input({ backward: true }), 0, 0).throttle).toBe(-1);
+    expect(commandFromAim(input({ left: true }), 0, 0).steer).toBe(1);
+    expect(commandFromAim(input({ right: true }), 0, 0).steer).toBe(-1);
+    expect(commandFromAim(input({ forward: true, backward: true }), 0, 0).throttle).toBe(0);
+    expect(commandFromAim(input({ left: true, right: true }), 0, 0).steer).toBe(0);
   });
 
-  it('moving the pointer RIGHT aims RIGHT, and the offset is clamped at +-60 degrees', () => {
-    // Semantic, not arithmetic: this is the direction a player feels. Positive yaw turns
-    // LEFT in this simulation, so a right-hand pointer must DECREASE the aim yaw.
-    const aimedRight = commandFromInput(input({ pointerX: 0.5 }), 0);
-    const rightForward = forwardFromYaw(aimedRight.aimYaw);
-    expect(rightForward.x).toBeGreaterThan(0.4); // points to +X, i.e. right of -Z
-    expect(rightForward.z).toBeLessThan(-0.8); // and still forward, not sideways
+  it('does not read the pointer: the world solver owns the aim', () => {
+    // P6 retired the hull-relative pointer offset. Moving the pointer without moving the
+    // camera/solver must not produce a different command; otherwise a second, hidden
+    // aim mapping would still exist here.
+    const centre = commandFromAim(input(), 23, -4);
+    const corner = commandFromAim(input({ pointerX: 0.9, pointerY: -0.9 }), 23, -4);
+    expect(corner).toEqual(centre);
+    expect(corner.aimYaw).toBe(23);
+    expect(corner.aimPitch).toBe(-4);
+  });
 
-    const aimedLeft = commandFromInput(input({ pointerX: -0.5 }), 0);
-    const leftForward = forwardFromYaw(aimedLeft.aimYaw);
-    expect(leftForward.x).toBeLessThan(-0.4);
-    expect(leftForward.z).toBeLessThan(-0.8);
-
-    // The offset is relative to the hull: half-right at hull 0 is half-left in yaw terms.
-    expect(commandFromInput(input({ pointerX: 0.5 }), 0).aimYaw).toBe(-AIM_YAW_OFFSET_MAX_DEGREES / 2);
-    // And it is an offset, not an absolute angle: the same pointer follows the hull.
-    expect(commandFromInput(input({ pointerX: 0.5 }), 40).aimYaw).toBe(40 - AIM_YAW_OFFSET_MAX_DEGREES / 2);
-
-    // Clamped at the frame edges, whatever the pointer reports.
-    expect(commandFromInput(input({ pointerX: 9 }), 0).aimYaw).toBe(-AIM_YAW_OFFSET_MAX_DEGREES);
-    expect(commandFromInput(input({ pointerX: -9 }), 0).aimYaw).toBe(AIM_YAW_OFFSET_MAX_DEGREES);
-    // Yaw wraps, not clamps: 170 deg minus 60 deg stays 110 deg in the canonical range.
-    expect(commandFromInput(input({ pointerX: 1 }), 170).aimYaw).toBe(110);
+  it('wraps the absolute yaw and keeps the requested pitch', () => {
+    expect(commandFromAim(input(), 190, -30).aimYaw).toBe(-170);
+    expect(commandFromAim(input(), -190, 25).aimYaw).toBe(170);
+    expect(commandFromAim(input(), 0, 25).aimPitch).toBe(25);
+    expect(commandFromAim(input(), 0, -30).aimPitch).toBe(-30);
   });
 
   it('normalises a client pointer so the right half is positive x and the top half is negative y', () => {
@@ -63,32 +48,9 @@ describe('the pure input mapping', () => {
     expect(() => normalisePointerAxis(10, 0, 0)).toThrow(/size/);
   });
 
-  it('moving the pointer UP aims UP (positive pitch), with centre = zero', () => {
-    const up = commandFromInput(input({ pointerY: -1 }), 0);
-    expect(directionFromAim(up.aimYaw, up.aimPitch).y).toBeGreaterThan(0.3);
-    const down = commandFromInput(input({ pointerY: 1 }), 0);
-    expect(directionFromAim(down.aimYaw, down.aimPitch).y).toBeLessThan(-0.3);
-    expect(commandFromInput(input({ pointerY: 0 }), 0).aimPitch).toBe(0);
-    expect(commandFromInput(input({ pointerY: -1 }), 0).aimPitch).toBe(AIM_PITCH_MAX_DEGREES);
-    expect(commandFromInput(input({ pointerY: 1 }), 0).aimPitch).toBe(AIM_PITCH_MIN_DEGREES);
-    expect(commandFromInput(input({ pointerY: -9 }), 0).aimPitch).toBe(AIM_PITCH_MAX_DEGREES);
-    expect(commandFromInput(input({ pointerY: 9 }), 0).aimPitch).toBe(AIM_PITCH_MIN_DEGREES);
-  });
-
-  it('passes the fire state through and rejects non-finite pointer input', () => {
-    expect(commandFromInput(input({ fire: true }), 0).fire).toBe(true);
-    expect(() => commandFromInput(input({ pointerX: Number.NaN }), 0)).toThrow(/pointerX/);
-    expect(() => commandFromInput(input({ pointerY: Number.POSITIVE_INFINITY }), 0)).toThrow(
-      /pointerY/,
-    );
-  });
-
-  it('scales the pointer aim by the user sensitivity and clamps it', () => {
-    const scaled = scalePlayerInput(input({ pointerX: 0.5, pointerY: -0.25 }), 2);
-    expect(scaled.pointerX).toBe(1);
-    expect(scaled.pointerY).toBe(-0.5);
-    expect(scalePlayerInput(input({ pointerX: 0.3 }), 0.5).pointerX).toBeCloseTo(0.15, 10);
-    expect(() => scalePlayerInput(input(), 0)).toThrow(/sensitivity/);
-    expect(() => scalePlayerInput(input(), Number.NaN)).toThrow(/sensitivity/);
+  it('passes fire through and rejects non-finite aim angles', () => {
+    expect(commandFromAim(input({ fire: true }), 0, 0).fire).toBe(true);
+    expect(() => commandFromAim(input(), Number.NaN, 0)).toThrow(/aimYaw/);
+    expect(() => commandFromAim(input(), 0, Number.POSITIVE_INFINITY)).toThrow(/aimPitch/);
   });
 });

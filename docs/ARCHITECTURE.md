@@ -76,9 +76,9 @@ running headless in `node`.
 | a run's combat identity | `hashMatch(state)` | `src/core/sim/hash.ts:18` | The ONE match hash: canonical state text including RNG state, the A1 world hash, tanks, shells, match status and stats. An equality witness, not a measurement. |
 | the simulation's public surface | `src/core/sim.ts` | `src/core/sim.ts:1` | The ONE entrance: constants, geometry, commands, stats, match, step, hash and controller re-exported. Callers outside the sim package import from here, never from `sim/*.ts` except a deliberate internal seam. |
 | the world's visible version | `World.revision` · `markWorldChanged(world)` | `src/core/world/state.ts:75` · `src/core/world/state.ts:103` | ONE monotonic counter bumped once per changed public mutation (damage, block/rubble, shard spawn/remove/shove, regeneration HP, displacement). A regen-timer tickdown alone does NOT bump it. The renderer rebuilds only on a changed integer. |
-| the frame→ticks bridge | `PlayableSession.advance(frameSeconds, input)` · `.step(command)` | `src/game/session.ts:164` · `src/game/session.ts:182` | The ONLY place a frame delta becomes `FixedStep` ticks for the app; one `stepMatch` per tick, with the dummy idling. No simulation call exists in a render module. |
-| a player's command | `commandFromInput(input, hullYawDegrees)` | `src/game/input.ts:64` | The pure mapping: WASD→throttle/steer, pointer X→RELATIVE turret yaw (±60°), pointer Y→pitch (top +25°, centre 0°, bottom −30°), fire boolean. Unit-tested in node; malformed numbers throw. |
-| browser events | `createBrowserInput(canvas)` | `src/game/browserInput.ts:26` | The only DOM reader: key set, canvas-normalised pointer, click/Space fire. No pointer lock (deliberate): the cursor position is the aim, so there is no hidden/recentre state. |
+| the frame→ticks bridge | `PlayableSession.advance(frameSeconds, commandFor)` · `.step(command)` | `src/game/session.ts:164` · `src/game/session.ts:182` | The ONLY place a frame delta becomes `FixedStep` ticks for the app; one `stepMatch` per tick, with the dummy idling. No simulation call exists in a render module. |
+| a player's command | `commandFromAim(input, aimYaw, aimPitch)` | `src/game/input.ts:76` | P6's button half: WASD→throttle/steer, fire boolean, and the WORLD-aim solver's absolute yaw/pitch. It deliberately does NOT read pointerX/pointerY; `solveAim` owns the pointer→world mapping. Unit-tested in node; malformed aim numbers throw. |
+| browser events | `createBrowserInput(canvas)` | `src/game/browserInput.ts:26` | The only DOM reader: key set, canvas-normalised pointer, click/Space fire. No pointer lock: the OS cursor is hidden over the canvas and the projected impact reticle is the cursor. The normalised pointer is a camera-ray coordinate, not a turret offset. |
 | an AI sightline | `hasLineOfSight(world, from, to)` · `visibleEnemies(state, tank)` | `src/core/ai/perception.ts:49` · `src/core/ai/perception.ts:77` | Samples a 3D segment through `isSolidAt` at eye height (`floor + 1.6 m`) to the target's turret point (`floor + 1.0 m`); a 1.2 m barrier is below the line, a 4.8 m wall blocks it. Team-aware, no shell resolver. |
 | short enemy memory | `PerceptionMemory.update(state, tank)` · `.latest()` | `src/core/ai/perception.ts:99` | Remembers the last seen position/tick per enemy for the profile's `memoryTicks`; memory is for navigation, never for firing. |
 | AI navigation | `NavigationCache.findPath(...)` · `reachablePointNear(...)` | `src/core/ai/navigation.ts:120` · `src/core/ai/navigation.ts:209` | A* over four-neighbour body-free cell centres; the cache recomputes only on `world.revision` or a new goal CELL. Smoothing uses a sampled body-clear line. Boundary rows with zero clearance are rejected so a tank cannot wedge on an arena edge. |
@@ -106,14 +106,14 @@ running headless in `node`.
 | the app scene | `createPlayableScene(state, ids)` | `src/render/playableScene.ts:40` | Builds the real world mesh, debris, two tank views and the shell streak buffer. This is the app path; the A2 showcase remains the budget fixture. `setTanksHidden` is the top-plan review switch, not gameplay. |
 | rebuilding on revision | `PlayableScene.syncWorld()` | `src/render/playableScene.ts:77` | The ONE rebuild gate: compares `World.revision` with the last built revision; only a change calls `worldMesh.rebuild()` / `debrisView.rebuild()`. Never per frame. |
 | shells/debris views | `createShellView()` · `createDebrisView(world)` | `src/render/shellView.ts:31` · `src/render/debrisView.ts:24` | One merged streak line buffer for shells; one merged `NeonSurface` for A1 blocks and shards. Both are data-derived, never patched. |
-| the in-style HUD | `createHud()` · `createAimHud()` | `src/entry/hud.ts` | DOM only: three 44 px hull segments with a numeric label, a 56 px reload ring with seconds, the squad rows (name, pips, LIVE/KIA), the duel target, the kill feed, the victory/defeat banner and the projected reticle. Team mode omits the duel target; duel mode hides the squad. Colours come from `PALETTE`/`teamColor`; no HTML controls. |
+| the in-style HUD | `createHud()` · `createAimHud()` | `src/entry/hud.ts` | DOM only: three 44 px hull segments with a numeric label, a 56 px reload ring with seconds, the squad rows (name, pips, LIVE/KIA), the duel target, the kill feed, the victory/defeat banner, and the projected impact reticle plus a team-coloured target bracket. Team mode omits the duel target; duel mode hides the squad. Colours come from `PALETTE`/`teamColor`; no HTML controls. |
 | the combat screenshot pose | `cameraPose('combat', ...)` | `src/render/cameraMath.ts:228` | Deterministic behind/above player frame for the demo breach, target and in-flight shell. Added to `CAMERA_POSE_NAMES`; `shot.sh combat` selects it. |
 | the player-team mode | `?mode=team` · `TeamSession` | `src/main.ts:89` · `src/game/teamSession.ts:101` | Team 0 is the input tank plus three AI squadmates, against three AI teams of four on `ARENA`; the seed rotates the team-to-corner assignment. `hash()` is the determinism witness; the stand-in and the demo both run through this same class. |
-| the player's controller | `PlayerInputController` | `src/game/teamSession.ts:67` | The ONE human→sim adapter: the existing `PlayerInput`/`commandFromInput` mapping behind the core's `Controller` seam. The player is one controller among the AI's; `src/core` has no `isPlayer`. |
+| the player's controller | `PlayerAimController` | `src/game/aim.ts` | The ONE human→sim adapter: per tick it reads the browser input and the latest camera snapshot, casts the pointer ray through the simulation, solves the clamped turret angles, and returns `commandFromAim` behind the core's `Controller` seam. The player is one controller among the AI's; `src/core` has no `isPlayer`. |
 | the squad readout | `createHud()` squad rows | `src/entry/hud.ts:67` | One row per AI squadmate in slot order: character name, three HP pips, LIVE/KIA; the player's own block keeps the hull segments and reload ring. Team mode omits the duel target block; duel mode hides the squad. |
 | the team screenshot pose | `cameraPose('team', …)` | `src/render/cameraMath.ts` | A deterministic 28 m / 34° / 18° staging frame of the player and squad, selected by `shot.sh team`; the live follow arm is 8.2 m and unchanged. The 12.5 m version put too many bright hull tiles in one screen band and failed the look-budget tile p90. |
 | the player-team stand-in | `runPlayerTeamBatch` | `src/game/playerBatch.ts:82` | The ONE way the player mode gets a win rate without a human: the vanguard `AIController` drives tank 0 through the real `TeamSession`, 100 seeds by default, writing `reports/player-batch.json`. Human skill is not measured. |
-| the player's aiming loop | `aimFollowYawDegrees` · `projectAimPoint` · `createAimHud()` | `src/render/aimProjection.ts` · `src/entry/hud.ts` · `src/main.ts` | The camera yaw follows the hull plus **0.55** of the turret's offset with a **0.11 s** half-life spring; the reticle is the projection of a point on the shell's path (nearest enemy in a 0.985 cone, else 40 m), and an off-screen aim clamps to the 0.9 NDC edge with a direction chevron. `fovDegrees` stays **50**. |
+| the player's aiming loop | `solveAim` · `castAimRay` · `projectAimPoint` · `createAimHud()` | `src/game/aim.ts` · `src/core/sim/step.ts` · `src/render/aimProjection.ts` · `src/entry/hud.ts` · `src/main.ts` | The camera yaw follows the HULL only (`aimFollowFraction = 0`; the 0.11 s spring remains). Per tick, a camera ray through the pointer takes the first enemy tank / world cell / big block / floor hit, then solves yaw+pitch from the muzzle with the ±60° / −30…+25° clamps. The reticle is the projection of the CLAMPED true impact point (not the screen centre); a tank impact adds a team-coloured bracket. Empty sky is `outOfRange` and aims at the 80 m endpoint. `fovDegrees` stays **50**. |
 | combat VFX | `createEffectsView()` | `src/render/effectsView.ts` | ONE additive particle view: muzzle flash, impact/hit sparks, cell-break shards, a regeneration grow-in cage and death bursts. Point sprites use a generated radial alpha texture; the shells draw a travelled-clamped trail. No VFX is a bright flat surface. |
 | the gun and muzzle | `PlaceholderTank` turret parts · `effects.muzzle` | `src/render/placeholderTank.ts` · `src/render/effectsView.ts` | The 2.15 m barrel ends in a hexagonal muzzle brake at the sim's 3 m muzzle, with a small ice bore ring; a shot spawns a lifted, soft muzzle flash at the shell origin. |
 | killer attribution and feed | `Tank.killedByTeamId` · `KillFeedTracker` · `describeKill` | `src/core/sim/match.ts` · `src/game/killFeed.ts` | The sim records the firing team on a shell kill (null for the clock); the game layer turns alive→dead transitions into labelled rows (SQUAD / YOU / TEAM n, cause). Presentation only — no gameplay rule. |
@@ -121,7 +121,7 @@ running headless in `node`.
 | the hull's light | `NEON.teamEdgeGain` · `BLOOM` | `src/render/config.ts` | The close player hull is a DARK mass with thin trim: team edge HDR **2.2** (was 3.2) and bloom threshold **0.65** / strength **0.5** / radius **0.32** (was 0.6/0.62/0.4). The live 8.2 m `TEAM_CAMERA_POSE=tank` frame measures tile p90 **15 L (5.9 %)**; it was 75 L (29.4 %) before. Do not raise either without re-running the live pose. |
 | the audio seam | `AudioEngine` | `src/entry/audio.ts` | ONE Web Audio graph: master → music bus + SFX bus, two looping beds (`menu`, `combat`) with a 2 s crossfade, a **0.28×** pause duck, per-bus volumes, and one-shot SFX. `unlock()` must be called from a real gesture; it creates/resumes the context and loads `assets/manifest.json`. The generated clips are local; no CDN. |
 | the front door | `createScreens()` | `src/entry/screens.ts` · `index.html` | Title / settings / pause as DOM overlays in the HUD palette: Play / Team / Spectate / Settings, controls, credit, animated grid, drawn sliders (no HTML range inputs), reduced-motion switch and Back. The root URL opens the title; `?mode=…` still starts a match directly for screenshot/direct URLs. |
-| settings | `loadSettings()` · `saveSettings()` · `withSetting()` | `src/entry/settings.ts` | ONE persisted preference object (`tank-battle.settings.v1`): master/music/SFX volumes, quality (surface detail + bloom), mouse sensitivity, reduced motion. Invalid stored data is rejected and the documented defaults are used with a console warning; UI edits are range-validated. |
+| settings | `loadSettings()` · `saveSettings()` · `withSetting()` | `src/entry/settings.ts` | ONE persisted preference object (`tank-battle.settings.v1`): master/music/SFX volumes, quality (surface detail + bloom), reduced motion. P6 removed the sensitivity UI and its consumer; the old `mouseSensitivity` key is still validated so an existing store loads instead of being discarded. Invalid stored data is rejected and the documented defaults are used with a console warning. |
 | shipped assets | `assets/manifest.json` · build copy | `assets/` · `package.json` | Every shipped audio file is a manifest entry with sha256, bytes, model, prompt and date; every entry resolves to a file. `vite build` copies `assets/` into `dist/assets/`, so the served URLs are `assets/audio/…` and `assets/manifest.json`. |
 | presentation events | `PlayableScene.takeEvents()` | `src/render/playableScene.ts` | ONE queue of fire/reload/impact/hit/death/wall-break/regen events derived from state transitions; the host maps them to audio, and the VFX view remains the one consumer of its own particle spawns. |
 | the title background match | `TitleSession` · `createTitleBackground()` | `src/game/titleSession.ts` · `src/entry/titleBackground.ts` | ONE deterministic 4×4 `SpectatorSession` (16 tanks, seed from the title URL, default 1; `TitleSession` default 7) with a **420-tick (7 s)** director and a gentle tick-based drift. It renders into a SEPARATE `#title-canvas` at **0.75** internal resolution, exposure **0.7×** and bloom **0.5×**; the title overlay supplies the scrim. `start()` owns one rAF; `dispose()` cancels it and disposes the session, scene, renderer/context. A finished match is replaced (next seed), never run alongside. Background SFX are muted; menu music belongs to the shell. |
@@ -252,8 +252,8 @@ where it used to be 60. The pacing was not retuned to make the player faster.
 `?mode=team` builds the player team: team 0 is tank 0 (input) plus three AI squadmates,
 against three AI teams of four on `ARENA`, with the seed rotating the team-to-corner
 assignment. `TeamSession` owns the match, a `FixedStep`, the controller map and `hash()`;
-`PlayerInputController` is one `Controller` in that map, mapping the existing input
-through `commandFromInput`. There is no `isPlayer` in `src/core`; only the session knows
+`PlayerAimController` is one `Controller` in that map, solving the pointer ray and mapping
+it through `commandFromAim`. There is no `isPlayer` in `src/core`; only the session knows
 which tank receives the input-backed controller. Squadmates and opponents use the same
 four profiles and the one `TEAM_MODE_AIM_ERROR_SCALE` (0.09, moved from the spectator so
 there is one value, not two copies).
@@ -330,6 +330,12 @@ target's range also moves as targets approach, which is correct for a shell path
 not a mouse cursor; the input mapping remains hull-relative and is not what the reticle
 follows.
 
+**P6 supersedes the aiming-camera part above:** the input is no longer hull-relative and
+the camera no longer follows the turret. The pointer selects a world point through the
+camera; the camera follows the hull only; the reticle projects the clamped true impact.
+The P2 projection/edge maths is retained, and P6's live view is measured on the normal
+player camera (see the P6 section).
+
 ### P3 · The front door, the score and the hull's light
 
 The live camera failed the look gate because the player's own hull at 8.2 m is a large
@@ -345,8 +351,8 @@ now accepted on the live arm, not a staging pose.
 The front door is a DOM shell over the HUD palette: an animated perspective grid, the
 wordmark, **Play / Team / Spectate / Settings**, the controls list and the credit.
 Settings are drawn sliders (no `<input type="range">`): master/music/SFX, quality
-(surface detail + bloom), mouse sensitivity and reduced motion, persisted per browser and
-applied live. Escape pauses the running match, dims it, ducks the music and offers
+(surface detail + bloom) and reduced motion, persisted per browser and applied live. P6
+removed the sensitivity row; there is no gain to scale on a world-anchored cursor. Escape pauses the running match, dims it, ducks the music and offers
 Resume / Settings / Quit-to-title; the simulation does not advance while paused and
 resumes the same deterministic match. Quit reloads the title.
 
@@ -413,6 +419,43 @@ screenshot assumption is wrong:** `shot.sh`'s `--virtual-time-budget` does not a
 by reading them: identical tank positions). The genuine mid-fight frame above is a
 real-time CDP `Page.captureScreenshot` at tick 1585; `shot.sh` remains the static-frame
 tool and now warns on title/settings poses.
+
+
+### P6 · Point at the world
+
+The pointer is a **camera ray**, not a turret offset. `aimCameraView()` in `src/main.ts`
+takes the plain camera position/target/up/fov/aspect after the rig update; `solveAim()` in
+`src/game/aim.ts` builds the NDC ray (`+x` is camera-right, `pointerY` is +down), calls
+`castAimRay()` in `src/core/sim/step.ts`, and computes the clamped yaw/pitch from the 3 m
+muzzle to the hit. The core cast uses the same cell loop, `segmentAabbIntersection` and
+`segmentCylinderIntersection` as shell collision; its hit list is the brief's enemy tanks,
+world cells/big blocks and floor plane. Shards are not in that list, and a teammate is not
+an aim target (the shell still stops on either), which is a recorded limit rather than a
+second aim path.
+
+The camera follows the **hull only** (`CAMERA.aimFollowFraction = 0`). This is the P6
+feedback fix: a camera that yawed toward the turret would move the world point under a
+stationary pointer (ray → aim → camera → ray). On-screen points AHEAD of the tank are
+inside the horizontal frame (~39.8° at 16:9, so inside ±60°); points at the lower screen
+can lie between the camera and the muzzle, where the required turn exceeds ±60° and is
+clamped. That is why the reticle is the **clamped impact**, not a promise that the pointer
+always maps exactly.
+
+The reticle is drawn at the projection of that impact; the OS cursor is hidden by CSS on
+`#app`. `createAimHud()` adds a 56 px corner bracket when the true impact is an enemy tank,
+coloured by that tank's team. Empty sky sets `outOfRange`, aims at the 80 m ray endpoint and
+still returns a finite command. The sensitivity setting is gone from the UI and the input
+path; the stored `mouseSensitivity` key survives only so an existing settings object loads.
+
+Verification: the live smoke at 1280×800 moves to open ground and measures the projected
+reticle **0.0 px from the pointer**, checks the camera yaw stays **−90.00° → −90.00°**, checks
+`cursor: none`, and clicks to fire with no console error. The 1920×1080 live frame
+(`.gate-logs/shots/p6-aim-live.png`, reticle at the centre dummy with an orange bracket) PASSES
+the look budget: void 75.2 %, surface **12 L (4.7 %)**, mid 1.6 %, line p99 **186**,
+contrast **15.50**, tile p90 **11 L (4.3 %)**. `aimFollowFraction`'s 0.11 s spring, the
+`projectAimPoint` edge fallback and `fovDegrees = 50` are unchanged. No simulation rule,
+reload, damage or AI code changed.
+
 
 ## 3 · Gotchas
 
@@ -619,11 +662,13 @@ tool and now warns on title/settings poses.
   for hull/turret yaw between the previous and current tick. Shells are drawn at their
   latest simulation position (a 1.8 m streak conveys motion); this is deliberate. The
   renderer never calls `stepMatch`.
-- **Input is a pure mapping, and there is deliberately NO pointer lock.** WASD becomes
-  throttle/steer, pointer X becomes a ±60° turret yaw RELATIVE to the hull, pointer Y
-  maps top +25° / centre 0° / bottom −30°, and click/Space fires. `browserInput.ts` only
-  gathers events; `input.ts` is unit-tested. Pointer lock would add hidden cursor,
-  Escape and recentre states for no gain in a third-person cursor-aim control.
+- **Input is a button mapping; the pointer is a world ray (P6).** WASD becomes
+  throttle/steer and click/Space fires; `commandFromAim` takes the absolute turret angles
+  from `solveAim`, which casts the camera ray through the pointer. The OS cursor is hidden
+  and the reticle is the impact point. There is deliberately NO pointer lock. A camera
+  ray at the lower screen can hit ground BEHIND the muzzle, where the required turn is
+  over 60° and the clamp moves the reticle away from the pointer; the reticle shows that
+  true clamped impact. Do not assume every on-screen point is inside the clamp.
 - **The hull is 2.0 × 2.6 m, inside the 1 m body radius by width.** `config.test.ts`
   pins `TANK.hullWidthMetres / 2 <= TANK_RADIUS_METRES * 1.05` (measured 1.00 m). The
   turret/barrel are scaled with it. The whole turret group is the pitch pivot, so pitch
@@ -769,7 +814,8 @@ tool and now warns on title/settings poses.
   `?pose=top` is not selectable as an interactive camera. The arrows are authored to
   read the A4 dogleg exits, not generated from arbitrary level data.
 - **No browser-level input test.** Pointer/keyboard gathering is untested DOM glue; the
-  pure `commandFromInput` mapping is pinned. A synthetic click/key browser test would
+  button mapping is pinned; the world aim is pinned in `src/game/aim.test.ts`. The
+  deployed live smoke is the browser-level check. A synthetic click/key browser test would
   need the Chrome lifecycle already owned by `shot.sh`.
 - **The demo seeds one breach directly through `damageCell`/`damageBlock`.** That is a
   deterministic stage setup, not a shot; the shell/damage/win after it comes through the
