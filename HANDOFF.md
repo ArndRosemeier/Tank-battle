@@ -27,11 +27,10 @@
 
 ## Next action (one)
 
-**Process plan implemented** (project + Toolbox + host rules): the publish chain now fails
-closed unless the deployed page boots and its player camera passes the look budget. Live:
-`https://apps.futuremagic.de/tank-battle/` (`index-CtakY_ue.js`), VERIFIED-DEPLOYED.
-Next: the three outstanding debts (4x4 cap ~11 %, seed-148 parked duel, ambusher/brute
-naming), or the owner's next request. Nothing is dispatched.
+**Awaiting the owner's verdict on pointer aiming** (live, `index-DHqlNoPa.js`, VERIFIED-DEPLOYED).
+Next candidates: aim assist (a small snap near the cursor) if he wants targeting easier still;
+the three AI debts (4x4 cap ~11 %, seed-148 parked duel, ambusher/brute naming); or his next
+request. Nothing is dispatched.
 
 ## Open questions for the owner
 

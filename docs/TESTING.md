@@ -1792,3 +1792,21 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
   teammates (both can still stop a shell), as the brief listed only enemy tanks, world
   cells and ground. **Not verified:** the owner's hand feel, lead on a moving target,
   touch/Safari/Firefox, real-GPU frame rate, and a public P6 deployment.
+
+### pointer aiming (P6) — verified on the deployed build
+
+- **Gate:** 152/152, exit 0.
+- **Aim seam:** `castAimRay` (camera-origin segment through the pointer) → `solveAim` (clamped
+  yaw/pitch from the 3 m muzzle, recomputed true impact) → `PlayerAimController`; the camera
+  follows the hull only (`aimFollowFraction = 0`), so the pointer mapping cannot feed back.
+- **Clamp correction:** `AIM_YAW_OFFSET_MAX_DEGREES` 60 → 180. Measured before: at a low
+  screen point the reticle sat **486 px** from the pointer. The new pin: a point behind the
+  hull is aimable and the shell lands within **0.5 m**; pitch still clamps (a point 1 m ahead
+  of the muzzle needs ~58° of depression and is reported clamped).
+- **Deployed smoke:** boots, no console/HTTP errors, Play opens, and the reticle **moves with
+  the pointer in the same direction** (not a fixed centre marker); OS cursor hidden.
+- **Deployed look:** surface median 4.7 %, tile p90 4.3 %, contrast 15.5 — PASS.
+- **What the deployed check does NOT assert, and why:** per-pixel pointer following, because
+  the reticle is the true impact and a wall between the muzzle and the pointed ground
+  correctly moves it. The exact property is pinned in node (shell within 0.5 m).
+- **Not verified:** the owner's hand feel, pitch aiming in the browser, aim assist (not built).
