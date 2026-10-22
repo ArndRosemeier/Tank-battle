@@ -1321,24 +1321,30 @@ only in trim lines and small lights. The team-trim diagnostic on `wide` is orang
   tick-based yaw/pitch/distance drift. It renders on a separate `#title-canvas` at **0.75**
   internal resolution. The title overlay scrim plus exposure **0.7×** and bloom **0.5×**
   yields a faded battle; the wordmark, buttons, controls and credit stay legible.
-- **Title look tables (both frames, 1920×1080):**
+- **Title look tables (both frames, 1920×1080, real-time CDP):**
 
-  | gate | title (10 s) | title mid-fight (25 s) |
+  | gate | title (10 s, tick 627) | title mid-fight (25 s, tick 1585) |
   | --- | ---: | ---: |
-  | void | 62.7 % | 62.6 % |
+  | void | 62.9 % | 61.6 % |
   | surface median | **8 L (3.1 %)** | **8 L (3.1 %)** |
-  | mid-band | 4.3 % | 4.3 % |
+  | mid-band | 3.9 % | 3.9 % |
   | line p99 | 163 | 163 |
   | contrast | 20.38 | 20.38 |
-  | tile p90 | **11 L (4.3 %)** | **11 L (4.3 %)** |
+  | tile p90 | **11 L (4.3 %)** | **9 L (3.5 %)** |
   | verdict | PASS | PASS |
 
-  Raw frames `.gate-logs/shots/title.png` and `title-mid.png`; the title is seed 1, the
-  mid-fight shot uses `SHOT_MS=25000`.
-- **Performance:** the headless SwiftShader run at 1280×720/0.75 reads **12–16 fps** with
-  **114 draw calls** while the title is up. This is a software lower bound, not a GPU
-  number; the owner's 60.0 fps at 1111×1031 was the game spectator. The title deliberately
-  renders at 0.75 rather than dropping the 16-tank battle.
+  Raw frames `.gate-logs/shots/title.png` and `title-mid.png`; the title is seed 1.
+- **Capture gotcha:** `shot.sh` uses Chrome's `--virtual-time-budget`; virtual time does
+  **not** advance `requestAnimationFrame`, so a 10 s and a 25 s title capture are the same
+  first rendered frame. The first pair of frames was caught by reading them (identical tank
+  positions), and the table above was re-shot in a real-time CDP session
+  (`Page.captureScreenshot` at ticks 627 and 1585). `shot.sh` remains correct for static
+  poses; it now warns that title/settings captures are first frames, not live states.
+- **Performance:** the real-time 1920×1080/0.75 title run reads **6.8–7.3 fps** with
+  **68–115 draw calls** (SwiftShader; the call count varies with the director shot). An
+  earlier 1280×720/0.75 run read **12–16 fps** with **114 draw calls**. Both are software
+  lower bounds, not GPU numbers; the owner's 60.0 fps at 1111×1031 was the game spectator.
+  The title deliberately renders at 0.75 rather than dropping the 16-tank battle.
 - **Lifecycle:** `TitleSession` is deterministic (hash) and its disposal is pinned; the
   browser smoke after Play read `titleDisposed: true`, title canvas `display: none`, game
   mode `play`, 11 audio clips, `AudioContext.state = running`. `startGame` disposes the

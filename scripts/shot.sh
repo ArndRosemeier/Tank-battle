@@ -7,6 +7,9 @@
 #   detail: 0 … 1                        (default 0.3, the SURFACE_DETAIL default)
 #   output: default .gate-logs/shots/<pose>-detail-<detail>.png
 #   env: SHOT_MS virtual-time budget in ms (default 10000)
+#        NOTE: virtual time does NOT advance requestAnimationFrame. A `title` or
+#        `settings` capture is the FIRST rendered title frame regardless of SHOT_MS;
+#        a genuine mid-fight title frame needs a real-time CDP capture (ARCHITECTURE P4).
 #   team env: TEAM_SEED (default 67), TEAM_TICKS (default 480), TEAM_CAMERA_POSE
 #             (default `team`; `first` shows the eye-level squad view)
 #
@@ -57,6 +60,9 @@ fi
 if [ ! -x "$CHROME_BIN" ]; then
   echo "shot: Chrome is not executable at $CHROME_BIN" >&2
   exit 2
+fi
+if [ "$POSE" = "title" ] || [ "$POSE" = "settings" ]; then
+  echo "shot: NOTE — virtual time does not advance requestAnimationFrame; this is the first title frame, not a live ${SHOT_MS} ms state. For a mid-fight title frame use a real-time CDP capture (ARCHITECTURE P4)." >&2
 fi
 
 mkdir -p "$LOG_DIR" "$(dirname "$OUT_ABS")"

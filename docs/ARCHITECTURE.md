@@ -126,7 +126,7 @@ running headless in `node`.
 | the title gesture gate | `TitleAudioGate` | `src/game/titleAudioGate.ts` · `src/main.ts` | The first `pointerdown` OR `keydown` anywhere on the title returns `menu` once and starts `menu.mp3`; later gestures do not restart it. Play then crossfades to combat as before. The gate is pure and pinned; `main.ts` wires both listeners. |
 | a low shoot-over barrier | `isLowCover(heightMetres)` · `LOW_COVER_MAX_HEIGHT_METRES` | `src/render/config.ts:193` | ONE predicate/height threshold distinguishes low cover from tall architecture in both the 3D edge hue (`worldMesh`) and the plan fill (`topPlan`); the A1 height model remains the collision authority. |
 | the spatial look budget | `tile_p90(luminance)` | `scripts/look-budget.py:97` | Splits a frame into 24×14 tiles, takes each tile median, and requires p90 ≤ 30.6 L (12 %); alongside the existing whole-frame gates. Proof injection reaches 255 L / 100 % and FAILS. |
-| the screenshot command | `scripts/shot.sh [pose] [detail] [out]` | `scripts/shot.sh:1` | Accepts `wide \| tank \| first \| combat \| top \| spectate \| team \| title \| settings`; `combat` appends `&demo=duel&ticks=571`, `team` runs `?mode=team&demo=team` with `TEAM_SEED` (67) / `TEAM_TICKS` (480) / `TEAM_CAMERA_POSE` (`team`; use `tank` for the live 8.2 m arm), `title`/`settings` use `?mode=title&settings=0/1`, `SHOT_MS` changes the virtual-time budget (default 10000; `title-mid` uses 25000), `top` selects the plan, builds into `.gate-logs/shot-dist` (never the live `release/`), every run executes the look budget, and the trapped Chrome tree is reaped (`chrome processes after cleanup: 0`). |
+| the screenshot command | `scripts/shot.sh [pose] [detail] [out]` | `scripts/shot.sh:1` | Accepts `wide \| tank \| first \| combat \| top \| spectate \| team \| title \| settings`; `combat` appends `&demo=duel&ticks=571`, `team` runs `?mode=team&demo=team` with `TEAM_SEED` (67) / `TEAM_TICKS` (480) / `TEAM_CAMERA_POSE` (`team`; use `tank` for the live 8.2 m arm), `title`/`settings` use `?mode=title&settings=0/1`, `SHOT_MS` changes the virtual-time budget (default 10000; virtual time does **not** advance `requestAnimationFrame`, so a title capture is the first rendered frame — a genuine mid-fight title frame needs a real-time CDP capture, see the P4 section), `top` selects the plan, builds into `.gate-logs/shot-dist` (never the live `release/`), every run executes the look budget, and the trapped Chrome tree is reaped (`chrome processes after cleanup: 0`). |
 | a canonical core hash | `fnv1a(text)` | `src/core/fnv1a.ts:14` | The ONE FNV-1a implementation; both `hashState` (world) and `hashMatch` (combat) feed it. Do not copy the offset basis/prime into a third hasher. |
 | seeded randomness in the simulation | `createRng(seed)` | `src/core/rng.ts:35` | The ONLY draw source under `src/core`: integer-only mulberry32, so a seed reproduces its sequence on every engine. A source scan (`src/core/purity.test.ts`) fails the build on `Math.random`. |
 | building the world | `createWorld(spec)` | `src/core/world/state.ts:108` | Validates the spec loudly (integer dimensions, a height above the floor plane, no double placement) and builds the row-major grid. Level data fills the same shape. |
@@ -376,8 +376,10 @@ gentle tick-based yaw/pitch/distance drift. It renders on a **separate `#title-c
 at **0.75** internal resolution so the menu does not pay the full 1920×1080 pixel cost.
 The title overlay's scrim plus exposure **0.7×** and bloom **0.5×** make it a faded
 battle, not a dim black sheet; the wordmark, four buttons, controls and credit stay
-legible. The two frames read: title at 10 s and title mid-fight at 25 s both pass the look
-budget (surface median 8 L, line p99 163, contrast 20.38, tile p90 11 L / 4.3 %).
+legible. The two frames read (real-time CDP, not the virtual-time screenshot path — see
+below): title at 10 s and title mid-fight at 25 s both pass the look budget (surface median
+8 L, line p99 163, contrast 20.38, tile p90 11 L / 4.3 % at 10 s and 9 L / 3.5 % at 25 s;
+void 62.9 % / 61.6 %).
 
 The background match is **deterministic** for a seed (`TitleSession` hash) and is
 **disposed** when the title is left: `startGame` calls `titleBackground.dispose()` before
@@ -400,10 +402,15 @@ background uses the same local `assets/`, and the build/publish checks are uncha
 What the brief gets right and the limits: the title battle is a **second** scene, not a
 second simulation after Play; it is disposed first. The menu cannot be audible before a
 gesture, but any first gesture now starts it. The title's fps on this host is a headless
-SwiftShader number (12–16 fps at 1280×720, 114 draw calls, 0.75 scale), not a GPU number;
-the owner's 60 fps at 1111×1031 was the game spectator. The background does not take
-input and does not accumulate ticks: one fixed-step advance per rendered frame; a match
-that ends is replaced.
+SwiftShader number (6.8–7.3 fps at 1920×1080/0.75 with 68–115 draw calls, and 12–16 fps at
+1280×720 with 114 draw calls), not a GPU number; the owner's 60 fps at 1111×1031 was the
+game spectator. The background does not take input and does not accumulate ticks: one
+fixed-step advance per rendered frame; a match that ends is replaced. **The brief's
+screenshot assumption is wrong:** `shot.sh`'s `--virtual-time-budget` does not advance
+`requestAnimationFrame`, so the 10 s and 25 s captures were the same first frame (caught
+by reading them: identical tank positions). The genuine mid-fight frame above is a
+real-time CDP `Page.captureScreenshot` at tick 1585; `shot.sh` remains the static-frame
+tool and now warns on title/settings poses.
 
 ## 3 · Gotchas
 
@@ -806,10 +813,12 @@ that ends is replaced.
 - **The title/pause/settings screens are DOM overlays with no Vitest pin.** The CDP smoke
   (`node .gate-logs/p3-cdp-smoke2.mjs`) is a local artifact, not part of the suite; the
   gate still has no trusted-click/browser test.
-- **The title battle's GPU fps is unmeasured.** The headless SwiftShader number at
-  1280×720, 0.75 internal scale and 114 draw calls is 12–16 fps; it is not a GPU claim.
-  The owner measured 60 fps at 1111×1031 for the game spectator; the title uses a smaller
-  internal buffer and the same 16-tank scene.
+- **The title battle's GPU fps is unmeasured.** Headless SwiftShader reads 6.8–7.3 fps at
+  1920×1080/0.75 (68–115 draw calls) and 12–16 fps at 1280×720/0.75 (114 draw calls); neither
+  is a GPU claim. The owner measured 60 fps at 1111×1031 for the game spectator; the title
+  uses a smaller internal buffer and the same 16-tank scene. `shot.sh`'s virtual time also
+  freezes the title rAF, so a title capture is the first frame unless taken from a
+  real-time CDP session.
 - **The title match replacement was not long-run tested.** A 4×4 match ends after roughly
   a minute; the rebuild path is implemented and the determinism/disposal seams are pinned,
   but a soak past several replacements is not measured.
