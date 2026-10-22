@@ -19,7 +19,7 @@ This is an audit change, not a redesign. All branch changes require independent 
 2. **Consolidated renderer bootstrap**: title, spectator and player setups still have repeated WebGL renderer/post-processing configuration. Refactor only with browser screenshots and disposal tests available.
 3. **Full Chromium interaction suite**: current smoke tests title/team boot and a few user gestures. Extend to every menu, settings, pause, resize, audio unlock, transitions, and lifecycle failure injection.
 4. **Documentation archival**: historical ARCHITECTURE/TESTING/LEDGER material is valuable as evidence; compact the active index only after confirming link targets and migration.
-5. Owner must select a **license** before adding LICENSE; absence of a license is intentional, not MIT by default.
+5. **Completed:** owner selected MIT; the standard LICENSE file is committed.
 
 ## Verification truth
 

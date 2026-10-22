@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
@@ -38,7 +38,7 @@ function coreModules(): readonly SourceFile[] {
       continue;
     }
     const path = join(CORE_DIR, entry);
-    modules.push({ path: relative(CORE_DIR, path), source: readFileSync(path, 'utf8') });
+    modules.push({ path: relative(CORE_DIR, path).split(sep).join('/'), source: readFileSync(path, 'utf8') });
   }
   modules.sort((a, b) => a.path.localeCompare(b.path));
   return modules;
@@ -52,7 +52,7 @@ function allSourceModules(): readonly SourceFile[] {
         continue;
       }
       const path = join(dir, entry);
-      modules.push({ path: relative(SRC_DIR, path), source: readFileSync(path, 'utf8') });
+      modules.push({ path: relative(SRC_DIR, path).split(sep).join('/'), source: readFileSync(path, 'utf8') });
     }
   }
   modules.sort((a, b) => a.path.localeCompare(b.path));

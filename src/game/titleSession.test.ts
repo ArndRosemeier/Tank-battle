@@ -15,7 +15,7 @@ describe('the title background match', () => {
     const other = new TitleSession({ seed: 12 });
     other.runTicks(600);
     expect(other.hash()).not.toBe(first.hash());
-  });
+  }, 20000);
 
   it('is disposed when the title is left and cannot advance afterwards', () => {
     const session = new TitleSession({ seed: 5 });

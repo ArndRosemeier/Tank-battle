@@ -24,6 +24,6 @@ Run `pnpm build` and `pnpm test`. The project's full verification gate is `bash 
 
 Read `AGENTS.md`, `docs/CROSS-TOOL.md` and `docs/ARCHITECTURE.md` before editing. Use focused regression tests and feature branches.
 
-## Licensing
+## License
 
-No license has been granted yet. The owner must choose and publish the project's license before external reuse or redistribution can be authorized.
+MIT — see [LICENSE](LICENSE). Copyright (c) 2026 Arnd Rosemeier.
