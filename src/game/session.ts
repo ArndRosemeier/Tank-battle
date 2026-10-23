@@ -25,6 +25,10 @@ import {
   damageCell,
   type World,
 } from '../core/world.ts';
+import { getAIProfile } from '../core/ai.ts';
+import { createTeamAIController } from '../core/ai/teamBatch.ts';
+import { collectControllerOrders, type Controller } from '../core/sim/controller.ts';
+import { TEAM_MODE_AIM_ERROR_SCALE } from './aiBatch.ts';
 import {
   interpolateTanks,
   snapshotTanks,
@@ -38,8 +42,6 @@ import { validateLevel } from './levels/format.ts';
 /** The demo stage sits on the NW diagonal gates, with the ambush pillar opened. */
 const DEMO_PLAYER = { xMetres: 12, zMetres: 12, hullYawDegrees: -135 } as const;
 const DEMO_DUMMY = { xMetres: 18, zMetres: 18, hullYawDegrees: 45 } as const;
-/** One-vs-dummy training starts the target close to the player's protected exit. */
-const TRAINING_DUMMY = { xMetres: 12, zMetres: 6, hullYawDegrees: 90 } as const;
 const DEMO_BREACH_CELL = { x: 10, z: 6 } as const;
 
 export interface PlayableSessionOptions {
@@ -78,24 +80,44 @@ export class PlayableSession {
   readonly playerTankId = PLAYER_TANK_ID;
   readonly dummyTankId = DUMMY_TANK_ID;
 
+  /** The opponent's character name, for the HUD (the demo fixture has no character). */
+  readonly opponentName: string;
+
   private previous: Map<number, TankRenderFrame>;
   private current: Map<number, TankRenderFrame>;
+  private readonly controllers = new Map<number, Controller>();
   private demoFrozen = false;
 
   constructor(options: PlayableSessionOptions = {}) {
     validateLevel(ARENA);
     const demo = options.demo === true;
+    // The playable 1v1 is a real duel: the opponent spawns in the OPPOSITE corner and is
+    // driven by the same AI controller the team mode uses. The old fixture put a static
+    // training target 6 m in front of the player, which read as an opponent "sitting right
+    // next to me" and never fought. The demo keeps that fixture for deterministic screenshots.
+    const opponentSpawn = demo ? DEMO_DUMMY : levelSpawn(1);
     this.state = createMatch({
       level: ARENA.cells,
       teams: [
         { id: 0, tanks: [demo ? DEMO_PLAYER : levelSpawn(0)] },
-        { id: 1, tanks: [demo ? DEMO_DUMMY : TRAINING_DUMMY] },
+        { id: 1, tanks: [opponentSpawn] },
       ],
       seed: LEVEL_SEED,
       rules: DEFAULT_MATCH_RULES,
     });
     if (demo) {
       carveDemoBreach(this.state.world);
+    }
+    this.opponentName = demo ? 'TRAINING' : getAIProfile('vanguard').name;
+    if (!demo) {
+      const opponent = this.state.tanks[DUMMY_TANK_ID];
+      if (!opponent) {
+        throw new Error('session: the opponent tank is missing');
+      }
+      this.controllers.set(
+        DUMMY_TANK_ID,
+        createTeamAIController(opponent, getAIProfile('vanguard'), LEVEL_SEED, TEAM_MODE_AIM_ERROR_SCALE),
+      );
     }
     this.current = snapshotTanks(this.state);
     this.previous = snapshotTanks(this.state);
@@ -145,22 +167,29 @@ export class PlayableSession {
     });
   }
 
-  /** One simulation tick with the player's command; the dummy idles. */
+  /** One simulation tick with the player's command; the opponent runs its AI controller. */
   step(playerCommand: TankCommand): void {
     if (this.state.status !== 'active') {
       return;
     }
     this.previous = this.current;
-    const orders: TankCommandOrder[] = this.state.tanks
-      .filter((tank) => tank.alive)
-      .map((tank) => ({
-        tankId: tank.id,
-        command:
-          tank.id === this.playerTankId
-            ? playerCommand
-            : idleTankCommand(tank.turretYawDegrees, tank.aimPitchDegrees),
-      }));
-    stepMatch(this.state, orders);
+    if (this.controllers.size === 0) {
+      // Demo fixture: the target is static, so there is no controller for it.
+      const orders: TankCommandOrder[] = this.state.tanks
+        .filter((tank) => tank.alive)
+        .map((tank) => ({
+          tankId: tank.id,
+          command:
+            tank.id === this.playerTankId
+              ? playerCommand
+              : idleTankCommand(tank.turretYawDegrees, tank.aimPitchDegrees),
+        }));
+      stepMatch(this.state, orders);
+    } else {
+      const controllers = new Map(this.controllers);
+      controllers.set(this.playerTankId, { commandFor: () => playerCommand });
+      stepMatch(this.state, collectControllerOrders(this.state, controllers, 'playSession'));
+    }
     this.current = snapshotTanks(this.state);
   }
 

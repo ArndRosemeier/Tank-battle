@@ -9,6 +9,14 @@ const FIRE = {
   fire: true,
 } as const;
 
+const IDLE = {
+  throttle: 0,
+  steer: 0,
+  aimYaw: 0,
+  aimPitch: 0,
+  fire: false,
+} as const;
+
 describe('the playable session bridge', () => {
   it('the demo is deterministic and freezes on a shell in flight at tick 571', () => {
     const first = new PlayableSession({ demo: true });
@@ -52,14 +60,21 @@ describe('the playable session bridge', () => {
     expect(atEnd?.x).toBe(after.x);
   });
 
-  it('keeps the dummy static while the player drives and fires', () => {
+  it('starts a REAL 1v1: the AI opponent spawns across the arena, closes in and fires', () => {
     const session = new PlayableSession();
-    const dummyStart = session.dummy;
-    for (let tick = 0; tick < 20; tick += 1) {
-      session.step(FIRE);
+    const start = session.dummy;
+    const player = session.player;
+    // The old fixture put a static target 6 m ahead; the owner read that as an opponent
+    // "sitting directly next to me". The opponent must come from the opposite corner.
+    expect(Math.hypot(start.x - player.x, start.z - player.z)).toBeGreaterThan(24);
+
+    for (let tick = 0; tick < 900; tick += 1) {
+      session.step(IDLE);
     }
-    expect(session.dummy.x).toBe(dummyStart.x);
-    expect(session.dummy.z).toBe(dummyStart.z);
-    expect(session.state.tick).toBe(20);
+
+    const after = session.dummy;
+    expect(Math.hypot(after.x - start.x, after.z - start.z)).toBeGreaterThan(2);
+    expect(session.state.stats.shotsFired).toBeGreaterThan(0);
+    expect(session.state.tick).toBe(900);
   });
 });
