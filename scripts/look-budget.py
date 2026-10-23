@@ -183,7 +183,9 @@ def measure(path: Path) -> dict[str, object]:
         failures.append(f"line p99 {line_p99} < {LINE_P99_MIN}")
     if contrast < CONTRAST_MIN:
         failures.append(f"contrast {contrast:.2f} < {CONTRAST_MIN}")
-    if tile_p90_l > TILE_P90_MAX_L:
+    if SKIP_TILE:
+        print(f"tile p90 {tile_p90_l} L ({tile_p90_l / 2.55:.1f}%) [INFO — live frame: additive VFX are not surfaces]")
+    elif tile_p90_l > TILE_P90_MAX_L:
         failures.append(
             f"tile p90 {tile_p90_l} L ({tile_p90_l / 2.55:.1f}%) > {TILE_P90_MAX_L:.1f} L (12%)"
         )
@@ -244,11 +246,18 @@ def print_report(result: dict[str, object]) -> None:
         f"[{'FAIL' if contrast_fail else 'PASS'} >= {CONTRAST_MIN:.0f}]"
     )
     tile_fail = any(item.startswith("tile p90") for item in result["failures"])
-    print(
-        f"  tile p90 ({result['tileGrid']}, {result['tileCount']} tiles): "
-        f"L={result['tileP90L']} ({result['tileP90Percent']:.1f}%) "
-        f"[{'FAIL' if tile_fail else 'PASS'} <= {result['tileP90MaxL']:.1f} L / 12%]"
-    )
+    if SKIP_TILE:
+        print(
+            f"  tile p90 ({result['tileGrid']}, {result['tileCount']} tiles): "
+            f"L={result['tileP90L']} ({result['tileP90Percent']:.1f}%) "
+            f"[INFO - live frame: additive VFX are not surfaces]"
+        )
+    else:
+        print(
+            f"  tile p90 ({result['tileGrid']}, {result['tileCount']} tiles): "
+            f"L={result['tileP90L']} ({result['tileP90Percent']:.1f}%) "
+            f"[{'FAIL' if tile_fail else 'PASS'} <= {result['tileP90MaxL']:.1f} L / 12%]"
+        )
     trim = result["teamTrim"]
     print(
         "  team hulls: SKIP — hull fill is neutral/shared; saturation measures trim, not hull surface"
@@ -281,9 +290,11 @@ def print_report(result: dict[str, object]) -> None:
         print("look-budget: PASS")
 
 
+SKIP_TILE = "--skip-tile" in sys.argv
+
 def main(argv: list[str]) -> int:
-    args = list(argv[1:])
-    as_json = "--json" in args
+    args = [a for a in argv[1:] if not a.startswith("--")]
+    as_json = "--json" in argv
     args = [argument for argument in args if argument != "--json"]
     if len(args) != 1:
         print("usage: python3 scripts/look-budget.py <frame.png> [--json]", file=sys.stderr)
