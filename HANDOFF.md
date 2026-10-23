@@ -1,44 +1,43 @@
 # Handoff — Tank Battle
 
-- **by:** DSH chief-of-staff session, 2026-10-22 (after merging the ChatGPT audit)
+- **by:** DSH chief-of-staff session, 2026-10-23
 - **branch / worktree:** `main` · `/home/administrator/projects/Tank battle`
-- **last verified:** `2b49f32` · local full gate **145/145 exit 0** · GitHub Actions on the
-  same SHA: Quality **success**, Browser smoke **success** · live build published and
-  verified by content (`release/`, entry check below)
-- **live:** `https://apps.futuremagic.de/tank-battle/`
+- **last verified:** `7bdbb20` · local full gate **156/156 exit 0** · published from a clean
+  tree and **VERIFIED-DEPLOYED**: live smoke PASS (boot, no console/HTTP errors, Play, a real
+  shot), deployed look 3/3 frames PASS
+- **live:** `https://apps.futuremagic.de/tank-battle/` · entry `index-Bkc7XmsL.js`
 
 ## Done since the previous handoff
 
-- Merged `improve/code-quality-audit-20261022` (12 commits): S1 attribution fix, shared
-  team-staging/controller seams, shared render stack, per-tick presentation events, real
-  scene budget, Windows/path fixes, CI workflows, browser smoke, LICENSE/README, and
-  `docs/DEVELOPMENT-QUALITY-PROCESS.md`.
-- Verified the merge myself: gate green; CI green **on this SHA** (not an earlier one).
-- Re-ran the batch metrics. **S1 had corrupted my own 4×4 character table** — corrected
-  numbers are in `docs/TESTING.md` (sniper 74/400 alive, ambusher 52, vanguard 2, brute 3).
-  The 1v1 round-robin is unchanged, so the ambusher/brute naming debt stands.
+- Merged the ChatGPT audit (`2b49f32`); verified it and let it correct my own batch data
+  (S1 keyed character stats by teamId; the 4x4 table was wrong).
+- Process: deployment tier in `publish.sh` (live browser smoke, fail-closed exit 3), deployed
+  player-camera look check, publish refuses a dirty tree, host rules + Toolbox updated.
+- P6 pointer aiming: aim is the world point under the cursor, full turret rotation, camera
+  decoupled from the aim, reticle is the cursor. Verified end to end.
+- P7 (unbriefed by the writer): rocket shells, blowback, rocket SFX, 600 ms fire latch, glow-up.
+  Live. The glow-up is a taste fork the owner has not judged yet.
 
 ## In flight / next
 
-- No writer is in flight. Nothing is dispatched.
-- **Process-improvement plan is awaiting the owner's approval** (chiefly the host-global
-  chief-of-staff changes and the shared Toolbox edits); the project-level parts are adopted
-  in `docs/DEVELOPMENT-QUALITY-PROCESS.md`.
+- No writer in flight, nothing dispatched. Worktrees `worktrees/a2-render`,
+  `worktrees/p7-rockets` remain (p7 merged).
+- Debts unchanged: 4x4 cap ~11 %, seed-148 parked duel, ambusher/brute naming, stale remote
+  `origin/feat/b1c-cast` (needs owner approval to delete).
 
 ## Next action (one)
 
-**Awaiting the owner's verdict on pointer aiming** (live, `index-DHqlNoPa.js`, VERIFIED-DEPLOYED).
-Next candidates: aim assist (a small snap near the cursor) if he wants targeting easier still;
-the three AI debts (4x4 cap ~11 %, seed-148 parked duel, ambusher/brute naming); or his next
-request. Nothing is dispatched.
+**Get the owner's verdict on the P7 look (glow-up + rocket) and on pointer aiming.** If the
+glow is too much, one `git revert 372dc70` then republish; if not, aim assist is the next
+targeting step. Nothing lands before his word.
 
 ## Open questions for the owner
 
-- Approve editing `~/.dsh/AGENTS.md` (chief-of-staff section) and `~/projects/Toolbox/docs`?
-- Delete the stale remote branch `origin/feat/b1c-cast` (tip `90517b6`, contained in main)?
-- Revisit the ambusher/brute behaviours, or rename them to match what they do?
+- Glow-up: keep or revert? Rocket sound: is it right by ear?
+- Delete the stale remote branch `origin/feat/b1c-cast`?
+- Ambusher/brute: retune or rename?
 
 ## Read first
 
-- `AGENTS.md` → `docs/DEVELOPMENT-QUALITY-PROCESS.md` → `docs/CROSS-TOOL.md`
-- `docs/BOARD.md` (state) · `docs/TESTING.md` (evidence) · `docs/AUDIT-REMEDIATION.md`
+`AGENTS.md` → `docs/DEVELOPMENT-QUALITY-PROCESS.md` → `docs/CROSS-TOOL.md` →
+`docs/BOARD.md` (state) · `docs/TESTING.md` (evidence) · `docs/DECISION-LEDGER.md` row 77.
