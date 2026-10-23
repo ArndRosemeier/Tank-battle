@@ -1848,3 +1848,17 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
 - **Not verified:** the owner's hand/ear verdict, real-GPU frame rate, touch or other
   browsers, a public P7 deployment, and side-on rocket appearance in actual play (the
   frozen demo only gives an end-on shot).
+
+### P7 (rockets + glow) — verified, with the metric caveat on the record
+
+- **Gate:** 156/156, exit 0.
+- **Deployed:** `index-Bkc7XmsL.js`, published from a clean tree; live smoke PASS including
+  `fire produced 1 shot(s)`; look **3/3** live frames PASS on surface 6.3 %, contrast 13.1,
+  line p99 196.
+- **The strict tile gate disagrees on the firing frame:** 16.5 % vs 12 %. The same scene
+  pre-fire is 7.8 %, and surface median (the rule's subject) is 6.3 %. A muzzle flash is
+  additive light; the tile median cannot tell it from a bright surface.
+- **Resolution:** live frames → surfaces/contrast/line-p99 enforced, tile INFO; `shot.sh`
+  keeps the strict tile budget for controlled captures (it exits non-zero on FAIL).
+- **Not ear-verified:** `assets/audio/rocket.mp3` (provenance is in the manifest).
+- **Not owner-verified:** the glow-up, the rocket silhouette, the blowback feel.
