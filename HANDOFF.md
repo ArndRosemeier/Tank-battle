@@ -2,10 +2,10 @@
 
 - **by:** DSH chief-of-staff session, 2026-10-23
 - **branch / worktree:** `main` · `/home/administrator/projects/Tank battle`
-- **last verified:** `7bdbb20` · local full gate **156/156 exit 0** · published from a clean
+- **last verified:** `4b6980a` · local full gate **156/156 exit 0** · published from a clean
   tree and **VERIFIED-DEPLOYED**: live smoke PASS (boot, no console/HTTP errors, Play, a real
-  shot), deployed look 3/3 frames PASS
-- **live:** `https://apps.futuremagic.de/tank-battle/` · entry `index-Bkc7XmsL.js`
+  shot), deployed look 3/3 frames PASS, 1v1 opponent verified on the deployed frame
+- **live:** `https://apps.futuremagic.de/tank-battle/` · entry `index-ByQU54TS.js`
 
 ## Done since the previous handoff
 
@@ -26,6 +26,12 @@
   `origin/feat/b1c-cast` (needs owner approval to delete).
 
 ## Next action (one)
+
+**P8 (the wreck) is in flight** — a tank death comes apart and fades; the writer will report.
+The 1v1 fix is live and verified. Await the owner's verdict on the death sequence, the P7 glow
+and the 1v1 difficulty.
+
+## Superseded next action
 
 **Get the owner's verdict on the P7 look (glow-up + rocket) and on pointer aiming.** If the
 glow is too much, one `git revert 372dc70` then republish; if not, aim assist is the next

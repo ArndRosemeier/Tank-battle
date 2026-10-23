@@ -1862,3 +1862,13 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
   keeps the strict tile budget for controlled captures (it exits non-zero on FAIL).
 - **Not ear-verified:** `assets/audio/rocket.mp3` (provenance is in the manifest).
 - **Not owner-verified:** the glow-up, the rocket silhouette, the blowback feel.
+
+### the 1v1 opponent — fixture replaced by an AI
+
+- **Before:** a static training dummy at (12, 6), six metres ahead of the player at (6, 6).
+- **After:** one AI vanguard at the opposite corner (~36 m), driven by the team-mode
+  controller seam with the same aim-error scale.
+- **Pin:** opponent starts >24 m away, moves >2 m within 900 ticks, and fires (it does).
+- **Deployed:** `index-ByQU54TS.js`; live smoke PASS; look 3/3; the captured play frame shows
+  no tank in front and the player's hull at **1/3** — the AI had already engaged.
+- **Not verified:** difficulty and feel.
