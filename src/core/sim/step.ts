@@ -429,7 +429,7 @@ function advanceShell(state: MatchState, shell: Shell): boolean {
         // Q2: a teammate's body stops the shell and takes no damage.
         return false;
       }
-      damageEnemyTank(state, target, shell.ownerTeamId);
+      damageEnemyTank(state, target, shell.ownerTeamId, { x: shell.dx, y: shell.dy, z: shell.dz });
       return false;
     }
 
@@ -639,7 +639,12 @@ function tieKey(hit: ShellHit, columns: number): number {
 }
 
 /** One shell's damage to an enemy tank. */
-function damageEnemyTank(state: MatchState, tank: Tank, ownerTeamId: number): void {
+function damageEnemyTank(
+  state: MatchState,
+  tank: Tank,
+  ownerTeamId: number,
+  shotDirection?: Vec3,
+): void {
   if (!tank.alive) {
     throw new Error(`sim: a shell tried to damage dead tank ${tank.id}`);
   }
@@ -650,7 +655,7 @@ function damageEnemyTank(state: MatchState, tank: Tank, ownerTeamId: number): vo
   state.stats.damageDealt += applied;
   state.stats.damageByTeam[ownerTeamId] = (state.stats.damageByTeam[ownerTeamId] ?? 0) + applied;
   if (tank.hp <= 0) {
-    killTank(state, tank, 'shell', ownerTeamId);
+    killTank(state, tank, 'shell', ownerTeamId, shotDirection);
   } else if (tank.bleedTicksRemaining === 0) {
     tank.bleedTicksRemaining = state.rules.bleedIntervalTicks;
   }
@@ -661,8 +666,20 @@ function killTank(
   tank: Tank,
   cause: 'shell' | 'clock',
   killerTeamId: number | null,
+  shotDirection?: Vec3,
 ): void {
-  emit(state, { type: 'death', tankId: tank.id, teamId: tank.teamId, x: tank.x, y: state.world.floorSurfaceHeightMetres + 0.8, z: tank.z });
+  emit(state, {
+    type: 'death',
+    tankId: tank.id,
+    teamId: tank.teamId,
+    tick: state.tick,
+    x: tank.x,
+    y: state.world.floorSurfaceHeightMetres + 0.8,
+    z: tank.z,
+    ...(shotDirection
+      ? { dx: shotDirection.x, dy: shotDirection.y, dz: shotDirection.z }
+      : {}),
+  });
   tank.alive = false;
   tank.hp = 0;
   tank.bleedTicksRemaining = 0;
@@ -715,7 +732,7 @@ function fireShells(state: MatchState, commands: ReadonlyMap<number, TankCommand
 
     const obstruction = earliestCollision(state, origin, muzzle, tank.id);
     if (obstruction) {
-      resolveMuzzleHit(state, tank, obstruction);
+      resolveMuzzleHit(state, tank, obstruction, direction);
       if (checkLastTeam(state)) {
         return true;
       }
@@ -745,7 +762,7 @@ function fireShells(state: MatchState, commands: ReadonlyMap<number, TankCommand
  * height, so this is a defensive branch rather than a common path. The shell never
  * enters `state.shells`, which is what makes a muzzle-cell hit count exactly once.
  */
-function resolveMuzzleHit(state: MatchState, owner: Tank, hit: ShellHit): void {
+function resolveMuzzleHit(state: MatchState, owner: Tank, hit: ShellHit, shotDirection: Vec3): void {
   if (hit.kind === 'world') {
     if (hit.block) {
       const result = damageBlock(state.world, hit.cellX, hit.cellZ, SHELL_DAMAGE);
@@ -766,7 +783,7 @@ function resolveMuzzleHit(state: MatchState, owner: Tank, hit: ShellHit): void {
     if (target.teamId === owner.teamId) {
       return;
     }
-    damageEnemyTank(state, target, owner.teamId);
+    damageEnemyTank(state, target, owner.teamId, shotDirection);
     return;
   }
   if (hit.kind === 'shard') {

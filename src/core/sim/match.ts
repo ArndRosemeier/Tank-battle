@@ -115,7 +115,20 @@ export interface MatchTeam {
 export type PresentationEvent =
   | { readonly type: 'fire'; readonly tankId: number; readonly teamId: number; readonly x: number; readonly y: number; readonly z: number; readonly dx: number; readonly dy: number; readonly dz: number }
   | { readonly type: 'impact'; readonly teamId: number; readonly x: number; readonly y: number; readonly z: number }
-  | { readonly type: 'hit' | 'death'; readonly tankId: number; readonly teamId: number; readonly x: number; readonly y: number; readonly z: number };
+  | { readonly type: 'hit'; readonly tankId: number; readonly teamId: number; readonly x: number; readonly y: number; readonly z: number }
+  | {
+      readonly type: 'death';
+      readonly tankId: number;
+      readonly teamId: number;
+      readonly tick: number;
+      readonly x: number;
+      readonly y: number;
+      readonly z: number;
+      /** The killing shell's direction, when the death was a shell hit. */
+      readonly dx?: number;
+      readonly dy?: number;
+      readonly dz?: number;
+    };
 
 export type MatchStatus = 'active' | 'ended';
 

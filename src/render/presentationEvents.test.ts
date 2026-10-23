@@ -51,3 +51,38 @@ describe('tick-level presentation events', () => {
     expect(state.presentationEvents).toBeUndefined();
   });
 });
+
+describe('death direction', () => {
+  it('carries the killing shell direction and its death tick', () => {
+    const state = createMatch({
+      level: { columns: 40, rows: 20, floorSurfaceHeightMetres: 0.2 },
+      teams: [
+        { id: 0, tanks: [{ xMetres: 18, zMetres: 6, hullYawDegrees: -90 }] },
+        { id: 1, tanks: [{ xMetres: 30, zMetres: 6, hullYawDegrees: 90 }] },
+      ],
+      seed: 8,
+      rules: { tickCap: 600, bleedIntervalTicks: 600 },
+    });
+    try {
+      state.capturePresentationEvents = true;
+      const target = state.tanks[1]!;
+      target.hp = 1;
+      for (let tick = 0; tick < 80 && target.alive; tick += 1) {
+        stepMatch(state, [
+          { tankId: 0, command: { ...idleTankCommand(-90), fire: tick === 0 } },
+          { tankId: 1, command: idleTankCommand(90) },
+        ]);
+      }
+      const death = state.presentationEvents?.find((event) => event.type === 'death');
+      expect(death).toBeDefined();
+      expect(death!.type).toBe('death');
+      if (death?.type !== 'death') throw new Error('missing death event');
+      expect(death.dx).toBeCloseTo(1, 6);
+      expect(death.dy).toBeCloseTo(0, 6);
+      expect(death.dz).toBeCloseTo(0, 6);
+      expect(death.tick).toBeGreaterThan(0);
+    } finally {
+      // No resources are owned by MatchState.
+    }
+  });
+});

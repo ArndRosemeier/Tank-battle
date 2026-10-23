@@ -155,7 +155,7 @@ never "it passed".
 | The first pointerdown starts the menu, not a second time | `starts the menu loop on the first pointerdown and not again on a keydown` | `src/game/titleAudioGate.test.ts` | make the gate stateless, or let a keydown restart it → the `menu`/null sequence reds |
 | The first keydown starts the menu, not a second time | `starts the menu loop on the first keydown and not again on a pointerdown` | `src/game/titleAudioGate.test.ts` | wire only pointerdown, or restart on the second gesture → the key/pointer sequence reds |
 | The shell wires both gestures and disposes the title first | `wires both gestures and disposes the background before a match boots` | `src/game/titleAudioGate.test.ts` | remove either listener, or boot the match before `titleBackground.dispose()` → the source-order assertions red |
-The A3a block (20 rows), the A3b block (7 rows) and the A3c block (11 rows) are direct assertions; A4 adds seven level-validation pins; B1a adds the two A4 gap pins and eleven AI pins; B1b adds the scripted mirror pin; B1c adds the staging-symmetry pin; B2 adds the eager-profile, destruction-attribution, team-staging, team-batch, spectator and spectator-camera pins; B3 adds the body-aware arena connectivity pin and the batch-attribution arm; B4 adds the turn-order purity/rank/team-array pins; P1 adds the one-reload source/cadence pins, the player-team composition/determinism/teammate-immunity pins and the pulled-back team pose; P2 adds the six aim/reticle pins, the spawn-facing pin, the killer/clock attribution pin and the kill-feed label pin; P3 adds the two-way asset-manifest pins, the settings validation/round-trip pin, the pointer-sensitivity pin and the presentation-event pin; P4 adds the title-session determinism/disposal pins, the two first-gesture pins and the shell-wiring order pin; P6 adds the world-point aim solver pins, the hull-only camera pin and the sensitivity-retirement pin; P7 adds the rocket-mesh and camera-blowback pins and the generated launch clip (**156/156 tests in 39 files**), plus the live smoke's fire/shot check. **No mutation differential was run for A3a/A3b/A3c/A4/B1a/B1b/B1c/B2/B3/B4/P1/P2/P3/P4/P6/P7**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
+The A3a block (20 rows), the A3b block (7 rows) and the A3c block (11 rows) are direct assertions; A4 adds seven level-validation pins; B1a adds the two A4 gap pins and eleven AI pins; B1b adds the scripted mirror pin; B1c adds the staging-symmetry pin; B2 adds the eager-profile, destruction-attribution, team-staging, team-batch, spectator and spectator-camera pins; B3 adds the body-aware arena connectivity pin and the batch-attribution arm; B4 adds the turn-order purity/rank/team-array pins; P1 adds the one-reload source/cadence pins, the player-team composition/determinism/teammate-immunity pins and the pulled-back team pose; P2 adds the six aim/reticle pins, the spawn-facing pin, the killer/clock attribution pin and the kill-feed label pin; P3 adds the two-way asset-manifest pins, the settings validation/round-trip pin, the pointer-sensitivity pin and the presentation-event pin; P4 adds the title-session determinism/disposal pins, the two first-gesture pins and the shell-wiring order pin; P6 adds the world-point aim solver pins, the hull-only camera pin and the sensitivity-retirement pin; P7 adds the rocket-mesh and camera-blowback pins and the generated launch clip; P8 adds the deterministic breakup, fade, reduced-motion, eviction, same-frame-hide and death-direction pins (**162/162 tests in 41 files**), plus the live smoke's fire/shot check. **No mutation differential was run for A3a/A3b/A3c/A4/B1a/B1b/B1c/B2/B3/B4/P1/P2/P3/P4/P6/P7**, so the "how red" text names the one-line change that would red each pin, not an executed arm. A3c's first input run had two `-0` expectation failures and its first-person pose initially failed the line-p99 floor; see `### row 37` / `### row 41`.
 
 The differential harness is a local artifact at `.gate-logs/differential.py` (row 26)
 and `.gate-logs/differential.sh` (row 0) — both gitignored; the mutations are described
@@ -1872,3 +1872,45 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
 - **Deployed:** `index-ByQU54TS.js`; live smoke PASS; look 3/3; the captured play frame shows
   no tank in front and the player's hull at **1/3** — the AI had already engaged.
 - **Not verified:** difficulty and feel.
+
+### row 78 — Slice P8 (tank death breakup and fade)
+
+- **Gate:** `bash scripts/gate.sh` → exit **0**, **162/162 tests in 41 files**
+  (`.gate-logs/p8-gate.log`; the gate's own log is under the main tree).
+- **Breakup:** `TANK_WRECK_PARTS` in `src/render/placeholderTank.ts` is the authored
+  tank slab list: hull halves, under-skirt, nose blades, rails, rear deck, outboard
+  pods, turret/bustle, mantlet, barrel, muzzle, cupola and mast. `createWreckView`
+  spawns the slabs at the dead tank's SIMULATION pose; each has a seeded outward/
+  upward velocity (biased along the killing shell direction when supplied), spin,
+  gravity, one damped bounce, and an additive alpha fade (62 % → 100 % of 3 s, alpha
+  exactly 0 at 3 s). The normal tank group is hidden in the same frame; the dead
+  tank's interpolated frame is never used for the wreck.
+- **One draw:** a unit box's 12 edges as an `InstancedBufferGeometry` line, with four
+  vec4 matrix columns + per-instance colour/alpha, one `LineSegments`. Pool: **8
+  wrecks × 17 parts = 136 pieces**; a 9th death overwrites the oldest. The renderer
+  reported **31 draw calls before**, **29 with the wreck active**, **28 after**; the
+  wreck itself is exactly one draw call, the net decrease being the hidden tank.
+- **Pins:** deterministic same-seed/tank/tick piece transforms; monotonic fade with
+  alpha 0 at the lifetime; reduced motion no scatter and 0.4 s in-place fade; the
+  9th death evicts the oldest and `allocatedPieces` stays 136; same-frame dead-tank
+  hide + active wreck; the shell death event carries `tick` and its `dx/dy/dz`
+  direction. Tests: `wreckView.test.ts` (4), `wreckScene.test.ts` (1),
+  `presentationEvents.test.ts` (+1) = **6 new**.
+- **Visual sequence:** on the rebased final tree, the idle 1v1 player was killed by
+  the real AI opponent at tick 1461 (kill feed CLOCK, HULL 0/3). The match was paused
+  with `pauseOnNextWreck` and only the presentation clock was advanced with
+  `wreckStep`: **t = 0.15 s, 1.0 s, 2.0 s, 3.2 s** (`p8-player-t0..t3.png`,
+  1920×1080). The frames were read: 0.15 has dense cyan slabs around the camera/flash;
+  1.0 spread/falling; 2.0 thinner and fading; 3.2 no wreck (reticle only). The first
+  rendered frame is age 0 (the spawn pose), so the sequence has no sampling gap.
+- **Look:** mid-break `p8-player-t1.png` PASS — void 52.0 %, surface median **12 L
+  (4.7 %)**, mid 5.2 %, line p99 **196**, contrast **16.33**, tile p90 **21 L
+  (8.2 %)**. The 0.15 s flash frame also PASSES (surface 13 L, tile p90 29 L / 11.4 %),
+  so no `--skip-tile` was needed.
+- **Draw calls:** full 4×4 spectator **107 with one wreck active, 106 after** (one new
+  draw; the live range is 100–121); close-up 1v1 **29 / 28**. The wreck is exactly one
+  `LineSegments` draw.
+- **Honest limits:** the visible kill was a **clock** death, so the shell-direction
+  scatter path is covered by the sim/test, not the sequence; the owner's eye, real-
+  GPU fps, multi-wreck readability, and reduced-motion appearance are unverified.
+  Deployment is reported by the landing report, not this row.

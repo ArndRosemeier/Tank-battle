@@ -6,12 +6,13 @@
  */
 
 import { Group, type Vector3 } from 'three';
-import { MUZZLE_FORWARD_METRES, forwardFromYaw, type MatchState } from '../core/sim.ts';
+import { MUZZLE_FORWARD_METRES, forwardFromYaw, type MatchState, type Tank } from '../core/sim.ts';
 import { CELL_SIZE_METRES } from '../core/world.ts';
 import { PALETTE, isLowCover, teamColor } from './config.ts';
 import { createDebrisView, type DebrisView } from './debrisView.ts';
 import { createEffectsView, type EffectsView } from './effectsView.ts';
 import { createShellView, type ShellView } from './shellView.ts';
+import { createWreckView, type WreckView } from './wreckView.ts';
 import {
   createPlaceholderTank,
   type PlaceholderTank,
@@ -25,7 +26,7 @@ export type SceneEvent =
   | { readonly type: 'reload'; readonly tankId: number; readonly teamId: number }
   | { readonly type: 'impact'; readonly teamId: number; readonly x: number; readonly y: number; readonly z: number }
   | { readonly type: 'hit'; readonly tankId: number; readonly teamId: number; readonly x: number; readonly y: number; readonly z: number }
-  | { readonly type: 'death'; readonly tankId: number; readonly teamId: number; readonly x: number; readonly y: number; readonly z: number }
+  | { readonly type: 'death'; readonly tankId: number; readonly teamId: number; readonly tick: number; readonly x: number; readonly y: number; readonly z: number; readonly dx?: number; readonly dy?: number; readonly dz?: number }
   | { readonly type: 'wall-break'; readonly x: number; readonly y: number; readonly z: number }
   | { readonly type: 'regen'; readonly x: number; readonly y: number; readonly z: number };
 
@@ -44,6 +45,7 @@ export interface PlayableScene {
   readonly debris: DebrisView;
   readonly shells: ShellView;
   readonly effects: EffectsView;
+  readonly wreck: WreckView;
   readonly tanks: ReadonlyMap<number, PlaceholderTank>;
   readonly focusTank: PlaceholderTank;
   /** Rebuild the merged world/debris only when the world revision changed. */
@@ -74,7 +76,8 @@ export function createPlayableScene(
   const debris = createDebrisView(state.world);
   const shells = createShellView();
   const effects = createEffectsView();
-  group.add(worldMesh.group, debris.group, shells.group, effects.group);
+  const wreck = createWreckView(state.world.floorSurfaceHeightMetres);
+  group.add(worldMesh.group, debris.group, shells.group, effects.group, wreck.group);
 
   const tanks = new Map<number, PlaceholderTank>();
   for (const tank of state.tanks) {
@@ -96,6 +99,7 @@ export function createPlayableScene(
 
   let lastRevision = state.world.revision;
   let playerHidden = false;
+  let vfxEnabled = true;
   let disposed = false;
   const events: SceneEvent[] = [];
   // A live renderer observes every sim tick, including shots that last < one frame.
@@ -112,6 +116,31 @@ export function createPlayableScene(
     previousHp.set(tank.id, tank.hp);
     previousAlive.set(tank.id, tank.alive);
   }
+  const onDeath = (
+    tank: Tank,
+    tick: number,
+    direction?: { readonly x: number; readonly y: number; readonly z: number },
+  ): void => {
+    const view = tanks.get(tank.id);
+    if (!view) throw new Error(`playableScene: death for missing tank ${tank.id}`);
+    view.group.visible = false;
+    // Use the SIMULATION pose, not the interpolated render frame: the wreck seed is
+    // (seed, tank, tick), so the breakup must not depend on when the frame was drawn.
+    wreck.spawn({
+      x: tank.x,
+      z: tank.z,
+      hullYawDegrees: tank.hullYawDegrees,
+      turretYawDegrees: tank.turretYawDegrees,
+      aimPitchDegrees: tank.aimPitchDegrees,
+      teamId: tank.teamId,
+      seed: state.seed,
+      tankId: tank.id,
+      tick,
+      direction,
+      reducedMotion: !vfxEnabled,
+    });
+  };
+
   const previousCellHp = new Int16Array(state.world.cells.length);
   state.world.cells.forEach((cell, index) => {
     previousCellHp[index] = cell.hp;
@@ -134,6 +163,7 @@ export function createPlayableScene(
     debris,
     shells,
     effects,
+    wreck,
     tanks,
     focusTank,
     syncWorld(): boolean {
@@ -246,10 +276,14 @@ export function createPlayableScene(
               frame.z,
               teamColor(frame.teamId),
             );
+            const deadTank = state.tanks.find((tank) => tank.id === frame.id);
+            if (!deadTank) throw new Error(`playableScene: death for missing tank ${frame.id}`);
+            onDeath(deadTank, state.tick);
             events.push({
               type: 'death',
               tankId: frame.id,
               teamId: frame.teamId,
+              tick: state.tick,
               x: frame.x,
               y: state.world.floorSurfaceHeightMetres + 0.8,
               z: frame.z,
@@ -293,6 +327,17 @@ export function createPlayableScene(
           events.push(event);
         } else if (event.type === 'death') {
           effects.death(event.x, event.y, event.z, teamColor(event.teamId));
+          const deadTank = state.tanks.find((tank) => tank.id === event.tankId);
+          if (!deadTank) {
+            throw new Error(`playableScene: death for missing tank ${event.tankId}`);
+          }
+          onDeath(
+            deadTank,
+            event.tick,
+            event.dx === undefined || event.dy === undefined || event.dz === undefined
+              ? undefined
+              : { x: event.dx, y: event.dy, z: event.dz },
+          );
           events.push(event);
         }
       }
@@ -317,6 +362,7 @@ export function createPlayableScene(
     },
     updateEffects(dtSeconds: number): void {
       effects.update(dtSeconds);
+      wreck.update(dtSeconds);
       for (const tank of tanks.values()) tank.updateRecoil(dtSeconds);
     },
     takeEvents(): readonly SceneEvent[] {
@@ -325,6 +371,7 @@ export function createPlayableScene(
       return result;
     },
     setEffectsEnabled(enabled: boolean): void {
+      vfxEnabled = enabled;
       effects.group.visible = enabled;
     },
     setPlayerHidden(hidden: boolean): void {
@@ -334,6 +381,7 @@ export function createPlayableScene(
       for (const view of tanks.values()) {
         view.group.visible = !hidden;
       }
+      wreck.setVisible(!hidden);
     },
     updateCamera(cameraPosition: Vector3): void {
       worldMesh.update(cameraPosition);
@@ -344,6 +392,7 @@ export function createPlayableScene(
       state.capturePresentationEvents = false;
       state.presentationEvents = [];
       effects.dispose();
+      wreck.dispose();
       shells.dispose();
       debris.dispose();
       worldMesh.dispose();

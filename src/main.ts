@@ -298,6 +298,7 @@ function bootSpectate(launch: LaunchOptions, audio: AudioEngine): (nowMillisecon
   let windowStartMilliseconds = 0;
   let drawCalls = 0;
   let lastSeconds: number | null = null;
+  let pauseOnNextWreck = false;
 
   function applyCamera(): void {
     const shot = spectator.directorShot();
@@ -348,6 +349,10 @@ function bootSpectate(launch: LaunchOptions, audio: AudioEngine): (nowMillisecon
       const frames = spectator.interpolatedTanks(spectator.alpha);
       scene.setTanks(frames);
       scene.setShells(spectator.state.shells);
+      if (pauseOnNextWreck && scene.wreck.debug().spawnCount > 0) {
+        pauseOnNextWreck = false;
+        paused = true;
+      }
       scene.syncWorld();
       for (const event of scene.takeEvents()) {
         if (event.type === 'wall-break') audio.playSfx('wall-break', 0.22);
@@ -405,6 +410,18 @@ function bootSpectate(launch: LaunchOptions, audio: AudioEngine): (nowMillisecon
     auto: () => spectator.autoDirector,
     shot: () => spectator.directorShot(),
     sceneStats: () => sceneStats,
+    wreck: () => scene.wreck.debug(),
+    pauseOnNextWreck: () => {
+      pauseOnNextWreck = true;
+    },
+    wreckStep: (seconds: number) => {
+      if (!Number.isFinite(seconds) || seconds < 0) {
+        throw new Error(`wreckStep: seconds must be finite and >= 0, got ${String(seconds)}`);
+      }
+      paused = true;
+      scene.wreck.update(seconds);
+      return scene.wreck.debug();
+    },
     audio: () => ({
       unlocked: audio.isUnlocked,
       clips: audio.loadedClipCount,
@@ -647,6 +664,7 @@ function bootMatch(
   let lastBreakTick = -999;
   let lastRegenTick = -999;
   let lastAim: AimSolution | null = null;
+  let pauseOnNextWreck = false;
   const cameraDirection = new Vector3();
   const initialPlayer = session.player;
   const sceneStats = measureScene(scene.group);
@@ -882,6 +900,12 @@ function bootMatch(
         scene.setPlayerHidden(rig.firstPerson);
         scene.setTanks(frames);
         scene.setShells(session.state.shells);
+        if (pauseOnNextWreck && scene.wreck.debug().spawnCount > 0) {
+          // Verification hook: freeze this frame BEFORE the first wreck update so the
+          // t=0 breakup pose can be stepped exactly. Never active in normal play.
+          pauseOnNextWreck = false;
+          paused = true;
+        }
         scene.syncWorld();
         scene.updateCamera(rig.camera.position);
 
@@ -1028,6 +1052,20 @@ function bootMatch(
     winnerTeam: () => session.state.winnerTeamId,
     outcome: () => session.state.outcome,
     sceneStats: () => sceneStats,
+    wreck: () => scene.wreck.debug(),
+    pauseOnNextWreck: () => {
+      pauseOnNextWreck = true;
+    },
+    // Verification hook: pause the live match and advance ONLY the presentation wreck
+    // clock, so the four death-sequence frames are reproducible. Not used by gameplay.
+    wreckStep: (seconds: number) => {
+      if (!Number.isFinite(seconds) || seconds < 0) {
+        throw new Error(`wreckStep: seconds must be finite and >= 0, got ${String(seconds)}`);
+      }
+      paused = true;
+      scene.wreck.update(seconds);
+      return scene.wreck.debug();
+    },
     audio: () => ({
       unlocked: audio.isUnlocked,
       clips: audio.loadedClipCount,

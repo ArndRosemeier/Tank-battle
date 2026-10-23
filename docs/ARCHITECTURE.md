@@ -114,7 +114,7 @@ running headless in `node`.
 | the team screenshot pose | `cameraPose('team', …)` | `src/render/cameraMath.ts` | A deterministic 28 m / 34° / 18° staging frame of the player and squad, selected by `shot.sh team`; the live follow arm is 8.2 m and unchanged. The 12.5 m version put too many bright hull tiles in one screen band and failed the look-budget tile p90. |
 | the player-team stand-in | `runPlayerTeamBatch` | `src/game/playerBatch.ts:82` | The ONE way the player mode gets a win rate without a human: the vanguard `AIController` drives tank 0 through the real `TeamSession`, 100 seeds by default, writing `reports/player-batch.json`. Human skill is not measured. |
 | the player's aiming loop | `solveAim` · `castAimRay` · `projectAimPoint` · `createAimHud()` | `src/game/aim.ts` · `src/core/sim/step.ts` · `src/render/aimProjection.ts` · `src/entry/hud.ts` · `src/main.ts` | The camera yaw follows the HULL only (`aimFollowFraction = 0`; the 0.11 s spring remains). Per tick, a camera ray through the pointer takes the first enemy tank / world cell / big block / floor hit, then solves yaw+pitch from the muzzle. The P6 correction made the yaw full **180°** (the owner's intent); pitch keeps −30…+25°. The reticle is the projection of the true impact point (not the screen centre); a tank impact adds a team-coloured bracket. Empty sky is `outOfRange` and aims at the 80 m endpoint. `fovDegrees` stays **50**. Firing adds a visual blowback after the aim snapshot (below). |
-| combat VFX | `createEffectsView()` · `createShellView()` | `src/render/effectsView.ts` · `src/render/shellView.ts` | ONE additive particle view: muzzle flash, impact/hit sparks, cell-break shards, a regeneration grow-in cage and death bursts. The shell is now a small rocket body + orange exhaust + a travelled-clamped trail; point sprites use a generated radial alpha texture. No VFX is a bright flat surface. |
+| combat VFX | `createEffectsView()` · `createShellView()` · `createWreckView()` | `src/render/effectsView.ts` · `src/render/shellView.ts` · `src/render/wreckView.ts` | ONE additive particle view (flash/sparks/impact/regeneration/death burst), one instanced rocket shell, and ONE instanced wreck line system. The wreck is the authored tank slab list, not generic sparks; all pieces share one `LineSegments` draw with per-instance matrices/color/alpha. |
 | the gun and muzzle | `PlaceholderTank` turret parts · `effects.muzzle` | `src/render/placeholderTank.ts` · `src/render/effectsView.ts` | The 2.15 m barrel ends in a hexagonal muzzle brake at the sim's 3 m muzzle, with a small ice bore ring; a shot spawns a lifted, soft muzzle flash at the shell origin. |
 | killer attribution and feed | `Tank.killedByTeamId` · `KillFeedTracker` · `describeKill` | `src/core/sim/match.ts` · `src/game/killFeed.ts` | The sim records the firing team on a shell kill (null for the clock); the game layer turns alive→dead transitions into labelled rows (SQUAD / YOU / TEAM n, cause). Presentation only — no gameplay rule. |
 | the damage vignette | `damageFlash` in `HudState` | `src/entry/hud.ts` · `src/main.ts` | The host decays a 0…1 flash when the player's HP drops; the HUD renders a radial edge glow, never a filled bright overlay. |
@@ -124,7 +124,8 @@ running headless in `node`.
 | firing presentation | `CameraRig.kick/applyRecoil` · `PlaceholderTank.kick` · `ROCKET_SFX` | `src/render/cameraRig.ts` · `src/render/placeholderTank.ts` · `src/main.ts` | P7's blowback is presentation only: the camera gets a 0.16 s back/up/pitch impulse and the turret/barrel slides 0.15 m back, then decays. `applyRecoil()` runs AFTER the aim snapshot and HUD solve, so a kick can never move the pointer's world point. Reduced motion suppresses the camera kick. The simulation position, velocity and command are untouched. |
 | settings | `loadSettings()` · `saveSettings()` · `withSetting()` | `src/entry/settings.ts` | ONE persisted preference object (`tank-battle.settings.v1`): master/music/SFX volumes, quality (surface detail + bloom), reduced motion. P6 removed the sensitivity UI and its consumer; the old `mouseSensitivity` key is still validated so an existing store loads instead of being discarded. Invalid stored data is rejected and the documented defaults are used with a console warning. |
 | shipped assets | `assets/manifest.json` · build copy | `assets/` · `package.json` | Every shipped audio file is a manifest entry with sha256, bytes, model, prompt and date; every entry resolves to a file. `vite build` copies `assets/` into `dist/assets/`, so the served URLs are `assets/audio/…` and `assets/manifest.json`. |
-| presentation events | `PlayableScene.takeEvents()` | `src/render/playableScene.ts` | ONE queue of fire/reload/impact/hit/death/wall-break/regen events derived from state transitions; the host maps them to audio, and the VFX view remains the one consumer of its own particle spawns. |
+| presentation events | `PlayableScene.takeEvents()` | `src/render/playableScene.ts` | ONE queue of fire/reload/impact/hit/death/wall-break/regen events derived from state transitions; the host maps them to audio. A death now carries its sim tick and, for a shell kill, the killing shell direction; the wreck uses the sim tank pose (not the interpolated frame). |
+| the tank breakup | `createWreckView()` · `TANK_WRECK_PARTS` | `src/render/wreckView.ts` · `src/render/placeholderTank.ts` | ONE fixed pool of 8 wrecks × 17 authored tank slabs (hull halves, skirt, nose blades, rails, rear deck, pods, turret/bustle/mantlet/barrel/muzzle/cupola/mast). The pool never grows; a 9th death evicts the oldest. Seeded scatter/spin/gravity/one damped bounce, then a monotonic alpha fade; reduced motion fades in place over 0.4 s. |
 | the title background match | `TitleSession` · `createTitleBackground()` | `src/game/titleSession.ts` · `src/entry/titleBackground.ts` | ONE deterministic 4×4 `SpectatorSession` (16 tanks, seed from the title URL, default 1; `TitleSession` default 7) with a **420-tick (7 s)** director and a gentle tick-based drift. It renders into a SEPARATE `#title-canvas` at **0.75** internal resolution, exposure **0.7×** and bloom **0.5×**; the title overlay supplies the scrim. `start()` owns one rAF; `dispose()` cancels it and disposes the session, scene, renderer/context. A finished match is replaced (next seed), never run alongside. Background SFX are muted; menu music belongs to the shell. |
 | the title gesture gate | `TitleAudioGate` | `src/game/titleAudioGate.ts` · `src/main.ts` | The first `pointerdown` OR `keydown` anywhere on the title returns `menu` once and starts `menu.mp3`; later gestures do not restart it. Play then crossfades to combat as before. The gate is pure and pinned; `main.ts` wires both listeners. |
 | a low shoot-over barrier | `isLowCover(heightMetres)` · `LOW_COVER_MAX_HEIGHT_METRES` | `src/render/config.ts:193` | ONE predicate/height threshold distinguishes low cover from tall architecture in both the 3D edge hue (`worldMesh`) and the plan fill (`topPlan`); the A1 height model remains the collision authority. |
@@ -495,6 +496,54 @@ The live frame (1920×1080) passes the look gate: void 53.7 %, surface **12 L (4
 mid 4.3 %, line p99 **196**, contrast **16.33**, tile p90 **20 L (7.8 %)**. The first
 attempt (bloom 0.85/radius 0.58 and larger gains) FAILED at surface 23 L / tile p90 98;
 that red run is why these values are the landing values.
+
+
+
+### P8 · A tank death comes apart
+
+A death now does three things in one frame: the normal tank group is hidden, the
+existing flash/sparks fire, and `createWreckView` spawns the **authored tank slabs** at
+the dead tank's simulation pose. `TANK_WRECK_PARTS` is the breakup list in
+`placeholderTank.ts` (hull halves, skirt, nose blades, rails, rear deck, outboard pods,
+turret body/bustle, mantlet, barrel, muzzle, cupola, mast). It is not a spark burst and
+not a rubber-stamped explosion sprite.
+
+The wreck is **one instanced line draw**: a unit box's 12 edges in an
+`InstancedBufferGeometry`, with four vec4 matrix columns plus per-instance colour and
+alpha. The pool is fixed at `8 × 17 = 136` pieces; a ninth death overwrites the oldest
+slot and no buffer grows. Each piece gets a deterministic seed-derived outward/upward
+velocity (biased along the killing shell's direction when the event carries one), spin,
+gravity, one damped floor bounce, and a monotonic alpha fade that starts at 62 % of the
+3 s life and reaches exactly zero. Reduced motion freezes the pieces in place and fades
+them over 0.4 s.
+
+Determinism is anchored on the **simulation pose and tick**, not the interpolated render
+frame: the death event now carries `tick` (and `dx/dy/dz` for a shell kill), and
+`onDeath` reads `state.tanks[id]`. Same seed + tank + tick therefore produces the same
+breakup. The same-frame swap is pinned: `setTanks` hides the dead view and `setShells`
+spawns the wreck before `updateEffects`/render; no frame has both or neither.
+
+Verification is on the rebased final tree, after play mode became a real AI duel: the
+idle player was killed by the AI opponent at tick 1461 (kill feed CLOCK, HULL 0/3), a
+close-up death. `pauseOnNextWreck` froze that spawn frame and `wreckStep` advanced only
+the presentation clock, so the sequence is reproducible: **t = 0.15 s, 1.0 s, 2.0 s,
+3.2 s** (`p8-player-t0..t3.png`, 1920×1080). At 0.15 dense cyan slabs surround the camera
+and flash; at 1.0 they are spread and falling; at 2.0 they are thinner and fading; at
+3.2 there is no wreck (only the reticle remains). The kill was a **clock** death, so its
+scatter is radial; the shell-direction field is pinned in `presentationEvents.test.ts`
+and used for shell deaths.
+
+Draw calls: the full 4×4 spectator scene measured **107 with one wreck active, 106 once
+it was gone** — one new draw against the 100–121 live range. The close-up 1v1 measured
+**29 with the wreck, 28 after**. The wreck itself is exactly one `LineSegments` draw; the
+tank removal accounts for the net change. The mid-break frame passes the look gate: void
+52.0 %, surface **12 L (4.7 %)**, mid 5.2 %, line p99 **196**, contrast **16.33**, tile
+p90 **21 L (8.2 %)**. The t=0.15 flash frame also passes (surface 13 L, tile p90 29 L /
+11.4 %), so no skip was needed.
+
+`pauseOnNextWreck` and `wreckStep` are verification hooks on `__TANK_BATTLE__`; they set
+the existing pause flag without showing the pause screen and advance only the wreck clock.
+They are not used by gameplay.
 
 
 ## 3 · Gotchas

@@ -15,6 +15,56 @@ import { BoxGeometry, CylinderGeometry, Group, type BufferGeometry } from 'three
 import { CAMERA, NEON, PALETTE, TANK, teamColor, teamEdgeGainFor } from './config.ts';
 import { createNeonSurface, type NeonSurface, type SurfacePart } from './neonSurface.ts';
 
+/** The turret group's mount relative to the hull; the wreck uses the same seam. */
+export const TURRET_MOUNT = { x: 0, y: 0.78, z: -0.02 } as const;
+
+/** One slab in the authored tank breakup: a box, its local transform and its hue. */
+export interface WreckPartSpec {
+  readonly group: 'hull' | 'turret';
+  readonly width: number;
+  readonly height: number;
+  readonly depth: number;
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly rotX?: number;
+  readonly rotY?: number;
+  readonly rotZ?: number;
+  readonly color: 'team' | 'core';
+}
+
+/**
+ * THE tank breakup list. These are the authored hull halves, skirt, nose blades,
+ * rails, rear deck, outboard pods, turret body/bustle, mantlet, barrel, muzzle brake,
+ * cupola and mast. They are slabs for the one instanced neon wreck system, not generic
+ * sparks; the names/dimensions mirror the parts assembled below.
+ *
+ * Why this is a separate data list: the visual assembly below still merges its source
+ * geometries through `createNeonSurface`, which takes ownership and disposes them, so
+ * there is no reusable mesh list to read back. The turret and barrel are cylinders in
+ * the visual; the wreck uses their bounding slabs because the one-draw budget requires
+ * one unit-box edge geometry. Keep these dimensions in sync with the assembly.
+ */
+export const TANK_WRECK_PARTS: readonly WreckPartSpec[] = [
+  { group: 'hull', width: 0.98, height: TANK.hullHeightMetres, depth: TANK.hullLengthMetres, x: -0.51, y: 0.55, z: 0, color: 'team' },
+  { group: 'hull', width: 0.98, height: TANK.hullHeightMetres, depth: TANK.hullLengthMetres, x: 0.51, y: 0.55, z: 0, color: 'team' },
+  { group: 'hull', width: 1.6, height: 0.22, depth: 2.2, x: 0, y: 0.28, z: 0.08, color: 'team' },
+  { group: 'hull', width: 0.16, height: 0.12, depth: 1.1, x: 0.70, y: 0.62, z: -1.12, rotY: 0.30, color: 'team' },
+  { group: 'hull', width: 0.16, height: 0.12, depth: 1.1, x: -0.70, y: 0.62, z: -1.12, rotY: -0.30, color: 'team' },
+  { group: 'hull', width: 0.12, height: 0.1, depth: 2.2, x: 0.84, y: 0.76, z: 0.1, color: 'team' },
+  { group: 'hull', width: 0.12, height: 0.1, depth: 2.2, x: -0.84, y: 0.76, z: 0.1, color: 'team' },
+  { group: 'hull', width: 1.5, height: 0.08, depth: 0.6, x: 0, y: 0.76, z: 1.0, color: 'team' },
+  { group: 'hull', width: 0.14, height: 0.2, depth: 1.8, x: 0.9, y: 0.42, z: 0.1, color: 'team' },
+  { group: 'hull', width: 0.14, height: 0.2, depth: 1.8, x: -0.9, y: 0.42, z: 0.1, color: 'team' },
+  { group: 'turret', width: TANK.turretWidthMetres, height: TANK.turretHeightMetres, depth: TANK.turretLengthMetres, x: 0, y: 0.16, z: 0.02, color: 'team' },
+  { group: 'turret', width: 0.9, height: 0.28, depth: 0.5, x: 0, y: 0.16, z: 0.65, color: 'team' },
+  { group: 'turret', width: 0.6, height: 0.36, depth: 0.4, x: 0, y: 0.18, z: -0.55, color: 'team' },
+  { group: 'turret', width: TANK.barrelDiameterMetres, height: TANK.barrelDiameterMetres, depth: TANK.barrelLengthMetres, x: 0, y: 0.2, z: -0.5 - TANK.barrelLengthMetres / 2, color: 'team' },
+  { group: 'turret', width: TANK.muzzleDiameterMetres, height: TANK.muzzleDiameterMetres, depth: TANK.muzzleLengthMetres, x: 0, y: 0.2, z: -0.5 - TANK.barrelLengthMetres - TANK.muzzleLengthMetres / 2, color: 'core' },
+  { group: 'turret', width: 0.45, height: 0.18, depth: 0.45, x: 0, y: 0.5, z: 0.08, color: 'team' },
+  { group: 'turret', width: 0.08, height: 0.28, depth: 0.08, x: 0.28, y: 0.64, z: 0.04, color: 'core' },
+];
+
 export interface PlaceholderTank {
   readonly group: Group;
   readonly turret: Group;
@@ -182,7 +232,7 @@ export function createPlaceholderTank(teamIndex: number, phase: number): Placeho
 
   const turret = new Group();
   turret.name = 'turret';
-  turret.position.set(0, 0.78, -0.02);
+  turret.position.set(TURRET_MOUNT.x, TURRET_MOUNT.y, TURRET_MOUNT.z);
   turret.rotation.order = 'YXZ';
   const turretSurface: NeonSurface = createNeonSurface(turretParts);
   turret.add(turretSurface.group);
