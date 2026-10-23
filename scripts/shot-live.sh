@@ -28,7 +28,10 @@ PROFILE_DIR="$ROOT/.gate-logs/chrome-live-$$-$RANDOM"
 PID_FILE="$ROOT/.gate-logs/chrome-live-pids-$$.txt"
 mkdir -p "$PROFILE_DIR"
 
-chrome_count() { ps -eo comm= | grep -cx '^chrome$' || true; }
+# Count ONLY this run's browser, by its unique profile dir. The old check counted every
+# chrome on the host, so a concurrent writer's browser (or a client's own window) failed a
+# capture that was perfectly clean - observed in a publish. Ownership is per-run.
+own_chrome_count() { ps -eo args= | grep -F -- "--user-data-dir=$PROFILE_DIR" | grep -vc grep || true; }
 
 reap() {
   # Capture by the UNIQUE profile dir, then kill from the file — never a pattern in
@@ -58,10 +61,16 @@ SIZE=0
 [ -f "$OUT" ] && SIZE="$(wc -c < "$OUT")"
 reap
 trap - EXIT INT TERM
-LEFT="$(chrome_count)"
+# Children can take a moment to exit after TERM; poll briefly instead of racing them.
+LEFT=1
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  LEFT="$(own_chrome_count)"
+  [ "$LEFT" = "0" ] && break
+  sleep 0.3
+done
 echo "shot-live: url=$URL"
 echo "shot-live: file=$OUT bytes=$SIZE"
-echo "shot-live: chrome processes after cleanup: $LEFT (expected 0)"
+echo "shot-live: own chrome processes after cleanup: $LEFT (expected 0)"
 [ "$SIZE" -ge 30000 ] || { echo "shot-live: FAILED — the frame is missing or too small" >&2; exit 1; }
-[ "$LEFT" = "0" ] || { echo "shot-live: FAILED — Chrome survivors" >&2; exit 1; }
+[ "$LEFT" = "0" ] || { echo "shot-live: FAILED — this run's Chrome survivors" >&2; exit 1; }
 exit 0
