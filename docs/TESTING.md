@@ -1914,3 +1914,15 @@ printed per arm (`6ad2e950…` baseline, restored identically after every arm).
   scatter path is covered by the sim/test, not the sequence; the owner's eye, real-
   GPU fps, multi-wreck readability, and reduced-motion appearance are unverified.
   Deployment is reported by the landing report, not this row.
+
+### P8 wreck — deployed evidence
+
+- Four frames read at 0.15 / 1.0 / 2.0 / 3.2 s: separated slabs → spread → fading → gone.
+- Mid-break look (measured by the dispatcher): surface 4.7 %, contrast 16.33, tile p90 8.2 % — PASS.
+- Draw calls: 107 with a wreck active in the 4×4, 106 after; the wreck is one instanced
+  `LineSegments` draw.
+- The captured kill was a real AI kill of the idle player on the public build (CLOCK, hull 0/3).
+- Pool: 8 wrecks × 17 pieces; deterministic from seed + tank + tick; fade starts at 62 % of
+  3 s; reduced motion = 0.4 s in-place fade (pinned, not eye-verified).
+- **Debt:** `TANK_WRECK_PARTS` duplicates the visual part dimensions (`COPIES: 2`); folding
+  them into one authored list is the follow-up.

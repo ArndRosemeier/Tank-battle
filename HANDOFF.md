@@ -2,10 +2,10 @@
 
 - **by:** DSH chief-of-staff session, 2026-10-23
 - **branch / worktree:** `main` · `/home/administrator/projects/Tank battle`
-- **last verified:** `4b6980a` · local full gate **156/156 exit 0** · published from a clean
+- **last verified:** `e5d70ec` · local full gate **156/156 exit 0** · published from a clean
   tree and **VERIFIED-DEPLOYED**: live smoke PASS (boot, no console/HTTP errors, Play, a real
   shot), deployed look 3/3 frames PASS, 1v1 opponent verified on the deployed frame
-- **live:** `https://apps.futuremagic.de/tank-battle/` · entry `index-ByQU54TS.js`
+- **live:** `https://apps.futuremagic.de/tank-battle/` · entry `index-BdFwNLI3.js`
 
 ## Done since the previous handoff
 
@@ -17,6 +17,8 @@
   decoupled from the aim, reticle is the cursor. Verified end to end.
 - P7 (unbriefed by the writer): rocket shells, blowback, rocket SFX, 600 ms fire latch, glow-up.
   Live. The glow-up is a taste fork the owner has not judged yet.
+- P8 wreck: the tank's own slabs separate with spin/gravity, bounce once, then fade over 3 s;
+  one instanced draw call; deterministic; reduced motion respected. Verified on a real AI kill.
 
 ## In flight / next
 
@@ -27,9 +29,9 @@
 
 ## Next action (one)
 
-**P8 (the wreck) is in flight** — a tank death comes apart and fades; the writer will report.
-The 1v1 fix is live and verified. Await the owner's verdict on the death sequence, the P7 glow
-and the 1v1 difficulty.
+**Awaiting the owner's eye on the death sequence** (live, `index-BdFwNLI3.js`): slab
+recognisability, fade timing, reduced motion, multi-wreck readability. Then the 1v1 AI
+difficulty, and the P7 glow verdict. Nothing is dispatched.
 
 ## Superseded next action
 
