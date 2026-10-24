@@ -7,6 +7,15 @@ import { requireElement } from './entry/dom.ts';
 import { createAimHud, createHud, type HudState } from './entry/hud.ts';
 import { AudioEngine } from './entry/audio.ts';
 import { createScreens, type Screens } from './entry/screens.ts';
+import { createOnlineScreens, type OnlineScreens } from './entry/onlineScreens.ts';
+import { connect as connectGameHub } from './net/gamehub.ts';
+import { GAMEHUB_APP, GAMEHUB_KEY, GAMEHUB_URL, onlineUnavailableReason } from './net/config.ts';
+import { OnlineSession } from './net/onlineSession.ts';
+import type { NetMatch } from './net/netMatch.ts';
+import type { Intent, RoomState, TickBatch } from './net/protocol.ts';
+import { AI_PROFILES } from './core/ai.ts';
+import type { TankSlot } from './game/teamSession.ts';
+import type { BrowserInput } from './game/browserInput.ts';
 import { createTitleBackground, type TitleBackground } from './entry/titleBackground.ts';
 import { loadSettings, saveSettings, type GameSettings } from './entry/settings.ts';
 import { CameraRig } from './render/cameraRig.ts';
@@ -74,7 +83,8 @@ import { PlayerAimController, solveAim, type AimCamera, type AimSolution } from 
  *  - the world/debris meshes rebuild only when `world.revision` changes.
  */
 
-const canvas = requireElement('app', HTMLCanvasElement, 'canvas');
+/** The game canvas; replaced by a fresh one when an online match is torn down. */
+let canvas = requireElement('app', HTMLCanvasElement, 'canvas');
 const errorBox = requireElement('error', HTMLElement, 'error surface');
 
 function reportError(cause: unknown): void {
@@ -113,6 +123,8 @@ interface LaunchOptions {
   readonly arena: ArenaChoice;
   /** `?settings=1` on the title screen opens the settings panel. */
   readonly settings: boolean;
+  /** `?room=CODE` on the title screen joins that online room (the GameHub lobby's link). */
+  readonly room: string | null;
 }
 
 /** `?mode=title`, `?detail=…&pose=…&demo=duel&ticks=571` or `?mode=spectate&…`. Unknown values fail visibly. */
@@ -243,7 +255,15 @@ function readLaunchOptions(): LaunchOptions {
     validateMatchSetup({ mode, teams, tanksPerTeam, minutes, seed, arena });
   }
 
-  return { mode, detail, pose, demo, ticks, teams, tanksPerTeam, minutes, seed, arena, settings };
+  const roomText = query.get('room');
+  let room: string | null = null;
+  if (roomText !== null) {
+    if (mode !== 'title') throw new Error('launch: ?room joins an online room from the title screen; it takes no match parameters');
+    if (!/^[A-Za-z0-9]{6}$/.test(roomText)) throw new Error(`launch: ?room must be a 6-character room code, got "${roomText}"`);
+    room = roomText.toUpperCase();
+  }
+
+  return { mode, detail, pose, demo, ticks, teams, tanksPerTeam, minutes, seed, arena, settings, room };
 }
 
 const VIGNETTE_SHADER = {
@@ -475,6 +495,10 @@ interface MatchView {
   readonly player: TankRenderFrame;
   /** Character names for kill-feed victims on the player's team; empty in duel mode. */
   readonly feedNames: readonly string[];
+  /** The kill feed's YOU slot; defaults to team 0 slot 0. */
+  readonly feedSlot?: TankSlot;
+  /** Online: the match runs on while the local pause menu is open. */
+  readonly realtime?: boolean;
   advance(frameSeconds: number): number;
   interpolatedTanks(alpha: number): readonly TankRenderFrame[];
 }
@@ -657,6 +681,9 @@ let titleBackground: TitleBackground | null = null;
 let titleGate: TitleAudioGate | null = null;
 let titleGestureCleanup: (() => void) | null = null;
 let activeLaunch: LaunchOptions | null = null;
+/** The running match's lifetime; aborting it tears the match down. */
+let activeMatchLifetime: AbortController | null = null;
+let onlineUi: OnlineScreens | null = null;
 
 function applySettings(settings: GameSettings): void {
   currentSettings = settings;
@@ -696,8 +723,8 @@ function resumeMatch(): void {
   audioEngine?.setDucked(false);
 }
 
-function startGame(mode: 'play' | 'team' | 'spectate', setup: MatchSetup | null = null): void {
-  if (gameStarted) return;
+/** Stops the title's background battle and its audio gate; a match takes the screen. */
+function leaveTitle(): void {
   if (titleBackground) {
     titleBackground.dispose();
     titleBackground = null;
@@ -706,6 +733,11 @@ function startGame(mode: 'play' | 'team' | 'spectate', setup: MatchSetup | null 
   titleGestureCleanup = null;
   const titleCanvas = document.getElementById('title-canvas');
   if (titleCanvas) titleCanvas.style.display = 'none';
+}
+
+function startGame(mode: 'play' | 'team' | 'spectate', setup: MatchSetup | null = null): void {
+  if (gameStarted) return;
+  leaveTitle();
   gameStarted = true;
   screensUi?.hideAll();
   document.body.classList.remove('title-mode');
@@ -725,6 +757,7 @@ function startGame(mode: 'play' | 'team' | 'spectate', setup: MatchSetup | null 
     seed: setup?.seed ?? (mode === 'play' ? 1 : freshMatchSeed(Math.random)),
     arena: setup?.arena ?? CRUCIBLE_CHOICE,
     settings: false,
+    room: null,
   };
   // The address bar always reproduces the running match, so a link or reload replays it.
   window.history.replaceState(
@@ -745,6 +778,226 @@ function startGame(mode: 'play' | 'team' | 'spectate', setup: MatchSetup | null 
   if (!audio) throw new Error('main: audio engine is missing');
   const frame = bootGame(launch, audio);
   requestAnimationFrame(frame);
+}
+
+
+// ---------------------------------------------------------------- online play
+
+let onlineInput: BrowserInput | null = null;
+
+function openOnline(joinCode?: string): void {
+  screensUi?.hideAll();
+  if (!onlineUi) {
+    onlineUi = createOnlineScreens({
+      connect: connectOnline,
+      onBack: () => {
+        onlineUi?.hide();
+        screensUi?.showTitle();
+      },
+      onGesture: () => {
+        ensureAudio('menu');
+        audioEngine?.playSfx('ui-click', 0.7);
+      },
+      teamColor,
+    });
+  }
+  onlineUi.show(joinCode);
+}
+
+/** Opens the GameHub connection; the online screen calls it with the pilot name. */
+function connectOnline(name: string): OnlineSession {
+  const reason = onlineUnavailableReason();
+  if (reason) throw new Error(reason);
+  const hub = connectGameHub<RoomState, TickBatch, Intent>({
+    url: GAMEHUB_URL,
+    app: GAMEHUB_APP,
+    appKey: GAMEHUB_KEY,
+    name,
+  });
+  const online = new OnlineSession(hub, { freshSeed: () => freshMatchSeed(Math.random) });
+  online.onMatch((match) => {
+    try {
+      if (match) startOnlineMatch(online, match);
+      else stopOnlineMatch();
+    } catch (cause) {
+      reportError(cause);
+    }
+  });
+  online.onChange(() => syncOnlineEndActions(online));
+  // Browser-test hook, like __TANK_BATTLE__: read-only state plus the host's room actions.
+  (window as Window & { __TANK_ONLINE__?: unknown }).__TANK_ONLINE__ = {
+    phase: () => online.phase,
+    isHost: () => online.isHost,
+    roomCode: () => online.roomCode,
+    matchNo: () => online.match?.spec.matchNo ?? null,
+    hash: () => online.match?.session.hash() ?? null,
+    tick: () => online.match?.state.tick ?? null,
+    backToRoom: () => online.backToRoom(),
+  };
+  return online;
+}
+
+/** The end panel's buttons in an online room: only the host takes everyone back. */
+function syncOnlineEndActions(online: OnlineSession): void {
+  if (!online.match) return;
+  screensUi?.setEndActions(
+    online.isHost
+      ? { label: 'BACK TO ROOM', sub: 'NEXT BATTLE', enabled: true }
+      : { label: 'WAITING', sub: 'FOR THE HOST', enabled: false },
+    'LEAVE ROOM',
+  );
+}
+
+function startOnlineMatch(online: OnlineSession, match: NetMatch): void {
+  activeMatchLifetime?.abort();
+  onlineInput?.dispose();
+  leaveTitle();
+  onlineUi?.hide();
+  screensUi?.hideAll();
+  syncOnlineEndActions(online);
+  paused = false;
+  gameStarted = true;
+  document.body.classList.remove('title-mode', 'match-over');
+  const audio = audioEngine;
+  if (!audio) throw new Error('main: audio engine is missing');
+  if (audio.isUnlocked) audio.playMusic('combat');
+
+  const setup = match.spec.setup;
+  const launch: LaunchOptions = {
+    mode: 'team',
+    detail: null,
+    pose: null,
+    demo: false,
+    ticks: null,
+    teams: setup.teams,
+    tanksPerTeam: setup.tanksPerTeam,
+    minutes: setup.minutes,
+    seed: match.spec.seed,
+    // Online rooms fight on the Crucible until the room protocol carries an arena.
+    arena: CRUCIBLE_CHOICE,
+    settings: false,
+    room: online.roomCode,
+  };
+  activeLaunch = launch;
+  setSurfaceDetail(currentSettings.quality);
+  document.body.style.background = PALETTE.background;
+
+  const input = createBrowserInput(canvas);
+  onlineInput = input;
+  const readInput = (): PlayerInput => input.read();
+  const aimCameraState: AimCameraState = { camera: null };
+  const aimController = new PlayerAimController(readInput, () => aimCameraState.camera);
+  const localTankId = match.localTankId;
+  const localCommand =
+    localTankId === null ? null : (): TankCommand => aimController.commandFor(match.state, localTankId);
+
+  const view = onlineMatchView(online, match, localCommand);
+  const netLine = requireElement('hud-net', HTMLElement, 'online status line');
+  netLine.hidden = false;
+  const frame = bootMatch(
+    launch,
+    view,
+    (fps) => {
+      const status = onlineStatus(online, match);
+      netLine.textContent = status.text;
+      netLine.classList.toggle('error', status.error);
+      return onlineHudState(match, view.feedNames, fps);
+    },
+    audio,
+    readInput,
+    aimCameraState,
+  );
+  requestAnimationFrame(frame);
+}
+
+function stopOnlineMatch(): void {
+  activeMatchLifetime?.abort();
+  activeMatchLifetime = null;
+  onlineInput?.dispose();
+  onlineInput = null;
+  gameStarted = false;
+  paused = false;
+  audioEngine?.setDucked(false);
+  screensUi?.hideAll();
+  document.body.classList.remove('match-over');
+  const netLine = document.getElementById('hud-net');
+  if (netLine) netLine.hidden = true;
+  if (audioEngine?.isUnlocked) audioEngine.playMusic('menu');
+  onlineUi?.show();
+}
+
+/** Names for the kill feed and squad list: humans by pilot name, AI by character. */
+function onlineFeedNames(match: NetMatch): string[] {
+  const teamId = match.session.playerTeamId;
+  return Array.from({ length: match.spec.setup.tanksPerTeam }, (_, teamIndex) => {
+    const seat = match.spec.seats.find((candidate) => candidate.teamId === teamId && candidate.teamIndex === teamIndex);
+    const character = AI_PROFILES[teamIndex]?.name;
+    if (!seat && !character) throw new Error(`main: no name for team slot ${teamIndex}`);
+    return seat?.name ?? character!;
+  });
+}
+
+function onlineMatchView(
+  online: OnlineSession,
+  match: NetMatch,
+  localCommand: (() => TankCommand) | null,
+): MatchView {
+  const viewTank = match.state.tanks[match.session.playerTankId]!;
+  return {
+    get state() {
+      return match.state;
+    },
+    playerTankId: match.session.playerTankId,
+    floorY: match.session.floorY,
+    arena: match.session.arena,
+    get alpha() {
+      return match.alpha;
+    },
+    frozen: false,
+    get player() {
+      return match.session.player;
+    },
+    feedNames: onlineFeedNames(match),
+    feedSlot: { teamId: viewTank.teamId, teamIndex: viewTank.teamIndex },
+    realtime: true,
+    advance(frameSeconds: number): number {
+      online.frame(frameSeconds, localCommand);
+      return 0;
+    },
+    interpolatedTanks(alpha: number): readonly TankRenderFrame[] {
+      return match.interpolatedTanks(alpha);
+    },
+  };
+}
+
+function onlineHudState(match: NetMatch, names: readonly string[], fps: number): HudState {
+  const player = match.state.tanks[match.session.playerTankId];
+  if (!player) throw new Error('main: the online match lost the viewed tank');
+  const squad = match.session.squad
+    .filter((tank) => tank.id !== player.id)
+    .map((tank) => ({ name: names[tank.teamIndex] ?? `SLOT ${tank.teamIndex + 1}`, hp: tank.hp, maxHp: tank.maxHp, alive: tank.alive }));
+  return {
+    status: match.state.status,
+    outcome: match.state.outcome,
+    winnerTeamId: match.state.winnerTeamId,
+    playerTeamId: player.teamId,
+    playerHp: player.hp,
+    playerMaxHp: player.maxHp,
+    reloadTicksRemaining: player.reloadTicksRemaining,
+    reloadTicks: RELOAD_TICKS,
+    fps,
+    squad,
+  };
+}
+
+/** The HUD's one-line network readout; a divergence or a starved stream shows in red. */
+function onlineStatus(online: OnlineSession, match: NetMatch): { text: string; error: boolean } {
+  const code = online.roomCode ?? '';
+  if (match.desync) return { text: `ROOM ${code} · ${match.desync.toUpperCase()}`, error: true };
+  if (match.localSeat === null) return { text: `ROOM ${code} · WATCHING`, error: false };
+  if (match.role === 'host') return { text: `ROOM ${code} · HOST`, error: false };
+  const behind = match.bufferedTicks;
+  return { text: `ROOM ${code} · BUFFER ${behind}`, error: behind === 0 && match.state.status === 'active' };
 }
 
 /**
@@ -768,7 +1021,7 @@ function bootMatch(
   const killFeed = new KillFeedTracker();
   let feedRows: KillFeedRow[] = killFeed
     .prime(session.state)
-    .map((notice) => ({ ...describeKill(notice, session.feedNames), tick: notice.tick }))
+    .map((notice) => ({ ...describeKill(notice, session.feedNames, session.feedSlot?.teamId, session.feedSlot?.teamIndex), tick: notice.tick }))
     .slice(0, 4);
   let damageFlash = 0;
   let lastPlayerHp = session.state.tanks[session.playerTankId]?.hp ?? 0;
@@ -778,6 +1031,10 @@ function bootMatch(
   let lastAim: AimSolution | null = null;
   let pauseOnNextWreck = false;
   const endWatch = createEndWatch(session.frozen);
+  // One lifetime per match: aborting it removes the listeners and stops the frame loop.
+  const lifetime = new AbortController();
+  activeMatchLifetime?.abort();
+  activeMatchLifetime = lifetime;
   const cameraDirection = new Vector3();
   const initialPlayer = session.player;
   const sceneStats = measureScene(scene.group);
@@ -820,9 +1077,10 @@ function bootMatch(
   topCamera.name = 'top-orthographic-camera';
   topCamera.updateMatrixWorld();
 
-  const { renderer, scene: threeScene, composer, bloomPass } = createRenderStack(canvas, isTop ? topCamera : rig.camera, {
+  const renderStack = createRenderStack(canvas, isTop ? topCamera : rig.camera, {
     vignetteShader: VIGNETTE_SHADER,
   });
+  const { renderer, scene: threeScene, composer, bloomPass } = renderStack;
   threeScene.add(scene.group);
   threeScene.add(topPlan.group);
 
@@ -969,7 +1227,8 @@ function bootMatch(
       const frameSeconds = nowSeconds - lastSeconds;
       lastSeconds = nowSeconds;
 
-      if (!paused) {
+      if (lifetime.signal.aborted) return;
+      if (!paused || session.realtime) {
         session.advance(frameSeconds);
       }
 
@@ -992,7 +1251,7 @@ function bootMatch(
       );
       for (const notice of killFeed.update(session.state)) {
         feedRows.unshift({
-          ...describeKill(notice, session.feedNames),
+          ...describeKill(notice, session.feedNames, session.feedSlot?.teamId, session.feedSlot?.teamIndex),
           tick: notice.tick,
         });
       }
@@ -1118,21 +1377,31 @@ function bootMatch(
     }
   }
 
-  window.addEventListener('resize', resize);
+  lifetime.signal.addEventListener('abort', () => {
+    // The match was torn down (an online room went back to its room screen). The
+    // render stack loses its WebGL context, so the next match gets a fresh canvas.
+    scene.dispose();
+    renderStack.dispose();
+    hudRoot.style.display = 'none';
+    const fresh = canvas.cloneNode(false) as HTMLCanvasElement;
+    canvas.replaceWith(fresh);
+    canvas = fresh;
+  });
+  window.addEventListener('resize', resize, { signal: lifetime.signal });
   window.addEventListener('keydown', (event) => {
     if (event.code !== 'KeyL' || event.repeat) {
       return;
     }
     // The documented detail toggle: zero, then back to the configured default.
     setSurfaceDetail(getSurfaceDetail() > 0 ? 0 : SURFACE_DETAIL);
-  });
+  }, { signal: lifetime.signal });
   canvas.addEventListener(
     'wheel',
     (event) => {
       event.preventDefault();
       rig.zoom(event.deltaY);
     },
-    { passive: false },
+    { passive: false, signal: lifetime.signal },
   );
 
   const debugApi = {
@@ -1343,12 +1612,25 @@ try {
     onPlay: () => startGame('play'),
     onStartSetup: (setup) => startGame(setup.mode, setup),
     onSpectate: () => startGame('spectate'),
+    onOnline: () => openOnline(),
     onRematch: () => {
+      const online = onlineUi?.session;
+      if (online?.match) {
+        online.backToRoom();
+        return;
+      }
       if (!activeLaunch) throw new Error('main: rematch without a running match');
       window.location.assign(rematchUrl(activeLaunch));
     },
     onResume: resumeMatch,
-    onQuit: () => window.location.assign('?mode=title'),
+    onQuit: () => {
+      const online = onlineUi?.session;
+      if (online?.match) {
+        online.leaveRoom().catch(reportError);
+        return;
+      }
+      window.location.assign('?mode=title');
+    },
     onGesture: () => {
       ensureAudio('menu');
       audioEngine?.playSfx('ui-click', 0.7);
@@ -1401,6 +1683,7 @@ try {
     };
     screensUi.showTitle();
     if (launch.settings) screensUi.showSettings('title');
+    if (launch.room) openOnline(launch.room);
   } else {
     screensUi.hideAll();
     gameStarted = true;

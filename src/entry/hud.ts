@@ -87,6 +87,7 @@ const FEED_ROWS = 4;
 
 function segments(container: HTMLElement, className: string): readonly HTMLElement[] {
   const result: HTMLElement[] = [];
+  container.replaceChildren(); // a HUD built again for a second match starts empty
   for (let index = 0; index < HP_SEGMENTS; index += 1) {
     const segment = document.createElement('span');
     segment.className = className;
@@ -142,6 +143,9 @@ export function createHud(): Hud {
     throw new Error('hud: reload arc must be an SVG element');
   }
 
+  // A second match on the same page (online rooms play several) rebuilds the rows.
+  squadList.replaceChildren();
+  feedList.replaceChildren();
   const playerSegments = segments(playerHp, 'hp-seg');
   const targetSegments = segments(targetHp, 'hp-seg');
   const squadRows: SquadRow[] = [];
