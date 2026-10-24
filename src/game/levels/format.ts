@@ -8,6 +8,7 @@ import { createWorld, type World, type WorldSpec } from '../../core/world.ts';
 import { TANK_RADIUS_METRES } from '../../core/sim/constants.ts';
 import { standingPoseAt } from '../../core/sim/terrainBody.ts';
 import { buildNavGraph, nodeNear, reachableFrom } from '../../core/ai/navigation.ts';
+import * as detMath from '../../core/detMath.ts';
 
 export interface SpawnSlot {
   readonly xMetres: number;
@@ -86,7 +87,7 @@ export function validateLevel(level: LevelDefinition): void {
         fail(`spawn ${spawn.teamId} slot ${index} is not on flat ground (pitch ${pose.pitchDegrees.toFixed(1)}°, roll ${pose.rollDegrees.toFixed(1)}°)`);
       }
       for (const other of allSlots) {
-        if (Math.hypot(other.x - slot.xMetres, other.z - slot.zMetres) < TANK_RADIUS_METRES * 2.4) {
+        if (detMath.hypot(other.x - slot.xMetres, other.z - slot.zMetres) < TANK_RADIUS_METRES * 2.4) {
           fail(`spawn ${spawn.teamId} slot ${index} overlaps a slot of spawn ${other.teamId}`);
         }
       }

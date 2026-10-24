@@ -72,9 +72,10 @@ import type { MatchState, Shell, Tank, PresentationEvent } from './match.ts';
 import type { DeathCause, MatchOutcome } from './stats.ts';
 import { bodyHeadroomClear, footprintInsideArena, hullPoseAt, type HullPose } from './terrainBody.ts';
 import { teamTurnOrder } from './turnOrder.ts';
+import * as detMath from '../detMath.ts';
 
 const EPSILON = 1e-9;
-const MAX_SLOPE_TAN = Math.tan((TANK_MAX_SLOPE_DEGREES * Math.PI) / 180);
+const MAX_SLOPE_TAN = detMath.tan((TANK_MAX_SLOPE_DEGREES * Math.PI) / 180);
 /** A tank resting within this of the ground counts as on it. */
 const GROUND_TOLERANCE_METRES = 0.05;
 
@@ -184,7 +185,7 @@ function applyCommand(state: MatchState, tank: Tank, command: TankCommand, turnO
   let moved = 0;
   // Tracks only push while they touch the ground: a falling tank keeps its x/z.
   if (command.throttle !== 0 && tank.verticalSpeed === 0) {
-    const climb = Math.tan((tank.hullPitchDegrees * Math.PI) / 180) * Math.sign(command.throttle);
+    const climb = detMath.tan((tank.hullPitchDegrees * Math.PI) / 180) * Math.sign(command.throttle);
     const uphill = Math.max(0, Math.min(1, climb / MAX_SLOPE_TAN));
     const speedScale = 1 - (1 - TANK_UPHILL_SPEED_FLOOR) * uphill;
     const distance = command.throttle * TANK_SPEED_METRES_PER_SECOND * STEP_SECONDS * speedScale;
@@ -221,7 +222,7 @@ function moveTank(state: MatchState, tank: Tank, dx: number, dz: number, turnOrd
     if (cx === 0 && cz === 0) continue;
     const x = tank.x + cx;
     const z = tank.z + cz;
-    const pose = terrainMove(state, tank, x, z, Math.hypot(cx, cz));
+    const pose = terrainMove(state, tank, x, z, detMath.hypot(cx, cz));
     if (!pose || tankBodyBlocksMove(state, tank, x, z, turnOrder)) continue;
     tank.x = x;
     tank.z = z;
@@ -229,7 +230,7 @@ function moveTank(state: MatchState, tank: Tank, dx: number, dz: number, turnOrd
       // Climbing: the hull rises onto the new ground at once.
       tank.y = pose.y;
     }
-    return Math.hypot(cx, cz);
+    return detMath.hypot(cx, cz);
   }
   return 0;
 }
@@ -739,7 +740,7 @@ export function castAimRay(
   if (!Number.isInteger(ownerTeamId) || ownerTeamId < 0) {
     throw new Error(`sim.castAimRay: ownerTeamId must be a non-negative integer, got ${String(ownerTeamId)}`);
   }
-  const magnitude = Math.hypot(direction.x, direction.y, direction.z);
+  const magnitude = detMath.hypot(direction.x, direction.y, direction.z);
   if (magnitude < EPSILON) {
     throw new Error('sim.castAimRay: direction must be non-zero');
   }
