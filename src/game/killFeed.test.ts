@@ -18,7 +18,7 @@ describe('the kill feed labels', () => {
       killerTeamId: 0,
       killerLabel: 'SQUAD',
       victimTeamId: 2,
-      victimLabel: 'TEAM 3',
+      victimLabel: 'MAGENTA',
       cause: 'shell',
     });
 
@@ -32,7 +32,7 @@ describe('the kill feed labels', () => {
     };
     expect(describeKill(squadLoss, CHARACTERS)).toEqual({
       killerTeamId: 3,
-      killerLabel: 'TEAM 4',
+      killerLabel: 'LIME',
       victimTeamId: 0,
       victimLabel: 'SNIPER',
       cause: 'shell',

@@ -11,6 +11,7 @@
 import { PALETTE, teamColor } from '../render/config.ts';
 import type { DeathCause, MatchOutcome, MatchStatus } from '../core/sim.ts';
 import { STEP_SECONDS } from '../core/timestep.ts';
+import { formatClock } from '../game/matchResult.ts';
 
 /** One AI squadmate's HUD row. */
 export interface HudSquadMember {
@@ -50,7 +51,12 @@ export interface HudState {
   readonly feed?: readonly HudFeedEntry[];
   /** 0…1 damage flash for the player's own hit; decays in the host loop. */
   readonly damageFlash?: number;
+  /** Seconds before the time limit; omitted hides the match clock. */
+  readonly secondsRemaining?: number;
 }
+
+/** Under this many seconds the match clock turns to the alarm colour. */
+const CLOCK_URGENT_SECONDS = 30;
 
 /** The projected aim, in the terms the HUD needs. */
 export interface AimScreenState {
@@ -128,6 +134,7 @@ export function createHud(): Hud {
   const reloadValue = requireById('hud-reload-value');
   const fps = requireById('hud-fps');
   const banner = requireById('hud-banner');
+  const clock = requireById('hud-clock');
   const feed = requireById('hud-feed');
   const feedList = requireById('hud-feed-list');
   const vignette = requireById('damage-vignette');
@@ -252,6 +259,16 @@ export function createHud(): Hud {
       vignette.style.opacity = (flash * 0.9).toFixed(3);
 
       fps.textContent = `${state.fps.toFixed(0)} FPS`;
+
+      if (state.secondsRemaining === undefined || state.status === 'ended') {
+        clock.style.display = 'none';
+      } else {
+        const remaining = Math.max(0, Math.ceil(state.secondsRemaining));
+        clock.style.display = 'block';
+        clock.textContent = formatClock(remaining);
+        clock.style.color =
+          remaining <= CLOCK_URGENT_SECONDS ? PALETTE.error : PALETTE.debugText;
+      }
 
       let bannerText = '';
       if (state.status === 'ended') {

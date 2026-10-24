@@ -8,9 +8,12 @@
 import { Group, type Vector3 } from 'three';
 import { MUZZLE_FORWARD_METRES, forwardFromYaw, type MatchState, type Tank } from '../core/sim.ts';
 import { CELL_SIZE_METRES } from '../core/world.ts';
+import { STEP_SECONDS } from '../core/timestep.ts';
 import { PALETTE, isLowCover, teamColor } from './config.ts';
 import { createDebrisView, type DebrisView } from './debrisView.ts';
 import { createEffectsView, type EffectsView } from './effectsView.ts';
+import { advanceGlowClock, setGlowPulseEnabled } from './glowClock.ts';
+import { createGlowView, type GlowView } from './glowView.ts';
 import { createShellView, type ShellView } from './shellView.ts';
 import { createWreckView, type WreckView } from './wreckView.ts';
 import {
@@ -46,6 +49,7 @@ export interface PlayableScene {
   readonly shells: ShellView;
   readonly effects: EffectsView;
   readonly wreck: WreckView;
+  readonly glow: GlowView;
   readonly tanks: ReadonlyMap<number, PlaceholderTank>;
   readonly focusTank: PlaceholderTank;
   /** Rebuild the merged world/debris only when the world revision changed. */
@@ -77,7 +81,12 @@ export function createPlayableScene(
   const shells = createShellView();
   const effects = createEffectsView();
   const wreck = createWreckView(state.world.floorSurfaceHeightMetres);
-  group.add(worldMesh.group, debris.group, shells.group, effects.group, wreck.group);
+  const glow = createGlowView({
+    centerX: (state.world.columns * CELL_SIZE_METRES) / 2,
+    centerZ: (state.world.rows * CELL_SIZE_METRES) / 2,
+    floorY: state.world.floorSurfaceHeightMetres,
+  });
+  group.add(worldMesh.group, debris.group, shells.group, effects.group, wreck.group, glow.group);
 
   const tanks = new Map<number, PlaceholderTank>();
   for (const tank of state.tanks) {
@@ -164,6 +173,7 @@ export function createPlayableScene(
     shells,
     effects,
     wreck,
+    glow,
     tanks,
     focusTank,
     syncWorld(): boolean {
@@ -310,6 +320,7 @@ export function createPlayableScene(
         const isFocusedPlayer = frame.id === options.playerTankId;
         view.group.visible = frame.alive && !(isFocusedPlayer && playerHidden);
       }
+      glow.setTanks(frames, state.tick * STEP_SECONDS);
     },
     setShells(shellsState: MatchState['shells']): void {
       const pending = state.presentationEvents?.splice(0) ?? [];
@@ -363,6 +374,7 @@ export function createPlayableScene(
     updateEffects(dtSeconds: number): void {
       effects.update(dtSeconds);
       wreck.update(dtSeconds);
+      advanceGlowClock(dtSeconds);
       for (const tank of tanks.values()) tank.updateRecoil(dtSeconds);
     },
     takeEvents(): readonly SceneEvent[] {
@@ -373,6 +385,7 @@ export function createPlayableScene(
     setEffectsEnabled(enabled: boolean): void {
       vfxEnabled = enabled;
       effects.group.visible = enabled;
+      setGlowPulseEnabled(enabled);
     },
     setPlayerHidden(hidden: boolean): void {
       playerHidden = hidden;
@@ -382,6 +395,7 @@ export function createPlayableScene(
         view.group.visible = !hidden;
       }
       wreck.setVisible(!hidden);
+      glow.trails.visible = !hidden;
     },
     updateCamera(cameraPosition: Vector3): void {
       worldMesh.update(cameraPosition);
@@ -393,6 +407,7 @@ export function createPlayableScene(
       state.presentationEvents = [];
       effects.dispose();
       wreck.dispose();
+      glow.dispose();
       shells.dispose();
       debris.dispose();
       worldMesh.dispose();

@@ -475,6 +475,44 @@
       .screen-actions .tron-button { min-width: 180px; flex: 1; }
       .pause-panel { text-align: center; justify-items: center; width: min(460px, calc(100vw - 64px)); }
       .pause-panel .tron-button { width: 100%; }
+      .choice-group { display: flex; gap: 8px; }
+      .choice-group .settings-toggle { min-width: 96px; }
+      .stepper { display: flex; align-items: center; gap: 14px; }
+      .stepper-button {
+        appearance: none;
+        border: 1px solid rgba(0, 229, 255, 0.5);
+        background: rgba(0, 0, 0, 0.35);
+        color: #8ff4ff;
+        font: inherit;
+        font-size: 12px;
+        width: 38px;
+        height: 32px;
+        cursor: pointer;
+        text-shadow: 0 0 10px rgba(0, 229, 255, 0.8);
+      }
+      .stepper-button:hover, .stepper-button:focus-visible { background: rgba(0, 229, 255, 0.28); color: #ffffff; outline: none; }
+      .stepper-button:disabled { opacity: 0.3; cursor: default; }
+      .stepper-value { min-width: 88px; text-align: center; font-size: 18px; color: #eaffff; text-shadow: 0 0 14px rgba(0, 229, 255, 0.9); }
+      .setup-summary { font-size: 12px; letter-spacing: 0.2em; color: #ffb347; opacity: 0.9; }
+      #end-screen {
+        background:
+          radial-gradient(ellipse at 50% 42%, rgba(0, 229, 255, 0.1), transparent 62%),
+          rgba(1, 6, 9, 0.5);
+      }
+      #end-headline { text-shadow: 0 0 30px currentColor, 0 0 8px currentColor; }
+      body.match-over #hud-banner { display: none !important; }
+      #hud-clock {
+        position: absolute;
+        left: 50%;
+        top: 24px;
+        transform: translateX(-50%);
+        padding: 6px 18px;
+        font-size: 18px;
+        letter-spacing: 0.24em;
+        border-bottom: 2px solid currentColor;
+        background: rgba(2, 10, 14, 0.6);
+        text-shadow: 0 0 16px currentColor;
+      }
       body.reduced-motion #title-grid { animation: none; }
       @media (max-width: 640px) {
         .title-menu { grid-template-columns: 1fr; }
@@ -519,6 +557,7 @@
         <div id="hud-feed-list"></div>
       </div>
       <div id="hud-fps"></div>
+      <div id="hud-clock"></div>
       <div id="hud-banner" role="status"></div>
     </div>
     <div id="damage-vignette" aria-hidden="true"></div>
@@ -558,12 +597,12 @@
         <div class="tagline">LAST TEAM STANDING</div>
         <div class="title-menu">
           <button id="title-play" class="tron-button" type="button">PLAY <span>1 V 1</span></button>
-          <button id="title-team" class="tron-button" type="button">TEAM <span>4 V 4</span></button>
+          <button id="title-setup" class="tron-button" type="button">BATTLE <span>CUSTOM SETUP</span></button>
           <button id="title-spectate" class="tron-button" type="button">SPECTATE <span>ALL AI</span></button>
           <button id="title-settings" class="tron-button" type="button">SETTINGS <span>SYSTEM</span></button>
         </div>
         <div class="title-meta">
-          <div>WASD DRIVE · MOUSE AIM · SPACE FIRE · ESC PAUSE · L DETAIL</div>
+          <div>WASD DRIVE · MOUSE AIM · CLICK / SPACE FIRE · WHEEL ZOOM · ESC PAUSE · L DETAIL</div>
           <div>BUILT BY TANK BATTLE DEV · AUDIO: LYRIA 3 + SEED AUDIO 1.0 · 2026</div>
           <div id="title-audio-hint">CLICK TO ENABLE SOUND</div>
         </div>
@@ -598,6 +637,56 @@
           <button id="settings-motion" class="settings-toggle" type="button" role="switch" aria-checked="false">OFF</button>
         </div>
         <div class="screen-actions"><button id="settings-back" class="tron-button" type="button">BACK</button></div>
+      </div>
+    </div>
+    <div id="setup-screen" class="screen" hidden>
+      <div class="screen-panel">
+        <div class="screen-eyebrow">BATTLE // CONFIGURATION</div>
+        <h2>SETUP</h2>
+        <div class="setting-row">
+          <span class="setting-label">MODE</span>
+          <div class="choice-group" role="radiogroup" aria-label="Mode">
+            <button class="settings-toggle" type="button" role="radio" data-setup-mode="team">FIGHT</button>
+            <button class="settings-toggle" type="button" role="radio" data-setup-mode="spectate">WATCH</button>
+          </div>
+          <span></span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">TEAMS</span>
+          <div class="stepper"><button class="stepper-button" type="button" data-step="teams" data-dir="-1" aria-label="Fewer teams">◀</button><span class="stepper-value" data-setup-value="teams">4</span><button class="stepper-button" type="button" data-step="teams" data-dir="1" aria-label="More teams">▶</button></div>
+          <span></span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">TANKS / TEAM</span>
+          <div class="stepper"><button class="stepper-button" type="button" data-step="tanksPerTeam" data-dir="-1" aria-label="Fewer tanks per team">◀</button><span class="stepper-value" data-setup-value="tanksPerTeam">4</span><button class="stepper-button" type="button" data-step="tanksPerTeam" data-dir="1" aria-label="More tanks per team">▶</button></div>
+          <span></span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">TIME LIMIT</span>
+          <div class="stepper"><button class="stepper-button" type="button" data-step="minutes" data-dir="-1" aria-label="Shorter time limit">◀</button><span class="stepper-value" data-setup-value="minutes">5 MIN</span><button class="stepper-button" type="button" data-step="minutes" data-dir="1" aria-label="Longer time limit">▶</button></div>
+          <span></span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">BATTLE SEED</span>
+          <div class="stepper"><span class="stepper-value" data-setup-value="seed">1</span><button id="setup-reroll" class="settings-toggle" type="button">REROLL</button></div>
+          <span></span>
+        </div>
+        <div id="setup-summary" class="setup-summary"></div>
+        <div class="screen-actions">
+          <button id="setup-start" class="tron-button" type="button">START <span>DEPLOY</span></button>
+          <button id="setup-back" class="tron-button" type="button">BACK</button>
+        </div>
+      </div>
+    </div>
+    <div id="end-screen" class="screen" hidden>
+      <div class="screen-panel pause-panel">
+        <div class="screen-eyebrow">MATCH COMPLETE</div>
+        <h2 id="end-headline">VICTORY</h2>
+        <div id="end-detail" class="setup-summary"></div>
+        <div class="screen-actions">
+          <button id="end-rematch" class="tron-button" type="button">REMATCH <span>NEW SEED</span></button>
+          <button id="end-quit" class="tron-button" type="button">QUIT TO TITLE</button>
+        </div>
       </div>
     </div>
     <div id="pause-screen" class="screen" hidden>

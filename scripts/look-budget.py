@@ -44,13 +44,19 @@ SURFACE_HIGH = 102
 MID_LOW = 26
 MID_HIGH = 51
 LINE_LOW = 102
-SURFACE_MEDIAN_MAX = 22
-MID_SHARE_MAX = 0.25
+# G1 (2026-10-24): the owner asked for "a completely cheesy TRON look" — hotter lines,
+# wider bloom, light trails and a glowing horizon. The halo legitimately lifts the
+# surface median, the mid band and the bright tiles, so those three ceilings were
+# raised to the measured G1 player frames plus headroom (surface 25-31, mid share
+# 25-30 %, tile p90 96-127 L). Line strength and contrast are unchanged: the frame
+# must still read as bright lines on a dark field.
+SURFACE_MEDIAN_MAX = 34
+MID_SHARE_MAX = 0.35
 LINE_P99_MIN = 150
 CONTRAST_MIN = 6.0
 TILE_COLUMNS = 24
 TILE_ROWS = 14
-TILE_P90_MAX_L = 30.6
+TILE_P90_MAX_L = 140.0
 VOID_LOW = 5
 
 
@@ -187,7 +193,7 @@ def measure(path: Path) -> dict[str, object]:
         print(f"tile p90 {tile_p90_l} L ({tile_p90_l / 2.55:.1f}%) [INFO — live frame: additive VFX are not surfaces]")
     elif tile_p90_l > TILE_P90_MAX_L:
         failures.append(
-            f"tile p90 {tile_p90_l} L ({tile_p90_l / 2.55:.1f}%) > {TILE_P90_MAX_L:.1f} L (12%)"
+            f"tile p90 {tile_p90_l} L ({tile_p90_l / 2.55:.1f}%) > {TILE_P90_MAX_L:.1f} L ({TILE_P90_MAX_L / 2.55:.0f}%)"
         )
 
     return {
@@ -256,7 +262,7 @@ def print_report(result: dict[str, object]) -> None:
         print(
             f"  tile p90 ({result['tileGrid']}, {result['tileCount']} tiles): "
             f"L={result['tileP90L']} ({result['tileP90Percent']:.1f}%) "
-            f"[{'FAIL' if tile_fail else 'PASS'} <= {result['tileP90MaxL']:.1f} L / 12%]"
+            f"[{'FAIL' if tile_fail else 'PASS'} <= {result['tileP90MaxL']:.1f} L / {result['tileP90MaxL'] / 2.55:.0f}%]"
         )
     trim = result["teamTrim"]
     print(
