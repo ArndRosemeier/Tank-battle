@@ -232,7 +232,7 @@ export class OnlineSession {
     }
     match.consume(frameSeconds);
     this.sinceSent += frameSeconds;
-    if (localCommand && match.localSeat !== null && match.state.status === 'active') {
+    if (localCommand && match.localTankAlive && match.state.status === 'active') {
       const command = encodeCommand(localCommand());
       const changed = this.lastSent === null || command.some((value, index) => value !== this.lastSent![index]);
       if (changed && this.sinceSent >= COMMAND_INTERVAL_SECONDS) this.sendCommand(command);
