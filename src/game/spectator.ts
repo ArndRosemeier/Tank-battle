@@ -29,7 +29,7 @@ import {
   createTeamAIController,
 } from '../core/ai/teamBatch.ts';
 import { arenaTeamSetup, TEAM_MODE_AIM_ERROR_SCALE } from './aiBatch.ts';
-import { ARENA_BASE_HEIGHT_METRES } from './levels/arena.ts';
+import { CRUCIBLE, type Arena } from './levels/catalog.ts';
 import { interpolateTanks, snapshotTanks, type TankRenderFrame } from './tankFrames.ts';
 import * as detMath from '../core/detMath.ts';
 
@@ -48,6 +48,8 @@ export interface SpectatorOptions {
   readonly directorIntervalTicks?: number;
   /** Match rules (the time limit); defaults to the app's rules. */
   readonly rules?: MatchRules;
+  /** The arena to fight on; defaults to the authored Fourfold Crucible. */
+  readonly arena?: Arena;
 }
 
 /** What the director wants the renderer to frame. */
@@ -85,6 +87,7 @@ export class SpectatorSession {
   readonly fixed: FixedStep;
   readonly characters: readonly string[];
   readonly directorIntervalTicks: number;
+  readonly arena: Arena;
 
   private previous: Map<number, TankRenderFrame>;
   private current: Map<number, TankRenderFrame>;
@@ -124,7 +127,8 @@ export class SpectatorSession {
     this.directorIntervalTicks = directorIntervalTicks;
     const profiles = this.characters.map((name) => getAIProfile(name));
 
-    this.state = createTeamMatch(arenaTeamSetup(teams, tanksPerTeam), seed, options.rules ?? DEFAULT_MATCH_RULES).state;
+    this.arena = options.arena ?? CRUCIBLE;
+    this.state = createTeamMatch(arenaTeamSetup(teams, tanksPerTeam, this.arena), seed, options.rules ?? DEFAULT_MATCH_RULES).state;
     for (const tank of this.state.tanks) {
       const profile = profiles[tank.teamIndex];
       if (!profile) {
@@ -141,8 +145,17 @@ export class SpectatorSession {
     this.updateDirector(true);
   }
 
+  /** The arena centre, which the overview shots frame. */
+  private get centreX(): number {
+    return (this.arena.bounds.minX + this.arena.bounds.maxX) / 2;
+  }
+
+  private get centreZ(): number {
+    return (this.arena.bounds.minZ + this.arena.bounds.maxZ) / 2;
+  }
+
   get floorY(): number {
-    return ARENA_BASE_HEIGHT_METRES;
+    return this.arena.baseHeightMetres;
   }
 
   get frozenFrame(): boolean {
@@ -254,8 +267,8 @@ export class SpectatorSession {
       return {
         focusTankId: 0,
         targetTankId: null,
-        centerX: 24,
-        centerZ: 24,
+        centerX: this.centreX,
+        centerZ: this.centreZ,
         yawDegrees: 0,
         distanceMetres: 26,
         pitchDegrees: 35,
@@ -330,13 +343,13 @@ export class SpectatorSession {
 
   private overviewShot(alive: readonly Tank[]): DirectorShot {
     const focus = alive.reduce((a, b) =>
-      detMath.hypot(24 - a.x, 24 - a.z) <= detMath.hypot(24 - b.x, 24 - b.z) ? a : b,
+      detMath.hypot(this.centreX - a.x, this.centreZ - a.z) <= detMath.hypot(this.centreX - b.x, this.centreZ - b.z) ? a : b,
     );
     return {
       focusTankId: focus.id,
       targetTankId: null,
-      centerX: 24,
-      centerZ: 24,
+      centerX: this.centreX,
+      centerZ: this.centreZ,
       yawDegrees: -135,
       distanceMetres: 40,
       pitchDegrees: 55,

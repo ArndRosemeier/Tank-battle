@@ -15,12 +15,16 @@ import {
   MATCH_MINUTE_CHOICES,
   MIN_TANKS_PER_TEAM,
   MIN_TEAMS,
+  DEFAULT_ARENA_SIZE,
   freshMatchSeed,
+  parseArenaSeedText,
+  stepArenaSize,
   stepMatchSetup,
   validateMatchSetup,
   type MatchSetup,
 } from '../game/matchSetup.ts';
 import { MAX_TANKS_PER_TEAM, MAX_TEAMS } from '../core/sim.ts';
+import { ARENA_SIZES } from '../game/levels/generator.ts';
 
 type ScreenName = 'title' | 'settings' | 'pause' | 'setup' | 'end';
 type SettingsOrigin = 'title' | 'pause';
@@ -88,6 +92,10 @@ export function createScreens(initial: GameSettings, callbacks: ScreensCallbacks
   const setupBack = requireElement('setup-back', HTMLButtonElement, 'setup back button');
   const setupReroll = requireElement('setup-reroll', HTMLButtonElement, 'setup reroll button');
   const setupSummary = requireElement('setup-summary', HTMLElement, 'setup summary');
+  const arenaSeedInput = requireElement('setup-arena-seed', HTMLInputElement, 'arena seed field');
+  const arenaReroll = requireElement('setup-arena-reroll', HTMLButtonElement, 'arena random button');
+  const arenaSeedRow = requireElement('setup-arena-seed-row', HTMLElement, 'arena seed row');
+  const arenaSizeRow = requireElement('setup-arena-size-row', HTMLElement, 'arena size row');
   const endScreen = requireElement('end-screen', HTMLElement, 'end screen');
   const endHeadline = requireElement('end-headline', HTMLElement, 'end headline');
   const endDetail = requireElement('end-detail', HTMLElement, 'end detail');
@@ -129,11 +137,19 @@ export function createScreens(initial: GameSettings, callbacks: ScreensCallbacks
   let setup: MatchSetup = { ...DEFAULT_MATCH_SETUP, seed: freshMatchSeed(Math.random) };
   const modeButtons = [...setupScreen.querySelectorAll<HTMLButtonElement>('[data-setup-mode]')];
   const stepButtons = [...setupScreen.querySelectorAll<HTMLButtonElement>('[data-step]')];
-  if (modeButtons.length !== 2 || stepButtons.length !== 6) {
+  const arenaButtons = [...setupScreen.querySelectorAll<HTMLButtonElement>('[data-setup-arena]')];
+  const arenaSizeButtons = [...setupScreen.querySelectorAll<HTMLButtonElement>('[data-arena-size-step]')];
+  if (modeButtons.length !== 2 || stepButtons.length !== 6 || arenaButtons.length !== 2 || arenaSizeButtons.length !== 2) {
     throw new Error(
-      `screens: setup expects 2 mode and 6 step buttons, found ${modeButtons.length}/${stepButtons.length}`,
+      `screens: setup expects 2 mode, 6 step, 2 arena and 2 arena-size buttons, found ` +
+        `${modeButtons.length}/${stepButtons.length}/${arenaButtons.length}/${arenaSizeButtons.length}`,
     );
   }
+  /** The generated arena's seed and size, kept while the player flips back to the Crucible. */
+  let arenaSeed = freshMatchSeed(Math.random);
+  let arenaSize = DEFAULT_ARENA_SIZE;
+  /** False while the seed field holds text that is not a seed: START stays disabled. */
+  let arenaSeedValid = true;
   const setupValue = (key: string): HTMLElement => {
     const element = setupScreen.querySelector<HTMLElement>(`[data-setup-value="${key}"]`);
     if (!element) throw new Error(`screens: setup has no value label for ${key}`);
@@ -150,6 +166,23 @@ export function createScreens(initial: GameSettings, callbacks: ScreensCallbacks
     setupValue('tanksPerTeam').textContent = String(setup.tanksPerTeam);
     setupValue('minutes').textContent = `${setup.minutes} MIN`;
     setupValue('seed').textContent = String(setup.seed);
+    const generated = setup.arena.kind === 'generated';
+    for (const button of arenaButtons) {
+      const on = button.dataset.setupArena === setup.arena.kind;
+      button.classList.toggle('on', on);
+      button.setAttribute('aria-checked', String(on));
+    }
+    arenaSeedRow.hidden = !generated;
+    arenaSizeRow.hidden = !generated;
+    if (document.activeElement !== arenaSeedInput) arenaSeedInput.value = String(arenaSeed);
+    arenaSeedInput.classList.toggle('invalid', !arenaSeedValid);
+    setupValue('arenaSize').textContent = arenaSize.toUpperCase();
+    const sizeIndex = ARENA_SIZES.indexOf(arenaSize);
+    for (const button of arenaSizeButtons) {
+      const direction = Number(button.dataset.arenaSizeStep);
+      button.disabled = direction < 0 ? sizeIndex <= 0 : sizeIndex >= ARENA_SIZES.length - 1;
+    }
+    setupStart.disabled = generated && !arenaSeedValid;
     for (const button of stepButtons) {
       const field = button.dataset.step;
       const direction = Number(button.dataset.dir);
@@ -283,11 +316,61 @@ export function createScreens(initial: GameSettings, callbacks: ScreensCallbacks
       syncSetup();
     });
   }
+  const setArena = (kind: string): void => {
+    if (kind === 'crucible') {
+      setup = validateMatchSetup({ ...setup, arena: { kind: 'crucible' } });
+    } else if (kind === 'generated') {
+      setup = validateMatchSetup({ ...setup, arena: { kind: 'generated', seed: arenaSeed, size: arenaSize } });
+    } else {
+      throw new Error(`screens: unknown arena "${kind}"`);
+    }
+  };
+  for (const button of arenaButtons) {
+    bind(button, () => {
+      setArena(String(button.dataset.setupArena));
+      syncSetup();
+    });
+  }
+  for (const button of arenaSizeButtons) {
+    bind(button, () => {
+      const direction = Number(button.dataset.arenaSizeStep);
+      if (direction !== -1 && direction !== 1) {
+        throw new Error(`screens: arena size step must be ±1, got ${String(direction)}`);
+      }
+      setup = stepArenaSize(setup, direction);
+      if (setup.arena.kind === 'generated') arenaSize = setup.arena.size;
+      syncSetup();
+    });
+  }
+  arenaSeedInput.addEventListener('input', () => {
+    const parsed = parseArenaSeedText(arenaSeedInput.value);
+    arenaSeedValid = parsed !== null;
+    if (parsed !== null) {
+      arenaSeed = parsed;
+      setArena('generated');
+    }
+    syncSetup();
+  });
+  arenaSeedInput.addEventListener('keydown', (event: KeyboardEvent) => {
+    // Keys typed into the seed must not drive a tank or open the pause menu.
+    event.stopPropagation();
+    if (event.key === 'Enter' && arenaSeedValid) setupStart.click();
+  });
+  arenaSeedInput.addEventListener('blur', () => syncSetup());
+  bind(arenaReroll, () => {
+    arenaSeed = freshMatchSeed(Math.random);
+    arenaSeedValid = true;
+    setArena('generated');
+    syncSetup();
+  });
   bind(setupReroll, () => {
     setup = validateMatchSetup({ ...setup, seed: freshMatchSeed(Math.random) });
     syncSetup();
   });
-  bind(setupStart, () => callbacks.onStartSetup(validateMatchSetup(setup)));
+  bind(setupStart, () => {
+    if (setup.arena.kind === 'generated' && !arenaSeedValid) return;
+    callbacks.onStartSetup(validateMatchSetup(setup));
+  });
   bind(setupBack, () => showTitle());
   bind(endRematch, callbacks.onRematch);
   bind(endQuit, callbacks.onQuit);

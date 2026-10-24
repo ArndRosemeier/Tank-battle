@@ -49,7 +49,7 @@ import {
   type Tank,
   type TankCommand,
 } from './core/sim.ts';
-import { ARENA, ARENA_BOUNDS } from './game/levels/arena.ts';
+import { CRUCIBLE, CRUCIBLE_CHOICE, resolveArena, type Arena, type ArenaChoice } from './game/levels/catalog.ts';
 import { raycastTerrain } from './core/world.ts';
 import { PlayableSession, type TankRenderFrame } from './game/session.ts';
 import { SpectatorSession } from './game/spectator.ts';
@@ -61,6 +61,8 @@ import {
   DEFAULT_MATCH_MINUTES,
   freshMatchSeed,
   matchSetupQuery,
+  ARENA_QUERY_KEYS,
+  arenaChoiceFromQuery,
   matchTickCap,
   validateMatchSetup,
   type MatchSetup,
@@ -117,6 +119,8 @@ interface LaunchOptions {
   /** The time limit in minutes (team and spectate). */
   readonly minutes: number;
   readonly seed: number;
+  /** The arena (team and spectate); the duel always fights on the Crucible. */
+  readonly arena: ArenaChoice;
   /** `?settings=1` on the title screen opens the settings panel. */
   readonly settings: boolean;
   /** `?room=CODE` on the title screen joins that online room (the GameHub lobby's link). */
@@ -126,7 +130,7 @@ interface LaunchOptions {
 /** `?mode=title`, `?detail=…&pose=…&demo=duel&ticks=571` or `?mode=spectate&…`. Unknown values fail visibly. */
 function readLaunchOptions(): LaunchOptions {
   const query = new URLSearchParams(window.location.search);
-  const hasGameParameter = ['pose', 'demo', 'ticks', 'teams', 'tanksPerTeam', 'minutes', 'seed'].some((key) =>
+  const hasGameParameter = ['pose', 'demo', 'ticks', 'teams', 'tanksPerTeam', 'minutes', 'seed', ...ARENA_QUERY_KEYS].some((key) =>
     query.has(key),
   );
 
@@ -167,7 +171,7 @@ function readLaunchOptions(): LaunchOptions {
     if (mode === 'title') {
       throw new Error('launch: the title screen takes no ?pose; start a match first');
     }
-    if (poseText === 'top' && mode === 'play') {
+    if (poseText === 'top' && (mode === 'play' || mode === 'team')) {
       pose = 'top';
     } else if (poseText === 'spectate' && mode === 'spectate') {
       pose = 'spectate';
@@ -180,7 +184,7 @@ function readLaunchOptions(): LaunchOptions {
         mode === 'play'
           ? 'wide, tank, first, combat or top'
           : mode === 'team'
-            ? 'wide, tank, first, combat or team'
+            ? 'wide, tank, first, combat, team or top'
             : 'spectate';
       throw new Error(
         `launch: unknown ?pose "${poseText}" for mode "${mode}" — expected ${expected}`,
@@ -221,10 +225,10 @@ function readLaunchOptions(): LaunchOptions {
   }
 
   const teamsText = query.get('teams');
-  const setupKeys = ['teams', 'tanksPerTeam', 'minutes'];
+  const setupKeys = ['teams', 'tanksPerTeam', 'minutes', ...ARENA_QUERY_KEYS];
   if ((mode === 'title' || mode === 'play') && setupKeys.some((key) => query.has(key))) {
     throw new Error(
-      `launch: ?teams/?tanksPerTeam/?minutes are for team and spectate matches, not "${mode}"`,
+      `launch: ?teams/?tanksPerTeam/?minutes/?arena are for team and spectate matches, not "${mode}"`,
     );
   }
   const teams = teamsText === null ? 4 : Number(teamsText);
@@ -245,9 +249,10 @@ function readLaunchOptions(): LaunchOptions {
   }
   const minutesText = query.get('minutes');
   const minutes = minutesText === null ? DEFAULT_MATCH_MINUTES : Number(minutesText);
+  const arena = arenaChoiceFromQuery(query);
   if (mode === 'team' || mode === 'spectate') {
     // The one validation of a custom setup; a bad link fails loudly, never quietly.
-    validateMatchSetup({ mode, teams, tanksPerTeam, minutes, seed });
+    validateMatchSetup({ mode, teams, tanksPerTeam, minutes, seed, arena });
   }
 
   const roomText = query.get('room');
@@ -258,7 +263,7 @@ function readLaunchOptions(): LaunchOptions {
     room = roomText.toUpperCase();
   }
 
-  return { mode, detail, pose, demo, ticks, teams, tanksPerTeam, minutes, seed, settings, room };
+  return { mode, detail, pose, demo, ticks, teams, tanksPerTeam, minutes, seed, arena, settings, room };
 }
 
 const VIGNETTE_SHADER = {
@@ -297,6 +302,7 @@ function bootSpectate(launch: LaunchOptions, audio: AudioEngine): (nowMillisecon
     tanksPerTeam: launch.tanksPerTeam,
     seed: launch.seed,
     rules: launchRules(launch),
+    arena: resolveArena(launch.arena),
   });
   if (launch.ticks !== null) {
     spectator.runTicks(launch.ticks);
@@ -482,6 +488,8 @@ interface MatchView {
   readonly state: MatchState;
   readonly playerTankId: number;
   readonly floorY: number;
+  /** The arena the match is fought on. */
+  readonly arena: Arena;
   readonly alpha: number;
   readonly frozen: boolean;
   readonly player: TankRenderFrame;
@@ -530,6 +538,8 @@ function playableMatchView(
     get floorY() {
       return session.floorY;
     },
+    // The duel always fights on the authored arena.
+    arena: CRUCIBLE,
     get alpha() {
       return session.alpha;
     },
@@ -610,6 +620,7 @@ function launchRules(launch: LaunchOptions): MatchRules {
       tanksPerTeam: launch.tanksPerTeam,
       minutes: launch.minutes,
       seed: launch.seed,
+      arena: launch.arena,
     }),
   };
 }
@@ -652,6 +663,7 @@ function rematchUrl(launch: LaunchOptions): string {
       tanksPerTeam: launch.tanksPerTeam,
       minutes: launch.minutes,
       seed: freshMatchSeed(Math.random),
+      arena: launch.arena,
     };
     return `?${matchSetupQuery(setup)}`;
   }
@@ -743,6 +755,7 @@ function startGame(mode: 'play' | 'team' | 'spectate', setup: MatchSetup | null 
     tanksPerTeam: setup?.tanksPerTeam ?? 4,
     minutes: setup?.minutes ?? DEFAULT_MATCH_MINUTES,
     seed: setup?.seed ?? (mode === 'play' ? 1 : freshMatchSeed(Math.random)),
+    arena: setup?.arena ?? CRUCIBLE_CHOICE,
     settings: false,
     room: null,
   };
@@ -758,6 +771,7 @@ function startGame(mode: 'play' | 'team' | 'spectate', setup: MatchSetup | null 
           tanksPerTeam: launch.tanksPerTeam,
           minutes: launch.minutes,
           seed: launch.seed,
+          arena: launch.arena,
         })}`,
   );
   const audio = audioEngine;
@@ -859,6 +873,8 @@ function startOnlineMatch(online: OnlineSession, match: NetMatch): void {
     tanksPerTeam: setup.tanksPerTeam,
     minutes: setup.minutes,
     seed: match.spec.seed,
+    // Online rooms fight on the Crucible until the room protocol carries an arena.
+    arena: CRUCIBLE_CHOICE,
     settings: false,
     room: online.roomCode,
   };
@@ -933,6 +949,7 @@ function onlineMatchView(
     },
     playerTankId: match.session.playerTankId,
     floorY: match.session.floorY,
+    arena: match.session.arena,
     get alpha() {
       return match.alpha;
     },
@@ -1030,12 +1047,13 @@ function bootMatch(
   // The renderer is created after the camera, below. The scene owns the rendered contents.
 
   const isTop = launch.pose === 'top';
-  const topPlan = createTopPlan(ARENA);
+  const arena = session.arena;
+  const topPlan = createTopPlan(arena.level);
   topPlan.setVisible(isTop);
   const rigPose: CameraPoseName | null =
     launch.pose !== null && isCameraPoseName(launch.pose) ? launch.pose : null;
   const rig = new CameraRig({
-    arena: ARENA_BOUNDS,
+    arena: arena.bounds,
     floorY: session.floorY,
     focus: {
       position: { x: initialPlayer.x, y: initialPlayer.y, z: initialPlayer.z },
@@ -1049,10 +1067,10 @@ function bootMatch(
   });
 
   const topCamera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
-  const topCenterX = (ARENA_BOUNDS.minX + ARENA_BOUNDS.maxX) / 2;
-  const topCenterZ = (ARENA_BOUNDS.minZ + ARENA_BOUNDS.maxZ) / 2;
+  const topCenterX = (arena.bounds.minX + arena.bounds.maxX) / 2;
+  const topCenterZ = (arena.bounds.minZ + arena.bounds.maxZ) / 2;
   // Half the arena plus a margin, so all four corner pads are in frame.
-  const TOP_HALF_HEIGHT_METRES = (ARENA_BOUNDS.maxZ - ARENA_BOUNDS.minZ) / 2 + 2;
+  const TOP_HALF_HEIGHT_METRES = (arena.bounds.maxZ - arena.bounds.minZ) / 2 + 2;
   topCamera.position.set(topCenterX, 60, topCenterZ);
   topCamera.up.set(0, 0, -1);
   topCamera.lookAt(topCenterX, session.floorY, topCenterZ);
@@ -1089,13 +1107,13 @@ function bootMatch(
     hudRoot.style.display = 'none';
     topLegend.style.display = 'block';
     topLegend.style.color = PALETTE.debugText;
-    topTitle.textContent = ARENA.name;
-    topIntent.textContent = ARENA.intent;
+    topTitle.textContent = arena.level.name;
+    topIntent.textContent = arena.level.intent;
     legendGround.style.background = TOP_LEGEND_COLORS.ground;
     legendHeights.style.background = TOP_LEGEND_COLORS.heights;
     legendCrystal.style.background = TOP_LEGEND_COLORS.crystal;
     legendExit.style.background = TOP_LEGEND_COLORS.exit;
-    for (const spawn of ARENA.spawns) {
+    for (const spawn of arena.level.spawns) {
       const swatch = document.createElement('span');
       swatch.className = 'spawn-swatch';
       swatch.style.color = spawnMarkerColor(spawn.teamId);
@@ -1538,10 +1556,12 @@ function bootGame(launch: LaunchOptions, audio: AudioEngine): (nowMilliseconds: 
     const session = launch.demo
       ? new TeamSession({
           seed: launch.seed,
+          arena: resolveArena(launch.arena),
           playerController: createVanguardStandIn(launch.seed),
         })
       : new TeamSession({
           seed: launch.seed,
+          arena: resolveArena(launch.arena),
           teams: launch.teams,
           tanksPerTeam: launch.tanksPerTeam,
           rules: launchRules(launch),

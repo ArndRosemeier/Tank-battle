@@ -33,7 +33,7 @@ import {
   type Tank,
 } from '../core/sim.ts';
 import { arenaTeamSetup, TEAM_MODE_AIM_ERROR_SCALE } from './aiBatch.ts';
-import { ARENA_BASE_HEIGHT_METRES, ARENA_BOUNDS } from './levels/arena.ts';
+import { CRUCIBLE, type Arena } from './levels/catalog.ts';
 import { idlePlayerInput, type PlayerInput } from './input.ts';
 import { PlayerAimController, type AimCamera } from './aim.ts';
 import { interpolateTanks, snapshotTanks, type TankRenderFrame } from './tankFrames.ts';
@@ -66,6 +66,8 @@ export interface TeamSessionOptions {
    */
   readonly playerController?: Controller;
   readonly rules?: MatchRules;
+  /** The arena to fight on; defaults to the authored Fourfold Crucible. */
+  readonly arena?: Arena;
   /**
    * Online play: the tank slots humans drive, each with its own controller. When given,
    * tank 0 is no longer special: every slot not listed here is AI, and `playerController`
@@ -110,6 +112,7 @@ export class TeamSession {
   readonly playerTankId: number;
   readonly playerTeamId: number;
   readonly characters: readonly string[];
+  readonly arena: Arena;
   private readonly seed: number;
   private readonly profiles: readonly AIProfile[];
 
@@ -140,7 +143,8 @@ export class TeamSession {
 
     this.seed = seed;
     this.profiles = profiles;
-    this.state = createTeamMatch(arenaTeamSetup(teamCount, teamSize), seed, options.rules ?? DEFAULT_MATCH_RULES).state;
+    this.arena = options.arena ?? CRUCIBLE;
+    this.state = createTeamMatch(arenaTeamSetup(teamCount, teamSize, this.arena), seed, options.rules ?? DEFAULT_MATCH_RULES).state;
     const playerSpawn = this.state.tanks[PLAYER_TANK_ID];
     if (playerSpawn?.teamId !== PLAYER_TEAM_ID) {
       throw new Error('teamSession: tank id 0 is not on team 0');
@@ -170,8 +174,9 @@ export class TeamSession {
 
     // P2: a human should look at the fight, not at the corner wall. The spawn corner
     // still rotates by seed; only the facing is aimed at the arena centre.
-    const centreX = (ARENA_BOUNDS.minX + ARENA_BOUNDS.maxX) / 2;
-    const centreZ = (ARENA_BOUNDS.minZ + ARENA_BOUNDS.maxZ) / 2;
+    const bounds = this.arena.bounds;
+    const centreX = (bounds.minX + bounds.maxX) / 2;
+    const centreZ = (bounds.minZ + bounds.maxZ) / 2;
     for (const tankId of humanControllers.keys()) {
       const spawn = this.state.tanks[tankId]!;
       const facing = normaliseDegrees(
@@ -193,7 +198,7 @@ export class TeamSession {
   }
 
   get floorY(): number {
-    return ARENA_BASE_HEIGHT_METRES;
+    return this.arena.baseHeightMetres;
   }
 
   get frozenFrame(): boolean {

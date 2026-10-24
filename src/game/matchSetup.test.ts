@@ -46,7 +46,7 @@ describe('the custom match setup', () => {
   });
 
   it('round-trips through the URL that a rematch or a shared link loads', () => {
-    const setup = { mode: 'spectate' as const, teams: 3, tanksPerTeam: 2, minutes: 8, seed: 4242 };
+    const setup = { mode: 'spectate' as const, teams: 3, tanksPerTeam: 2, minutes: 8, seed: 4242, arena: { kind: 'crucible' as const } };
     const query = new URLSearchParams(matchSetupQuery(setup));
     expect(Object.fromEntries(query)).toEqual({
       mode: 'spectate',

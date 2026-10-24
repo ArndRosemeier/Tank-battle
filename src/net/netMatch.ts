@@ -12,6 +12,7 @@
  * and GameHub; this module is fully unit-testable with two instances wired together.
  */
 
+import { CRUCIBLE_CHOICE } from '../game/levels/catalog.ts';
 import { FixedStep } from '../core/timestep.ts';
 import type { Controller, MatchState, TankCommand } from '../core/sim.ts';
 import { matchTickCap } from '../game/matchSetup.ts';
@@ -101,7 +102,7 @@ export class NetMatch {
       seed: spec.seed,
       teams: spec.setup.teams,
       tanksPerTeam: spec.setup.tanksPerTeam,
-      rules: { ...DEFAULT_MATCH_RULES, tickCap: matchTickCap({ mode: 'team', ...spec.setup, seed: spec.seed }) },
+      rules: { ...DEFAULT_MATCH_RULES, tickCap: matchTickCap({ mode: 'team', ...spec.setup, seed: spec.seed, arena: CRUCIBLE_CHOICE }) },
       seats: spec.seats.map((seat, index) => ({
         teamId: seat.teamId,
         teamIndex: seat.teamIndex,

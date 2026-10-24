@@ -53,6 +53,22 @@ try {
   await page.keyboard.press('KeyN');
   await page.keyboard.press('KeyA');
   if (await page.locator('#error').isVisible()) throw new Error('Spectator emitted error');
+  // The procedural arena: type a seed, grow the size, deploy, and the link reproduces it.
+  await page.goto('http://127.0.0.1:4175/?mode=title');
+  await page.locator('#title-setup').click();
+  await page.locator('[data-setup-arena="generated"]').click();
+  if (!(await page.locator('#setup-arena-seed').isVisible())) throw new Error('Arena seed field did not appear');
+  await page.locator('#setup-arena-seed').fill('12x');
+  if (!(await page.locator('#setup-start').isDisabled())) throw new Error('START allowed an invalid arena seed');
+  await page.locator('#setup-arena-seed').fill('4242');
+  await page.locator('[data-arena-size-step="1"]').click();
+  await page.locator('#setup-start').click();
+  await page.locator('#app').waitFor();
+  const arenaUrl = new URL(page.url());
+  if (arenaUrl.searchParams.get('arena') !== 'generated' || arenaUrl.searchParams.get('arenaSeed') !== '4242' || arenaUrl.searchParams.get('arenaSize') !== 'large') {
+    throw new Error(`Generated arena not in the URL: ${page.url()}`);
+  }
+  if (await page.locator('#error').isVisible()) throw new Error('Generated arena displayed error');
   if (await page.locator('#error').isVisible()) throw new Error('Team displayed error');
   if (errors.length) throw new Error(errors.join('; '));
   console.log('Chromium smoke passed');
