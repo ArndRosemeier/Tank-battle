@@ -12,6 +12,7 @@ import { TANK_WRECK_PARTS } from './placeholderTank.ts';
 
 const SPAWN: WreckSpawn = {
   x: 12,
+  y: 0.2,
   z: 12,
   hullYawDegrees: -90,
   turretYawDegrees: -90,
@@ -25,7 +26,7 @@ const SPAWN: WreckSpawn = {
 };
 
 function view() {
-  return createWreckView(0.2);
+  return createWreckView(() => 0.2);
 }
 
 describe('the instanced wreck system', () => {

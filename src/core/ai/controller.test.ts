@@ -1,14 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { createRng } from '../rng.ts';
-import { damageBlock, damageCell } from '../world.ts';
+import { blastTerrain, boxTerrain, flatTerrain } from '../world.ts';
 import { createMatch, DEFAULT_MATCH_RULES, type MatchState } from '../sim.ts';
 import { AIController } from './controller.ts';
 
-const FLOOR = 0.2;
+const GROUND = 1.5;
 
 function duel(): MatchState {
   return createMatch({
-    level: { columns: 20, rows: 20, floorSurfaceHeightMetres: FLOOR },
+    level: flatTerrain(27, 27, GROUND),
     teams: [
       { id: 0, tanks: [{ xMetres: 5, zMetres: 5 }] },
       { id: 1, tanks: [{ xMetres: 15, zMetres: 5 }] },
@@ -60,12 +59,8 @@ describe('the vanguard controller', () => {
 
   it('recomputes its route within the next decision after a wall is destroyed', () => {
     const state = createMatch({
-      level: {
-        columns: 20,
-        rows: 20,
-        floorSurfaceHeightMetres: FLOOR,
-        placements: [{ x: 10, z: 2, material: 'wall', heightMetres: 1.2 }],
-      },
+      // A low wall across the straight line between the tanks.
+      level: boxTerrain(27, 27, GROUND, [{ minX: 19.5, maxX: 22.5, minZ: 0, maxZ: 9, topMetres: GROUND + 3 }]),
       teams: [
         { id: 0, tanks: [{ xMetres: 5, zMetres: 5 }] },
         { id: 1, tanks: [{ xMetres: 25, zMetres: 5 }] },
@@ -78,10 +73,9 @@ describe('the vanguard controller', () => {
     const before = controller.debug.path;
     expect(before).not.toBeNull();
     const oldRevision = controller.debug.pathRevision;
-    const rng = createRng(11);
-    damageCell(state.world, 10, 2, 2, rng);
-    damageBlock(state.world, 10, 2, 2);
-    state.tick = 6;
+    blastTerrain(state.world, 21, GROUND + 1.5, 5, 3, 900);
+    // The shared graph refreshes at most every AI_NAV_REBUILD_TICKS.
+    state.tick = 60;
     controller.commandFor(state, 0);
     expect(controller.debug.pathRevision).toBeGreaterThan(oldRevision);
     expect(controller.debug.path).not.toBeNull();

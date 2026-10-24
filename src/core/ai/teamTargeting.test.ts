@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { flatTerrain } from '../world.ts';
 import { createMatch, DEFAULT_MATCH_RULES, stepMatch } from '../sim.ts';
 import { AIController } from './controller.ts';
 import { getAIProfile } from './profile.ts';
@@ -8,7 +9,7 @@ describe('four-team targeting', () => {
     // Four one-tank teams on an open floor: every tank can see every other tank, so
     // this isolates target choice from terrain and from team stacking.
     const state = createMatch({
-      level: { columns: 24, rows: 24, floorSurfaceHeightMetres: 0.2 },
+      level: flatTerrain(32, 32, 1.5),
       teams: [
         { id: 0, tanks: [{ xMetres: 5, zMetres: 5, hullYawDegrees: -90 }] },
         { id: 1, tanks: [{ xMetres: 37, zMetres: 5, hullYawDegrees: -90 }] },
@@ -28,7 +29,8 @@ describe('four-team targeting', () => {
       targets.set(tank.id, new Set<number>());
     }
 
-    for (let tick = 0; tick < 1200; tick += 1) {
+    // Run the whole match: as tanks die and move, every survivor must switch targets.
+    for (let tick = 0; tick < 3000 && state.status === 'active'; tick += 1) {
       const orders = state.tanks
         .filter((tank) => tank.alive)
         .map((tank) => ({

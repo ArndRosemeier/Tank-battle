@@ -29,7 +29,7 @@ import {
   createTeamAIController,
 } from '../core/ai/teamBatch.ts';
 import { arenaTeamSetup, TEAM_MODE_AIM_ERROR_SCALE } from './aiBatch.ts';
-import { ARENA } from './levels/arena.ts';
+import { ARENA_BASE_HEIGHT_METRES } from './levels/arena.ts';
 import { interpolateTanks, snapshotTanks, type TankRenderFrame } from './tankFrames.ts';
 
 export const SPECTATOR_TEAM_AIM_ERROR_SCALE = TEAM_MODE_AIM_ERROR_SCALE;
@@ -141,7 +141,7 @@ export class SpectatorSession {
   }
 
   get floorY(): number {
-    return ARENA.cells.floorSurfaceHeightMetres;
+    return ARENA_BASE_HEIGHT_METRES;
   }
 
   get frozenFrame(): boolean {
@@ -446,7 +446,7 @@ export class SpectatorSession {
   }
 
   private hasSight(a: Tank, b: Tank): boolean {
-    return hasLineOfSight(this.state.world, eyePosition(this.state.world, a), targetCentre(this.state.world, b));
+    return hasLineOfSight(this.state.world, eyePosition(a), targetCentre(b));
   }
 
   private visibleEnemiesFor(tank: Tank): Tank[] {
@@ -455,8 +455,8 @@ export class SpectatorSession {
       .filter((candidate) =>
         hasLineOfSight(
           this.state.world,
-          eyePosition(this.state.world, tank),
-          targetCentre(this.state.world, candidate),
+          eyePosition(tank),
+          targetCentre(candidate),
         ),
       );
     visible.sort((a, b) => Math.hypot(tank.x - a.x, tank.z - a.z) - Math.hypot(tank.x - b.x, tank.z - b.z) || a.id - b.id);

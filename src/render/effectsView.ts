@@ -27,7 +27,10 @@ import {
   type ColorRepresentation,
 } from 'three';
 import { createRng, type Rng } from '../core/rng.ts';
-import { CELL_SIZE_METRES } from '../core/world.ts';
+import { TERRAIN_SPACING_METRES } from '../core/world.ts';
+
+/** The regrowth cage is one lattice cell wide. */
+const CAGE_METRES = TERRAIN_SPACING_METRES;
 import { PALETTE } from './config.ts';
 
 interface Particle {
@@ -295,16 +298,16 @@ export function createEffectsView(): EffectsView {
     ghost.life = ghost.maxLife;
     ghost.height = Math.max(0.12, heightMetres);
     ghost.baseY = baseY;
-    ghost.lines.position.set((x + 0.5) * CELL_SIZE_METRES, baseY, (z + 0.5) * CELL_SIZE_METRES);
-    ghost.lines.scale.set(CELL_SIZE_METRES, 0.01, CELL_SIZE_METRES);
+    ghost.lines.position.set(x, baseY, z);
+    ghost.lines.scale.set(CAGE_METRES, 0.01, CAGE_METRES);
     ghost.lines.visible = true;
     ghost.material.opacity = 0.75;
     const color = rgb(REGEN, 1.5);
     for (let index = 0; index < 6; index += 1) {
       spawnSpark(
-        (x + 0.2 + rng.next() * 0.6) * CELL_SIZE_METRES,
+        x + (rng.next() - 0.5) * 0.6 * CAGE_METRES,
         baseY + 0.05,
-        (z + 0.2 + rng.next() * 0.6) * CELL_SIZE_METRES,
+        z + (rng.next() - 0.5) * 0.6 * CAGE_METRES,
         color,
         1.2,
         0.5,
@@ -422,15 +425,15 @@ export function createEffectsView(): EffectsView {
   function regen(x: number, z: number, heightMetres: number, color: ColorRepresentation): void {
     // The floor's regen is a thin slab; a wall's is its full authored height. The
     // source colour is the architecture's identity; the ghost is the cell cage.
-    const isFloor = heightMetres <= CELL_SIZE_METRES * 0.25;
+    const isFloor = heightMetres <= CAGE_METRES * 0.25;
     const ghostHeight = isFloor ? Math.max(0.12, heightMetres) : heightMetres;
     spawnRegen(x, z, ghostHeight, 0);
     const tint = rgb(color, 1.2);
     for (let index = 0; index < 4; index += 1) {
       spawnSpark(
-        (x + 0.5) * CELL_SIZE_METRES,
+        x,
         (isFloor ? 0.22 : 0.3) + rng.next() * 0.4,
-        (z + 0.5) * CELL_SIZE_METRES,
+        z,
         tint,
         1.4,
         0.4,

@@ -43,6 +43,8 @@ const FLOOR_SKIN_METRES = 0.06;
 
 export interface WreckSpawn {
   readonly x: number;
+  /** The hull origin's height on the terrain. */
+  readonly y: number;
   readonly z: number;
   readonly hullYawDegrees: number;
   readonly turretYawDegrees: number;
@@ -164,8 +166,10 @@ function finite(value: number, label: string): void {
   }
 }
 
-export function createWreckView(floorY: number): WreckView {
-  finite(floorY, 'floorY');
+/** The ground height under a point, looking down from `fromY` (the terrain's answer). */
+export type GroundHeight = (x: number, z: number, fromY: number) => number;
+
+export function createWreckView(groundAt: GroundHeight): WreckView {
   const group = new Group();
   group.name = 'wrecks';
 
@@ -347,7 +351,7 @@ export function createWreckView(floorY: number): WreckView {
     const hullYawRadians = (death.hullYawDegrees * Math.PI) / 180;
     const turretYawRadians = ((death.turretYawDegrees - death.hullYawDegrees) * Math.PI) / 180;
     hullMatrix.compose(
-      scratchPosition.set(death.x, floorY, death.z),
+      scratchPosition.set(death.x, death.y, death.z),
       scratchQuaternion.setFromAxisAngle(up, hullYawRadians),
       one,
     );
@@ -450,6 +454,7 @@ export function createWreckView(floorY: number): WreckView {
           piece.position.x += piece.vx * dtSeconds;
           piece.position.y += piece.vy * dtSeconds;
           piece.position.z += piece.vz * dtSeconds;
+          const floorY = groundAt(piece.position.x, piece.position.z, piece.position.y + 0.5);
           if (piece.position.y <= floorY + FLOOR_SKIN_METRES) {
             piece.position.y = floorY + FLOOR_SKIN_METRES;
             if (!piece.bounced) {

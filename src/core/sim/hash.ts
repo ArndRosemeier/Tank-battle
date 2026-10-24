@@ -6,7 +6,7 @@
  * It includes every mutable simulation field, including the RNG's internal state and
  * the per-match stats. Positions are quantised to millimetres, angles to microdegrees
  * and shell direction components to 1e-9: a hash is an equality witness, not a
- * measurement. The A1 world has its own hash (cells, blocks, shards, regen timers);
+ * measurement. The terrain has its own hash (every sample, falling chunks, the regen clock);
  * including it here keeps every field of both layers in one witness.
  */
 
@@ -22,14 +22,15 @@ export function hashMatch(state: MatchState): string {
     `rng ${state.rng.state}`,
     `teams ${state.teams.map((team) => `${team.id}:${team.tanks.map((tank) => tank.id).join(',')}`).join(';')}`,
     `world ${hashState(state.world)}`,
+    `chunkCauses ${[...state.chunkCauses.entries()].sort((a, b) => a[0] - b[0]).map(([chunk, team]) => `${chunk}:${team}`).join(',')}`,
   ];
 
   const tanks = [...state.tanks].sort((a, b) => a.id - b.id);
   for (const tank of tanks) {
     lines.push(
       `tank ${tank.id} team=${tank.teamId} index=${tank.teamIndex} ` +
-        `x=${millimetres(tank.x)} z=${millimetres(tank.z)} ` +
-        `hull=${microdegrees(tank.hullYawDegrees)} turret=${microdegrees(tank.turretYawDegrees)} ` +
+        `x=${millimetres(tank.x)} y=${millimetres(tank.y)} z=${millimetres(tank.z)} vy=${millimetres(tank.verticalSpeed)} ` +
+        `hull=${microdegrees(tank.hullYawDegrees)} tilt=${microdegrees(tank.hullPitchDegrees)},${microdegrees(tank.hullRollDegrees)} turret=${microdegrees(tank.turretYawDegrees)} ` +
         `pitch=${microdegrees(tank.aimPitchDegrees)} hp=${tank.hp}/${tank.maxHp} ` +
         `alive=${tank.alive ? 1 : 0} reload=${tank.reloadTicksRemaining} ` +
         `bleed=${tank.bleedTicksRemaining} cause=${tank.deathCause ?? '-'} died=${tank.diedAtTick ?? '-'} ` +
@@ -51,7 +52,7 @@ export function hashMatch(state: MatchState): string {
     `stats shots=${state.stats.shotsFired} hits=${state.stats.hits} kills=${state.stats.kills} ` +
       `damage=${state.stats.damageDealt} ticks=${state.stats.ticks} ` +
       `damageByTeam=${[0, 1, 2, 3].map((teamId) => state.stats.damageByTeam[teamId] ?? 0).join(',')} ` +
-      `shells=${state.stats.causes.shell} clocks=${state.stats.causes.clock} ` +
+      `shells=${state.stats.causes.shell} clocks=${state.stats.causes.clock} terrain=${state.stats.causes.terrain} ` +
       `winner=${state.stats.winnerTeamId ?? '-'} outcome=${state.stats.outcome ?? '-'}`,
   );
 

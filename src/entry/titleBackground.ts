@@ -110,7 +110,6 @@ export function createTitleBackground(options: TitleBackgroundOptions): TitleBac
     camera.up.set(pose.up.x, pose.up.y, pose.up.z);
     camera.lookAt(pose.target.x, pose.target.y, pose.target.z);
     camera.updateMatrixWorld();
-    scene.updateCamera(camera.position);
   };
 
   const rebuild = (): void => {

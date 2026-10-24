@@ -21,33 +21,30 @@ import {
 } from '../core/ai.ts';
 import type { BatchSetup, TeamSetup } from '../core/ai.ts';
 import { ARENA, spawnCentreMetres } from './levels/arena.ts';
-import { CELL_SIZE_METRES } from '../core/world.ts';
-import { validateLevel } from './levels/format.ts';
+import { validateLevel, type LevelSpawn } from './levels/format.ts';
 
-/** A symmetric 1v1 duel staging on the arena's open north margin. */
-export function arenaDuelSetup(): BatchSetup {
-  validateLevel(ARENA);
-  return {
-    level: ARENA.cells,
-    spawns: [
-      { teamId: 0, spawn: { xMetres: 18, zMetres: 6, hullYawDegrees: -90 } },
-      { teamId: 1, spawn: { xMetres: 30, zMetres: 6, hullYawDegrees: 90 } },
-    ],
-  };
+function spawnFor(teamId: number): LevelSpawn {
+  const spawn = ARENA.spawns.find((candidate) => candidate.teamId === teamId);
+  if (!spawn) throw new Error(`aiBatch: the arena has no spawn for team ${teamId}`);
+  return spawn;
 }
 
 /**
- * The authored-corner team setup. Each team gets the same four tank slots in the outer
- * gateway at its corner, so a 90° rotation maps one team's pads onto the next. All tanks
- * face east; a fixed corner yaw made the NE/SW pads lose nearly every match.
+ * A symmetric 1v1 duel staging: the two tanks start on opposite corner pads (teams 0
+ * and 2's front slots), so the hill and two ridges stand between them.
  */
-const TEAM_CORNER_YAW_PATTERNS = [
-  [0, 90, 45, -90],
-  [180, 90, 45, -90],
-  [-90, 90, 0, -90],
-  [0, 90, 45, 180],
-] as const;
-const TEAM_CORNER_YAWS = TEAM_CORNER_YAW_PATTERNS[0];
+export function arenaDuelSetup(): BatchSetup {
+  validateLevel(ARENA);
+  const a = spawnFor(0);
+  const b = spawnFor(2);
+  return {
+    level: ARENA.terrain,
+    spawns: [
+      { teamId: 0, spawn: { xMetres: a.slots[0]!.xMetres, zMetres: a.slots[0]!.zMetres, hullYawDegrees: a.yawDegrees } },
+      { teamId: 1, spawn: { xMetres: b.slots[0]!.xMetres, zMetres: b.slots[0]!.zMetres, hullYawDegrees: b.yawDegrees } },
+    ],
+  };
+}
 
 /**
  * The team-mode aim-error scale. Sixteen tanks firing at the 1v1 spread turned a
@@ -57,6 +54,11 @@ const TEAM_CORNER_YAWS = TEAM_CORNER_YAW_PATTERNS[0];
  */
 export const TEAM_MODE_AIM_ERROR_SCALE = 0.09;
 
+/**
+ * The corner-pad team setup: each team fills the first `tanksPerTeam` slots of its own
+ * pad, facing the centre. The pads are rotations of one another, so no corner has a
+ * geometric advantage.
+ */
 export function arenaTeamSetup(teams = 4, tanksPerTeam = 4): TeamSetup {
   validateLevel(ARENA);
   if (!Number.isInteger(teams) || teams < 2 || teams > 4) {
@@ -65,44 +67,23 @@ export function arenaTeamSetup(teams = 4, tanksPerTeam = 4): TeamSetup {
   if (!Number.isInteger(tanksPerTeam) || tanksPerTeam < 1 || tanksPerTeam > 4) {
     throw new Error(`arenaTeamSetup: tanksPerTeam must be 1…4, got ${String(tanksPerTeam)}`);
   }
-  // The authored 2×2 rooms cannot hold four tanks and their doglegs are a single-file
-  // exit. The team pads sit in the adjacent outer corner gateway, which the team arena
-  // opens to a body-width window. All tanks face east: a four-team run showed that
-  // mixing corner yaws produced a persistent NE/SW navigation disadvantage.
-  const pads: readonly (readonly [number, number])[] = [
-    [5, 5],
-    [6, 5],
-    [5, 6],
-    [6, 6],
-  ];
   const selected = [...ARENA.spawns].sort((a, b) => a.teamId - b.teamId).slice(0, teams);
-  const groups = selected.map((spawn) => {
-    const used = pads.slice(0, tanksPerTeam);
-    let cells = used.map(([x, z]) => ({ x, z }));
-    for (let turn = 0; turn < spawn.teamId; turn += 1) {
-      cells = cells.map(({ x, z }) => ({ x: 23 - z, z: x }));
-    }
-    return {
-      teamId: spawn.teamId,
-      spawns: cells.map(({ x, z }) => ({
-        xMetres: (x + 0.5) * CELL_SIZE_METRES,
-        zMetres: (z + 0.5) * CELL_SIZE_METRES,
-        // The corner pad's facing is authored per corner. With one world-facing
-        // yaw the NE/SW pairs lost nearly every match regardless of team identity;
-        // these directions are the measured exit facings that equalise the four
-        // corner win rates.
-        hullYawDegrees: TEAM_CORNER_YAWS[spawn.teamId]!,
-      })),
-    };
-  });
-  return { level: ARENA.cells, teams: groups, cornerYawPatterns: TEAM_CORNER_YAW_PATTERNS };
+  const groups = selected.map((spawn) => ({
+    teamId: spawn.teamId,
+    spawns: spawn.slots.slice(0, tanksPerTeam).map((slot) => ({
+      xMetres: slot.xMetres,
+      zMetres: slot.zMetres,
+      hullYawDegrees: spawn.yawDegrees,
+    })),
+  }));
+  return { level: ARENA.terrain, teams: groups };
 }
 
 /** Validates the arena and returns one one-tank spawn per authored team. */
 export function arenaBatchSetup(): BatchSetup {
   validateLevel(ARENA);
   return {
-    level: ARENA.cells,
+    level: ARENA.terrain,
     spawns: ARENA.spawns.map((spawn) => {
       const centre = spawnCentreMetres(spawn);
       return {
@@ -252,11 +233,11 @@ function runCharacterMatch(
       if (start) stats.distanceMoved += Math.hypot(tank.x - start.x, tank.z - start.z);
       stats.aliveTicks += 1;
 
-      const eye = eyePosition(state.world, tank);
+      const eye = eyePosition(tank);
       let nearestVisible: number | null = null;
       for (const enemy of state.tanks) {
         if (!enemy.alive || enemy.teamId === tank.teamId) continue;
-        if (hasLineOfSight(state.world, eye, targetCentre(state.world, enemy))) {
+        if (hasLineOfSight(state.world, eye, targetCentre(enemy))) {
           const distance = Math.hypot(tank.x - enemy.x, tank.z - enemy.z);
           if (nearestVisible === null || distance < nearestVisible) nearestVisible = distance;
         }

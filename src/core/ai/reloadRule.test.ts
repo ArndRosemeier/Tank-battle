@@ -1,3 +1,4 @@
+import { flatTerrain } from '../world.ts';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -36,11 +37,7 @@ describe('one reload rule', () => {
   });
 
   it('a held trigger fires at exactly the global reload cadence', () => {
-    const level = {
-      columns: 12,
-      rows: 12,
-      floorSurfaceHeightMetres: 0.25,
-    } as const;
+    const level = flatTerrain(16, 16, 1.5);
     const state = createMatch({
       level,
       teams: [

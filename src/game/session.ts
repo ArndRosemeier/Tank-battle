@@ -7,7 +7,6 @@
  * browser.
  */
 
-import { createRng } from '../core/rng.ts';
 import { FixedStep } from '../core/timestep.ts';
 import {
   DEFAULT_MATCH_RULES,
@@ -19,12 +18,7 @@ import {
   type TankCommand,
   type TankCommandOrder,
 } from '../core/sim.ts';
-import {
-  blockAt,
-  damageBlock,
-  damageCell,
-  type World,
-} from '../core/world.ts';
+import { blastTerrain, type World } from '../core/world.ts';
 import { getAIProfile } from '../core/ai.ts';
 import { createTeamAIController } from '../core/ai/teamBatch.ts';
 import { collectControllerOrders, type Controller } from '../core/sim/controller.ts';
@@ -36,13 +30,16 @@ import {
 } from './tankFrames.ts';
 
 export type { TankRenderFrame } from './tankFrames.ts';
-import { ARENA, spawnCentreMetres } from './levels/arena.ts';
+import { ARENA, ARENA_BASE_HEIGHT_METRES } from './levels/arena.ts';
 import { validateLevel } from './levels/format.ts';
 
-/** The demo stage sits on the NW diagonal gates, with the ambush pillar opened. */
-const DEMO_PLAYER = { xMetres: 12, zMetres: 12, hullYawDegrees: -135 } as const;
-const DEMO_DUMMY = { xMetres: 18, zMetres: 18, hullYawDegrees: 45 } as const;
-const DEMO_BREACH_CELL = { x: 10, z: 6 } as const;
+/**
+ * The demo stage: the player on the NW pad's front slot looking down the diagonal at
+ * a training target just past the NW ridge's arch, with a fresh crater in the ridge.
+ */
+const DEMO_PLAYER = { xMetres: 13.4, zMetres: 13.4, hullYawDegrees: -135 } as const;
+const DEMO_DUMMY = { xMetres: 21, zMetres: 21, hullYawDegrees: 45 } as const;
+const DEMO_CRATER = { x: 19.5, y: 8.5, z: 15.5 } as const;
 
 export interface PlayableSessionOptions {
   /** Build the deterministic combat screenshot scenario: a demo breach and no input. */
@@ -53,21 +50,19 @@ const PLAYER_TANK_ID = 0;
 const DUMMY_TANK_ID = 1;
 const LEVEL_SEED = 0xa3c_d0e1;
 
-/** Opens the demo's visible ambush-pillar breach through the real destruction seams. */
+/** Carves the demo's visible crater through the real destruction seam. */
 function carveDemoBreach(world: World): void {
-  const rng = createRng(LEVEL_SEED);
-  damageCell(world, DEMO_BREACH_CELL.x, DEMO_BREACH_CELL.z, 3, rng);
-  if (!blockAt(world, DEMO_BREACH_CELL.x, DEMO_BREACH_CELL.z)) {
-    throw new Error(`session: demo breach (${DEMO_BREACH_CELL.x}, ${DEMO_BREACH_CELL.z}) did not leave a block`);
+  const result = blastTerrain(world, DEMO_CRATER.x, DEMO_CRATER.y, DEMO_CRATER.z);
+  if (result.samplesDestroyed === 0) {
+    throw new Error('session: the demo crater did not break any rock');
   }
-  damageBlock(world, DEMO_BREACH_CELL.x, DEMO_BREACH_CELL.z, 2);
 }
 
 function levelSpawn(teamId: number): { xMetres: number; zMetres: number; hullYawDegrees: number } {
   const spawn = ARENA.spawns.find((candidate) => candidate.teamId === teamId);
   if (!spawn) throw new Error(`session: arena has no spawn for team ${teamId}`);
-  const centre = spawnCentreMetres(spawn);
-  return { ...centre, hullYawDegrees: spawn.yawDegrees };
+  const slot = spawn.slots[0]!;
+  return { xMetres: slot.xMetres, zMetres: slot.zMetres, hullYawDegrees: spawn.yawDegrees };
 }
 
 /**
@@ -95,9 +90,9 @@ export class PlayableSession {
     // driven by the same AI controller the team mode uses. The old fixture put a static
     // training target 6 m in front of the player, which read as an opponent "sitting right
     // next to me" and never fought. The demo keeps that fixture for deterministic screenshots.
-    const opponentSpawn = demo ? DEMO_DUMMY : levelSpawn(1);
+    const opponentSpawn = demo ? DEMO_DUMMY : levelSpawn(2);
     this.state = createMatch({
-      level: ARENA.cells,
+      level: ARENA.terrain,
       teams: [
         { id: 0, tanks: [demo ? DEMO_PLAYER : levelSpawn(0)] },
         { id: 1, tanks: [opponentSpawn] },
@@ -133,7 +128,7 @@ export class PlayableSession {
   }
 
   get floorY(): number {
-    return ARENA.cells.floorSurfaceHeightMetres;
+    return ARENA_BASE_HEIGHT_METRES;
   }
 
   get player(): TankRenderFrame {

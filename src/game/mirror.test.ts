@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ARENA } from './levels/arena.ts';
+import { ARENA, ARENA_BOUNDS } from './levels/arena.ts';
 import {
   createMatch,
   DEFAULT_MATCH_RULES,
@@ -8,23 +8,21 @@ import {
 } from '../core/sim.ts';
 
 /**
- * The mirror pin is deliberately a SCRIPTED duel, not the AI. It isolates the
- * simulation/scenario from AI randomness: the tanks at (18, 6) and (30, 6) are
- * mirrored through the x axis into (18, 42) and (30, 42), the teams are swapped, and
- * the first-shooter role moves from team 0 to team 1. With the same mirrored script,
- * a fair simulation must produce the mirrored winner and the same length/causes.
+ * The rotation pin is deliberately a SCRIPTED duel, not the AI. It isolates the
+ * simulation/scenario from AI randomness: two tanks face each other across team 0's
+ * pad, then the same duel is staged on team 1's pad (the arena turned 90°) with the
+ * teams swapped and the first-shooter role moved from team 0 to team 1. On a fair,
+ * four-fold arena the turned script must produce the swapped winner and the same
+ * length and causes.
  */
-const H = ARENA.cells.rows;
+const SIZE = ARENA_BOUNDS.maxX;
 
-function mirroredWorld() {
+function turn(spawn: ScriptSpawn, teamId: number): ScriptSpawn {
   return {
-    columns: ARENA.cells.columns,
-    rows: ARENA.cells.rows,
-    floorSurfaceHeightMetres: ARENA.cells.floorSurfaceHeightMetres,
-    placements: (ARENA.cells.placements ?? []).map((placement) => ({
-      ...placement,
-      z: H - 1 - placement.z,
-    })),
+    teamId,
+    xMetres: SIZE - spawn.zMetres,
+    zMetres: spawn.xMetres,
+    yawDegrees: spawn.yawDegrees - 90,
   };
 }
 
@@ -40,12 +38,11 @@ interface ScriptSpawn {
 }
 
 function runScripted(
-  level: typeof ARENA.cells | ReturnType<typeof mirroredWorld>,
   spawns: readonly ScriptSpawn[],
   firstTeamId: number,
 ): { winner: number | null; ticks: number; causes: { shell: number; clock: number } } {
   const state = createMatch({
-    level,
+    level: ARENA.terrain,
     teams: spawns.map((spawn) => ({
       id: spawn.teamId,
       tanks: [{
@@ -66,7 +63,7 @@ function runScripted(
       .map((tank) => ({
         tankId: tank.id,
         command: command(
-          tank.id === 0 ? -90 : 90,
+          spawns.find((spawn) => spawn.teamId === tank.teamId)!.yawDegrees,
           tank.teamId === firstTeamId ? state.tick <= 1 : state.tick >= 20,
         ),
       }));
@@ -81,27 +78,17 @@ function runScripted(
   };
 }
 
-describe('the mirrored-arena pin', () => {
-  it('a mirrored script produces the mirrored winner, length and causes', () => {
-    const original = runScripted(
-      ARENA.cells,
-      [
-        { teamId: 0, xMetres: 18, zMetres: 6, yawDegrees: -90 },
-        { teamId: 1, xMetres: 30, zMetres: 6, yawDegrees: 90 },
-      ],
-      0,
-    );
-    const mirrored = runScripted(
-      mirroredWorld(),
-      [
-        { teamId: 0, xMetres: 30, zMetres: 42, yawDegrees: 90 },
-        { teamId: 1, xMetres: 18, zMetres: 42, yawDegrees: -90 },
-      ],
-      1,
-    );
+describe('the rotated-arena pin', () => {
+  it('a turned script produces the swapped winner, length and causes', () => {
+    const staged: ScriptSpawn[] = [
+      { teamId: 0, xMetres: 7.5, zMetres: 11, yawDegrees: -90 },
+      { teamId: 1, xMetres: 14.5, zMetres: 11, yawDegrees: 90 },
+    ];
+    const original = runScripted(staged, 0);
+    const turned = runScripted([turn(staged[0]!, 1), turn(staged[1]!, 0)], 1);
     expect(original.winner).toBe(0);
-    expect(mirrored.winner).toBe(1);
-    expect(mirrored.ticks).toBe(original.ticks);
-    expect(mirrored.causes).toEqual(original.causes);
+    expect(turned.winner).toBe(1);
+    expect(turned.ticks).toBe(original.ticks);
+    expect(turned.causes).toEqual(original.causes);
   });
 });

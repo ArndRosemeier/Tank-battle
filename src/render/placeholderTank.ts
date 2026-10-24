@@ -84,6 +84,8 @@ export interface PlaceholderTank {
     hullYawDegrees: number,
     turretYawDegrees: number,
     aimPitchDegrees: number,
+    hullPitchDegrees?: number,
+    hullRollDegrees?: number,
   ): void;
   dispose(): void;
 }
@@ -259,6 +261,8 @@ export function createPlaceholderTank(teamIndex: number, phase: number): Placeho
       hullYawDegrees: number,
       turretYawDegrees: number,
       aimPitchDegrees: number,
+      hullPitchDegrees = 0,
+      hullRollDegrees = 0,
     ): void {
       for (const [value, label] of [
         [x, 'x'],
@@ -267,16 +271,28 @@ export function createPlaceholderTank(teamIndex: number, phase: number): Placeho
         [hullYawDegrees, 'hullYawDegrees'],
         [turretYawDegrees, 'turretYawDegrees'],
         [aimPitchDegrees, 'aimPitchDegrees'],
+        [hullPitchDegrees, 'hullPitchDegrees'],
+        [hullRollDegrees, 'hullRollDegrees'],
       ] as const) {
         if (!Number.isFinite(value)) {
           throw new Error(`placeholderTank: ${label} must be finite, got ${value}`);
         }
       }
       group.position.set(x, y, z);
-      group.rotation.y = (hullYawDegrees * Math.PI) / 180;
+      // The hull sits on the terrain: yaw, then nose pitch, then roll (left side up
+      // is a negative z rotation for a hull facing -z).
+      group.rotation.set(
+        (hullPitchDegrees * Math.PI) / 180,
+        (hullYawDegrees * Math.PI) / 180,
+        (-hullRollDegrees * Math.PI) / 180,
+        'YXZ',
+      );
       const relativeYaw = turretYawDegrees - hullYawDegrees;
       turret.rotation.y = (relativeYaw * Math.PI) / 180;
-      turret.rotation.x = (aimPitchDegrees * Math.PI) / 180;
+      // The aim pitch is absolute; take out the hull's tilt along the gun's direction.
+      const relativeRadians = (relativeYaw * Math.PI) / 180;
+      const tiltAlongGun = hullPitchDegrees * Math.cos(relativeRadians) - hullRollDegrees * Math.sin(relativeRadians);
+      turret.rotation.x = ((aimPitchDegrees - tiltAlongGun) * Math.PI) / 180;
       turret.position.z = turretRestZ + recoilAmount * CAMERA.barrelRecoilMetres;
     },
     kick(): void {
