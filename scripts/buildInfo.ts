@@ -87,9 +87,14 @@ function git(root: string, args: string[]): string {
   }
 }
 
-/** Version of `commit`: its first-parent distance from the anchor. */
-function versionOf(root: string, commit: string): string {
-  try {
+/**
+ * Version of `commit`: its first-parent distance from the anchor. Only HEAD must descend
+ * from the anchor; a changelog file's adding commit on a feature branch may start from an
+ * older main, and still counts its own branch commits (after the merge, the merge commit
+ * on main is the adding commit).
+ */
+function versionOf(root: string, commit: string, requireAnchor: boolean): string {
+  if (requireAnchor) try {
     execFileSync('git', ['merge-base', '--is-ancestor', VERSION_ANCHOR, commit], { cwd: root, stdio: 'ignore' });
   } catch {
     throw new Error(
@@ -110,7 +115,7 @@ function nextVersion(version: string): string {
 export function readBuildInfo(root: string): BuildInfo {
   const override = process.env.TANK_BATTLE_VERSION?.trim();
   if (override) compareVersions(override, override); // validates the format
-  const version = override || versionOf(root, 'HEAD');
+  const version = override || versionOf(root, 'HEAD', true);
 
   const dir = join(root, CHANGELOG_DIR);
   if (!existsSync(dir)) throw new Error(`buildInfo: no ${CHANGELOG_DIR}/ folder at ${root}`);
@@ -123,7 +128,7 @@ export function readBuildInfo(root: string): BuildInfo {
       .split('\n')
       .filter(Boolean);
     // Not committed yet (a local dev build): it will ship with the next version.
-    const entryVersion = added.length === 0 ? nextVersion(version) : versionOf(root, added[added.length - 1]!);
+    const entryVersion = added.length === 0 ? nextVersion(version) : versionOf(root, added[added.length - 1]!, false);
     return { name, entry: { version: entryVersion, title, items } };
   });
   entries.sort((a, b) => compareVersions(b.entry.version, a.entry.version) || b.name.localeCompare(a.name));
