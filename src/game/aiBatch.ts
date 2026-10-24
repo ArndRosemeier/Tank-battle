@@ -21,6 +21,7 @@ import {
 } from '../core/ai.ts';
 import type { BatchSetup, TeamSetup } from '../core/ai.ts';
 import { ARENA, spawnCentreMetres } from './levels/arena.ts';
+import { CRUCIBLE, type Arena } from './levels/catalog.ts';
 import { validateLevel, type LevelSpawn } from './levels/format.ts';
 
 function spawnFor(teamId: number): LevelSpawn {
@@ -59,15 +60,15 @@ export const TEAM_MODE_AIM_ERROR_SCALE = 0.09;
  * pad, facing the centre. The pads are rotations of one another, so no corner has a
  * geometric advantage.
  */
-export function arenaTeamSetup(teams = 4, tanksPerTeam = 4): TeamSetup {
-  validateLevel(ARENA);
+export function arenaTeamSetup(teams = 4, tanksPerTeam = 4, arena: Arena = CRUCIBLE): TeamSetup {
+  validateLevel(arena.level);
   if (!Number.isInteger(teams) || teams < 2 || teams > 4) {
     throw new Error(`arenaTeamSetup: teams must be 2…4, got ${String(teams)}`);
   }
   if (!Number.isInteger(tanksPerTeam) || tanksPerTeam < 1 || tanksPerTeam > 4) {
     throw new Error(`arenaTeamSetup: tanksPerTeam must be 1…4, got ${String(tanksPerTeam)}`);
   }
-  const selected = [...ARENA.spawns].sort((a, b) => a.teamId - b.teamId).slice(0, teams);
+  const selected = [...arena.level.spawns].sort((a, b) => a.teamId - b.teamId).slice(0, teams);
   const groups = selected.map((spawn) => ({
     teamId: spawn.teamId,
     spawns: spawn.slots.slice(0, tanksPerTeam).map((slot) => ({
@@ -76,7 +77,7 @@ export function arenaTeamSetup(teams = 4, tanksPerTeam = 4): TeamSetup {
       hullYawDegrees: spawn.yawDegrees,
     })),
   }));
-  return { level: ARENA.terrain, teams: groups };
+  return { level: arena.level.terrain, teams: groups };
 }
 
 /** Validates the arena and returns one one-tank spawn per authored team. */

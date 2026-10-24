@@ -493,6 +493,22 @@
       .stepper-button:hover, .stepper-button:focus-visible { background: rgba(0, 229, 255, 0.28); color: #ffffff; outline: none; }
       .stepper-button:disabled { opacity: 0.3; cursor: default; }
       .stepper-value { min-width: 88px; text-align: center; font-size: 18px; color: #eaffff; text-shadow: 0 0 14px rgba(0, 229, 255, 0.9); }
+      .setting-row[hidden] { display: none; }
+      .seed-input {
+        appearance: none;
+        width: 88px;
+        height: 30px;
+        border: 1px solid rgba(0, 229, 255, 0.5);
+        background: rgba(0, 0, 0, 0.35);
+        color: #eaffff;
+        font: inherit;
+        font-size: 18px;
+        text-align: center;
+        text-shadow: 0 0 14px rgba(0, 229, 255, 0.9);
+        caret-color: #8ff4ff;
+      }
+      .seed-input:focus { outline: none; background: rgba(0, 229, 255, 0.18); border-color: #8ff4ff; }
+      .seed-input.invalid { border-color: #ff4f6d; color: #ff9aa9; text-shadow: 0 0 12px rgba(255, 79, 109, 0.9); }
       .setup-summary { font-size: 12px; letter-spacing: 0.2em; color: #ffb347; opacity: 0.9; }
       #end-screen {
         background:
@@ -669,6 +685,24 @@
         <div class="setting-row">
           <span class="setting-label">BATTLE SEED</span>
           <div class="stepper"><span class="stepper-value" data-setup-value="seed">1</span><button id="setup-reroll" class="settings-toggle" type="button">REROLL</button></div>
+          <span></span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">ARENA</span>
+          <div class="choice-group" role="radiogroup" aria-label="Arena">
+            <button class="settings-toggle" type="button" role="radio" data-setup-arena="crucible">CRUCIBLE</button>
+            <button class="settings-toggle" type="button" role="radio" data-setup-arena="generated">GENERATE</button>
+          </div>
+          <span></span>
+        </div>
+        <div class="setting-row" id="setup-arena-seed-row">
+          <span class="setting-label">ARENA SEED</span>
+          <div class="stepper"><input id="setup-arena-seed" class="seed-input" type="text" inputmode="numeric" maxlength="6" autocomplete="off" spellcheck="false" aria-label="Arena seed, 0 to 999999" /><button id="setup-arena-reroll" class="settings-toggle" type="button">RANDOM</button></div>
+          <span></span>
+        </div>
+        <div class="setting-row" id="setup-arena-size-row">
+          <span class="setting-label">ARENA SIZE</span>
+          <div class="stepper"><button class="stepper-button" type="button" data-arena-size-step="-1" aria-label="Smaller arena">◀</button><span class="stepper-value" data-setup-value="arenaSize">MEDIUM</span><button class="stepper-button" type="button" data-arena-size-step="1" aria-label="Larger arena">▶</button></div>
           <span></span>
         </div>
         <div id="setup-summary" class="setup-summary"></div>
