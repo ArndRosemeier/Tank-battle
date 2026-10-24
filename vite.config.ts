@@ -1,6 +1,7 @@
 import { cpSync, existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { resolveAssetFile } from './scripts/assetPath.ts';
+import { readBuildInfo } from './scripts/buildInfo.ts';
 import { defineConfig } from 'vitest/config';
 import type { Plugin } from 'vite';
 
@@ -53,6 +54,26 @@ function assetsBridge(): Plugin {
   };
 }
 
+/**
+ * `virtual:build-info` — the version number and the "What's new" entries, computed from
+ * git when the bundle is built (see scripts/buildInfo.ts). One source, read by the UI.
+ */
+function buildInfo(): Plugin {
+  const id = 'virtual:build-info';
+  const resolved = `\0${id}`;
+  return {
+    name: 'build-info',
+    resolveId(source) {
+      return source === id ? resolved : null;
+    },
+    load(source) {
+      if (source !== resolved) return null;
+      const info = readBuildInfo(resolve('.'));
+      return `export const VERSION = ${JSON.stringify(info.version)};\nexport const CHANGELOG = ${JSON.stringify(info.changelog)};\n`;
+    },
+  };
+}
+
 // The app is published under a subpath on the static host, so the base path comes
 // from the environment and defaults to '/' for local dev.
 const fromEnv = process.env.TANK_BATTLE_BASE?.trim();
@@ -70,7 +91,7 @@ export default defineConfig({
   // shipped URLs are `assets/audio/...` and `assets/manifest.json` while the source
   // of record stays at the repo root `assets/`.
   publicDir: 'public',
-  plugins: [assetsBridge()],
+  plugins: [assetsBridge(), buildInfo()],
   build: {
     outDir: 'dist',
     emptyOutDir: true,

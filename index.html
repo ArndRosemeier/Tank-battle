@@ -394,7 +394,14 @@
         font-weight: 700;
         letter-spacing: 0;
       }
-      #settings-screen::before, #pause-screen::before {
+      /* What's new (src/entry/screens.ts): the build-time changelog from changelog/*.md */
+      .whatsnew-panel { max-height: calc(100vh - 64px); grid-template-rows: auto auto minmax(0, 1fr) auto; }
+      .whatsnew-list { overflow-y: auto; display: grid; gap: 18px; padding-right: 8px; min-height: 0; }
+      .whatsnew-entry { border-left: 2px solid rgba(0, 229, 255, 0.45); padding-left: 14px; }
+      .whatsnew-entry h3 { margin: 0 0 6px; font-size: 14px; font-weight: 400; letter-spacing: 0.18em; color: #eaffff; }
+      .whatsnew-entry h3 span { color: #00e5ff; text-shadow: 0 0 10px rgba(0, 229, 255, 0.8); margin-right: 12px; }
+      .whatsnew-entry ul { margin: 0; padding-left: 18px; color: #8ff4ff; font-size: 12px; line-height: 1.6; letter-spacing: 0.04em; }
+      #settings-screen::before, #pause-screen::before, #whatsnew-screen::before {
         content: '';
         position: absolute;
         left: 0;
@@ -405,7 +412,7 @@
         box-shadow: 0 0 16px rgba(0, 229, 255, 0.55);
         opacity: 0.55;
       }
-      #settings-screen {
+      #settings-screen, #whatsnew-screen {
         background-color: rgba(1, 6, 9, 0.94);
         background-image:
           linear-gradient(rgba(143, 244, 255, 0.82) 1px, transparent 1px),
@@ -700,6 +707,7 @@
           <button id="title-online" class="tron-button" type="button">ONLINE <span>PLAY WITH FRIENDS</span></button>
           <button id="title-spectate" class="tron-button" type="button">SPECTATE <span>ALL AI</span></button>
           <button id="title-settings" class="tron-button" type="button">SETTINGS <span>SYSTEM</span></button>
+          <button id="title-whatsnew" class="tron-button" type="button">WHAT'S NEW <span id="title-version">V0.000</span></button>
         </div>
         <div class="title-meta">
           <div>WASD DRIVE · MOUSE AIM · CLICK / SPACE FIRE · WHEEL ZOOM · ESC PAUSE · L DETAIL</div>
@@ -737,6 +745,14 @@
           <button id="settings-motion" class="settings-toggle" type="button" role="switch" aria-checked="false">OFF</button>
         </div>
         <div class="screen-actions"><button id="settings-back" class="tron-button" type="button">BACK</button></div>
+      </div>
+    </div>
+    <div id="whatsnew-screen" class="screen" hidden>
+      <div class="screen-panel whatsnew-panel">
+        <div class="screen-eyebrow">SYSTEM // CHANGELOG</div>
+        <h2>WHAT'S NEW</h2>
+        <div id="whatsnew-list" class="whatsnew-list"></div>
+        <div class="screen-actions"><button id="whatsnew-back" class="tron-button" type="button">BACK</button></div>
       </div>
     </div>
     <div id="setup-screen" class="screen" hidden>

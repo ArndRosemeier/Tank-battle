@@ -8,6 +8,7 @@
  * host to apply them live.
  */
 
+import { CHANGELOG, VERSION } from 'virtual:build-info';
 import { requireElement } from './dom.ts';
 import { saveSettings, withSetting, type GameSettings } from './settings.ts';
 import {
@@ -26,7 +27,7 @@ import {
 import { MAX_TANKS_PER_TEAM, MAX_TEAMS } from '../core/sim.ts';
 import { ARENA_SIZES } from '../game/levels/generator.ts';
 
-type ScreenName = 'title' | 'settings' | 'pause' | 'setup' | 'end';
+type ScreenName = 'title' | 'settings' | 'pause' | 'setup' | 'end' | 'whatsnew';
 type SettingsOrigin = 'title' | 'pause';
 
 export interface ScreensCallbacks {
@@ -109,6 +110,23 @@ export function createScreens(initial: GameSettings, callbacks: ScreensCallbacks
   const resume = requireElement('pause-resume', HTMLButtonElement, 'resume button');
   const pauseSettings = requireElement('pause-settings', HTMLButtonElement, 'pause settings button');
   const quit = requireElement('pause-quit', HTMLButtonElement, 'quit button');
+  const whatsNewButton = requireElement('title-whatsnew', HTMLButtonElement, "what's new button");
+  const whatsNewScreen = requireElement('whatsnew-screen', HTMLElement, "what's new screen");
+  const whatsNewList = requireElement('whatsnew-list', HTMLElement, "what's new list");
+  const whatsNewBack = requireElement('whatsnew-back', HTMLButtonElement, "what's new back button");
+  requireElement('title-version', HTMLElement, 'version label').textContent = `V${VERSION}`;
+  whatsNewList.replaceChildren(
+    ...CHANGELOG.map((entry) => {
+      const block = document.createElement('section');
+      block.className = 'whatsnew-entry';
+      const heading = document.createElement('h3');
+      heading.append(Object.assign(document.createElement('span'), { textContent: `V${entry.version}` }), entry.title);
+      const list = document.createElement('ul');
+      list.append(...entry.items.map((item) => Object.assign(document.createElement('li'), { textContent: item })));
+      block.append(heading, list);
+      return block;
+    }),
+  );
 
   let settingsOrigin: SettingsOrigin = 'title';
   let settings: GameSettings = initial;
@@ -131,6 +149,7 @@ export function createScreens(initial: GameSettings, callbacks: ScreensCallbacks
     pauseScreen.hidden = name !== 'pause';
     setupScreen.hidden = name !== 'setup';
     endScreen.hidden = name !== 'end';
+    whatsNewScreen.hidden = name !== 'whatsnew';
   };
 
   // ---- the custom battle setup ----
@@ -382,6 +401,15 @@ export function createScreens(initial: GameSettings, callbacks: ScreensCallbacks
     if (settingsOrigin === 'pause') setScreen('pause');
     else setScreen('title');
   });
+  bind(whatsNewButton, () => {
+    setScreen('whatsnew');
+    whatsNewList.scrollTop = 0;
+    whatsNewBack.focus({ preventScroll: true });
+  });
+  bind(whatsNewBack, () => {
+    showTitle();
+    whatsNewButton.focus({ preventScroll: true });
+  });
   bind(resume, callbacks.onResume);
   bind(pauseSettings, () => showSettings('pause'));
   bind(quit, callbacks.onQuit);
@@ -445,6 +473,7 @@ export function createScreens(initial: GameSettings, callbacks: ScreensCallbacks
       pauseScreen.hidden = true;
       setupScreen.hidden = true;
       endScreen.hidden = true;
+      whatsNewScreen.hidden = true;
     },
     setSoundUnlocked(unlocked: boolean): void {
       soundUnlocked = unlocked;
