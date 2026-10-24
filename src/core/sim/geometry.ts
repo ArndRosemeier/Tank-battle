@@ -11,6 +11,8 @@
  *  - segment intersections return a `t` in `[0, 1]` along `from → to`, or `null`.
  */
 
+import * as detMath from '../detMath.ts';
+
 export interface Vec3 {
   readonly x: number;
   readonly y: number;
@@ -63,18 +65,18 @@ export function moveTowards(current: number, target: number, maxDelta: number): 
 /** The horizontal unit forward vector for a hull/turret yaw. */
 export function forwardFromYaw(yawDegrees: number): Vec3 {
   const radians = (yawDegrees * Math.PI) / 180;
-  return { x: -Math.sin(radians), y: 0, z: -Math.cos(radians) };
+  return { x: -detMath.sin(radians), y: 0, z: -detMath.cos(radians) };
 }
 
 /** The 3D unit direction a gun with this yaw and pitch points along. */
 export function directionFromAim(yawDegrees: number, pitchDegrees: number): Vec3 {
   const yaw = (yawDegrees * Math.PI) / 180;
   const pitch = (pitchDegrees * Math.PI) / 180;
-  const horizontal = Math.cos(pitch);
+  const horizontal = detMath.cos(pitch);
   return {
-    x: -Math.sin(yaw) * horizontal,
-    y: Math.sin(pitch),
-    z: -Math.cos(yaw) * horizontal,
+    x: -detMath.sin(yaw) * horizontal,
+    y: detMath.sin(pitch),
+    z: -detMath.cos(yaw) * horizontal,
   };
 }
 

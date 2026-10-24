@@ -52,6 +52,7 @@ import {
   validateAIProfile,
   type AIProfile,
 } from './profile.ts';
+import * as detMath from '../detMath.ts';
 
 export interface AIControllerOptions {
   /** The tank this controller owns. One controller instance owns one tank. */
@@ -216,7 +217,7 @@ export class AIController implements Controller {
     if (
       this.lastDecisionPosition !== null &&
       this.lastDecisionThrottle > 0 &&
-      Math.hypot(tank.x - this.lastDecisionPosition.x, tank.z - this.lastDecisionPosition.z) < 0.05
+      detMath.hypot(tank.x - this.lastDecisionPosition.x, tank.z - this.lastDecisionPosition.z) < 0.05
     ) {
       this.stuckDecisions += 1;
     } else {
@@ -232,7 +233,7 @@ export class AIController implements Controller {
       ? { x: target.x, y: target.y, z: target.z }
       : this.fallbackPoint(state, tank);
     const distance = target
-      ? Math.hypot(target.x - tank.x, target.z - tank.z)
+      ? detMath.hypot(target.x - tank.x, target.z - tank.z)
       : Infinity;
     const shotClear = target && target.visible && target.tank
       ? hasShotLine(state.world, tank, target.tank)
@@ -271,7 +272,7 @@ export class AIController implements Controller {
       ? aimAt(tank, aimPoint)
       : { yaw: tank.turretYawDegrees, pitch: tank.aimPitchDegrees };
     if (aimPoint) {
-      const aimDistance = Math.hypot(aimPoint.x - tank.x, aimPoint.z - tank.z);
+      const aimDistance = detMath.hypot(aimPoint.x - tank.x, aimPoint.z - tank.z);
       // A deliberate breach shot is aimed at a stationary wall cell, so it uses the
       // tight end of the profile's spread instead of the moving-target value.
       const spread = breachPoint
@@ -323,7 +324,7 @@ export class AIController implements Controller {
       }
       const holding = this.ambushSpot !== null && state.tick < this.ambushUntilTick;
       if (holding) {
-        const atSpot = Math.hypot(tank.x - this.ambushSpot!.x, tank.z - this.ambushSpot!.z) < 1.2;
+        const atSpot = detMath.hypot(tank.x - this.ambushSpot!.x, tank.z - this.ambushSpot!.z) < 1.2;
         goal = atSpot ? null : this.ambushSpot;
       } else {
         goal = targetPoint;
@@ -428,9 +429,9 @@ export class AIController implements Controller {
   }
 
   private strafePoint(state: MatchState, tank: Tank, target: NavPoint): NavPoint {
-    const angle = Math.atan2(tank.z - target.z, tank.x - target.x) + 0.9 * this.strafeSign;
+    const angle = detMath.atan2(tank.z - target.z, tank.x - target.x) + 0.9 * this.strafeSign;
     const radius = Math.max(6, Math.min(14, this.profile.preferredRangeMetres));
-    return this.interior(state, target.x + Math.cos(angle) * radius, tank.y, target.z + Math.sin(angle) * radius);
+    return this.interior(state, target.x + detMath.cos(angle) * radius, tank.y, target.z + detMath.sin(angle) * radius);
   }
 
   private dodgePoint(state: MatchState, tank: Tank, reference: NavPoint): NavPoint {
@@ -444,7 +445,7 @@ export class AIController implements Controller {
       if (shell.ownerTeamId === tank.teamId) continue;
       const dx = tank.x - shell.x;
       const dz = tank.z - shell.z;
-      const distance = Math.hypot(dx, dz);
+      const distance = detMath.hypot(dx, dz);
       if (distance > 25 || distance < 0.5) continue;
       if (dx * shell.dx + dz * shell.dz <= 0) continue;
       const lateral = Math.abs(dx * shell.dz - dz * shell.dx);
@@ -480,7 +481,7 @@ export class AIController implements Controller {
     const candidates: { node: number; distance: number }[] = [];
     for (let node = 0; node < graph.nodeCount; node += 1) {
       if (!reached[node]) continue;
-      const distance = Math.hypot(graph.nodeX[node]! - tank.x, graph.nodeZ[node]! - tank.z);
+      const distance = detMath.hypot(graph.nodeX[node]! - tank.x, graph.nodeZ[node]! - tank.z);
       if (distance > 28) continue;
       candidates.push({ node, distance });
     }
@@ -522,7 +523,7 @@ export class AIController implements Controller {
   private blockingPoint(state: MatchState, tank: Tank, target: Tank): Vec3 | null {
     const from = gunPosition(tank);
     const to = targetCentre(target);
-    const distance = Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z);
+    const distance = detMath.hypot(to.x - from.x, to.y - from.y, to.z - from.z);
     if (distance > this.profile.breachRangeMetres || distance < 1e-6) return null;
     const hit = raycastTerrain(state.world, from, to);
     if (!hit) return null;
@@ -563,7 +564,7 @@ export class AIController implements Controller {
     if (
       current &&
       state.tick < this.patrolUntilTick &&
-      Math.hypot(tank.x - current.x, tank.z - current.z) > AI_PATROL_ARRIVED_METRES
+      detMath.hypot(tank.x - current.x, tank.z - current.z) > AI_PATROL_ARRIVED_METRES
     ) {
       return current;
     }
@@ -588,7 +589,7 @@ export class AIController implements Controller {
         let best = -Infinity;
         for (let draw = 0; draw < 3; draw += 1) {
           const candidate = candidates[this.rng.int(candidates.length)]!;
-          const score = Math.hypot(graph.nodeX[candidate]! - this.home.x, graph.nodeZ[candidate]! - this.home.z);
+          const score = detMath.hypot(graph.nodeX[candidate]! - this.home.x, graph.nodeZ[candidate]! - this.home.z);
           if (score > best) {
             best = score;
             node = candidate;
@@ -636,7 +637,7 @@ export class AIController implements Controller {
     let aim = this.pathIndex;
     for (let next = this.pathIndex + 1; next < this.path.length; next += 1) {
       const point = this.path[next]!;
-      if (Math.hypot(point.x - tank.x, point.z - tank.z) > AI_PATH_LOOKAHEAD_METRES) break;
+      if (detMath.hypot(point.x - tank.x, point.z - tank.z) > AI_PATH_LOOKAHEAD_METRES) break;
       if (!hasClearLine(world, { x: tank.x, y: tank.y + 0.8, z: tank.z }, { x: point.x, y: point.y + 0.8, z: point.z })) break;
       aim = next;
     }
@@ -657,8 +658,8 @@ export class AIController implements Controller {
 /** Turret yaw and pitch from the tank's gun to a point. */
 function aimAt(tank: Tank, point: Vec3): { yaw: number; pitch: number } {
   const gun = gunPosition(tank);
-  const horizontal = Math.hypot(point.x - gun.x, point.z - gun.z);
-  const pitch = horizontal < 1e-9 ? 0 : (Math.atan2(point.y - gun.y, horizontal) * 180) / Math.PI;
+  const horizontal = detMath.hypot(point.x - gun.x, point.z - gun.z);
+  const pitch = horizontal < 1e-9 ? 0 : (detMath.atan2(point.y - gun.y, horizontal) * 180) / Math.PI;
   return { yaw: normaliseDegrees(yawTo(tank.x, tank.z, point.x, point.z)), pitch };
 }
 
@@ -667,7 +668,7 @@ function aimAt(tank: Tank, point: Vec3): { yaw: number; pitch: number } {
  * `(-sin yaw, -cos yaw)`, so yaw = atan2(-dx, -dz).
  */
 function yawTo(fromX: number, fromZ: number, toX: number, toZ: number): number {
-  return normaliseDegrees((Math.atan2(-(toX - fromX), -(toZ - fromZ)) * 180) / Math.PI);
+  return normaliseDegrees((detMath.atan2(-(toX - fromX), -(toZ - fromZ)) * 180) / Math.PI);
 }
 
 function squaredDistance(a: { x: number; z: number }, b: { x: number; z: number }): number {
@@ -678,5 +679,5 @@ function squaredDistance(a: { x: number; z: number }, b: { x: number; z: number 
 
 /** A waypoint is reached when the tank is on it horizontally and on the same level. */
 function reached(tank: Tank, point: NavPoint): boolean {
-  return Math.hypot(tank.x - point.x, tank.z - point.z) <= AI_WAYPOINT_REACHED_METRES && Math.abs(tank.y - point.y) < 2;
+  return detMath.hypot(tank.x - point.x, tank.z - point.z) <= AI_WAYPOINT_REACHED_METRES && Math.abs(tank.y - point.y) < 2;
 }

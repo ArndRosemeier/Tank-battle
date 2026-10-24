@@ -14,6 +14,7 @@ import {
   TANK_PROBE_SIDE_METRES,
   TANK_RADIUS_METRES,
 } from './constants.ts';
+import * as detMath from '../detMath.ts';
 
 export interface HullPose {
   /** The hull origin's height (the ground under the highest probe). */
@@ -28,11 +29,11 @@ export interface HullPose {
  */
 export function hullPoseAt(world: World, x: number, z: number, yawDegrees: number, fromY: number): HullPose {
   const radians = (yawDegrees * Math.PI) / 180;
-  const fx = -Math.sin(radians);
-  const fz = -Math.cos(radians);
+  const fx = -detMath.sin(radians);
+  const fz = -detMath.cos(radians);
   // Left of forward in this convention is (-fz, fx) rotated: yaw + 90° turns towards -x.
-  const lx = -Math.cos(radians);
-  const lz = Math.sin(radians);
+  const lx = -detMath.cos(radians);
+  const lz = detMath.sin(radians);
   const centre = groundBelow(world, x, z, fromY);
   const front = groundBelow(world, x + fx * TANK_PROBE_FORWARD_METRES, z + fz * TANK_PROBE_FORWARD_METRES, fromY);
   const back = groundBelow(world, x - fx * TANK_PROBE_FORWARD_METRES, z - fz * TANK_PROBE_FORWARD_METRES, fromY);
@@ -41,8 +42,8 @@ export function hullPoseAt(world: World, x: number, z: number, yawDegrees: numbe
   const y = Math.max(centre, front, back, left, right);
   return {
     y,
-    pitchDegrees: (Math.atan2(front - back, 2 * TANK_PROBE_FORWARD_METRES) * 180) / Math.PI,
-    rollDegrees: (Math.atan2(left - right, 2 * TANK_PROBE_SIDE_METRES) * 180) / Math.PI,
+    pitchDegrees: (detMath.atan2(front - back, 2 * TANK_PROBE_FORWARD_METRES) * 180) / Math.PI,
+    rollDegrees: (detMath.atan2(left - right, 2 * TANK_PROBE_SIDE_METRES) * 180) / Math.PI,
   };
 }
 

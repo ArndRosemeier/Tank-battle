@@ -24,6 +24,7 @@ import { STEP_SECONDS } from '../timestep.ts';
 import { AIController } from './controller.ts';
 import { AI_DECISION_INTERVAL_TICKS } from './constants.ts';
 import { getAIProfile, type AIProfile } from './profile.ts';
+import * as detMath from '../detMath.ts';
 
 export interface BatchSpawn {
   readonly teamId: number;
@@ -191,7 +192,7 @@ export function runBatchMatches(setup: BatchSetup, options: BatchOptions): Batch
       for (const start of before) {
         const tank = match.tanks.find((candidate) => candidate.id === start.id);
         if (!tank) continue;
-        distanceMoved += Math.hypot(tank.x - start.x, tank.z - start.z);
+        distanceMoved += detMath.hypot(tank.x - start.x, tank.z - start.z);
         aliveTankTicks += 1;
       }
       if (firstShotTick === null && match.stats.shotsFired > previousShots) {

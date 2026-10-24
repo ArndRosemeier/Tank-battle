@@ -18,6 +18,7 @@ import { describe, expect, it } from 'vitest';
 const CORE_DIR = fileURLToPath(new URL('.', import.meta.url));
 const SRC_DIR = fileURLToPath(new URL('..', import.meta.url));
 const RENDER_DIR = join(SRC_DIR, 'render');
+const GAME_DIR = join(SRC_DIR, 'game');
 
 /** The layer violations: the renderer, the DOM, a window, or a host clock/timer. */
 const HOST_OR_RENDERER =
@@ -25,6 +26,14 @@ const HOST_OR_RENDERER =
 
 /** The one randomness ban: `createRng` is the only draw source in the core. */
 const UNSEEDED_RANDOM = /\bMath\s*\.\s*random\b/;
+
+/**
+ * Engine-approximated math: the spec lets browsers differ in the last bit here, and
+ * online peers each run the simulation. `detMath.ts` is the one source instead.
+ * (`Math.sqrt/floor/round/abs/min/max/sign/imul/fround` are exact and allowed.)
+ */
+const ENGINE_APPROXIMATED_MATH =
+  /\bMath\s*\.\s*(?:sin|cos|tan|asin|acos|atan|atan2|sinh|cosh|tanh|asinh|acosh|atanh|hypot|exp|expm1|log|log1p|log2|log10|pow|cbrt)\b|\*\*/;
 
 interface SourceFile {
   readonly path: string;
@@ -44,9 +53,9 @@ function coreModules(): readonly SourceFile[] {
   return modules;
 }
 
-function allSourceModules(): readonly SourceFile[] {
+function allSourceModules(dirs: readonly string[] = [CORE_DIR, RENDER_DIR]): readonly SourceFile[] {
   const modules: SourceFile[] = [];
-  for (const dir of [CORE_DIR, RENDER_DIR]) {
+  for (const dir of dirs) {
     for (const entry of readdirSync(dir, { recursive: true, encoding: 'utf8' })) {
       if (!entry.endsWith('.ts') || entry.endsWith('.test.ts') || entry.endsWith('.spec.ts')) {
         continue;
@@ -101,6 +110,13 @@ describe('core purity', () => {
     expect(modules.length).toBeGreaterThanOrEqual(8);
 
     expect(findMatches(modules, UNSEEDED_RANDOM)).toEqual([]);
+  });
+
+  it('the simulation and the game layer use detMath, never engine-approximated Math functions', () => {
+    const modules = allSourceModules([CORE_DIR, GAME_DIR]).filter((module) => module.path !== 'core/detMath.ts');
+    expect(modules.length).toBeGreaterThanOrEqual(30);
+
+    expect(findMatches(modules, ENGINE_APPROXIMATED_MATH)).toEqual([]);
   });
 
   it('the terrain lattice spacing is defined once and the renderer imports it', () => {

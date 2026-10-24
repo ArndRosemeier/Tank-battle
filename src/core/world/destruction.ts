@@ -30,6 +30,7 @@ import {
   type FallingChunk,
   type World,
 } from './field.ts';
+import * as detMath from '../detMath.ts';
 
 /** A vertical cylinder the world must not put rock into (a tank's body). */
 export interface Occupant {
@@ -94,7 +95,7 @@ export function blastTerrain(
   for (let k = minK; k <= maxK; k += 1) {
     for (let i = minI; i <= maxI; i += 1) {
       for (let j = minJ; j <= maxJ; j += 1) {
-        const distance = Math.hypot(i * s - x, j * s - y, k * s - z);
+        const distance = detMath.hypot(i * s - x, j * s - y, k * s - z);
         if (distance > radiusMetres) continue;
         const index = j + world.ny * (i + world.nx * k);
         const before = world.density[index]!;
