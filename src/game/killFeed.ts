@@ -87,8 +87,9 @@ export function describeKill(
   notice: KillNotice,
   characters: readonly string[],
   playerTeamId = 0,
+  playerTeamIndex = 0,
 ): Omit<KillFeedRow, 'tick'> {
-  const victimIsPlayer = notice.victimTeamId === playerTeamId && notice.victimTeamIndex === 0;
+  const victimIsPlayer = notice.victimTeamId === playerTeamId && notice.victimTeamIndex === playerTeamIndex;
   const victimLabel = victimIsPlayer
     ? 'YOU'
     : notice.victimTeamId === playerTeamId

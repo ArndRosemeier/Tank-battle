@@ -30,6 +30,8 @@ export interface ScreensCallbacks {
   /** The setup screen's START: the chosen, validated setup. */
   readonly onStartSetup: (setup: MatchSetup) => void;
   readonly onSpectate: () => void;
+  /** The title's ONLINE button. */
+  readonly onOnline: () => void;
   /** The end screen's REMATCH. */
   readonly onRematch: () => void;
   readonly onResume: () => void;
@@ -47,6 +49,11 @@ export interface Screens {
   showSetup(): void;
   /** The end-of-match panel; `color` is the headline's palette colour. */
   showEnd(headline: string, detail: string, color: string): void;
+  /**
+   * Relabels the end panel's two buttons (online play has no local REMATCH: the host
+   * takes everyone back to the room). `rematch: null` hides the first button.
+   */
+  setEndActions(rematch: { label: string; sub: string; enabled: boolean } | null, quit: string): void;
   isEndOpen(): boolean;
   hideAll(): void;
   setSoundUnlocked(unlocked: boolean): void;
@@ -87,6 +94,7 @@ export function createScreens(initial: GameSettings, callbacks: ScreensCallbacks
   const endRematch = requireElement('end-rematch', HTMLButtonElement, 'rematch button');
   const endQuit = requireElement('end-quit', HTMLButtonElement, 'end quit button');
   const spectate = requireElement('title-spectate', HTMLButtonElement, 'spectate button');
+  const online = requireElement('title-online', HTMLButtonElement, 'online button');
   const settingsButton = requireElement('title-settings', HTMLButtonElement, 'settings button');
   const settingsBack = requireElement('settings-back', HTMLButtonElement, 'settings back button');
   const motionToggle = requireElement('settings-motion', HTMLButtonElement, 'reduced motion toggle');
@@ -284,6 +292,7 @@ export function createScreens(initial: GameSettings, callbacks: ScreensCallbacks
   bind(endRematch, callbacks.onRematch);
   bind(endQuit, callbacks.onQuit);
   bind(spectate, callbacks.onSpectate);
+  bind(online, callbacks.onOnline);
   bind(settingsButton, () => showSettings('title'));
   bind(settingsBack, () => {
     callbacks.onSettingsClosed(settingsOrigin);
@@ -335,6 +344,14 @@ export function createScreens(initial: GameSettings, callbacks: ScreensCallbacks
       endDetail.textContent = detail;
       setScreen('end');
       endRematch.focus({ preventScroll: true });
+    },
+    setEndActions(rematch, quitLabel): void {
+      endRematch.hidden = rematch === null;
+      if (rematch) {
+        endRematch.replaceChildren(rematch.label, Object.assign(document.createElement('span'), { textContent: rematch.sub }));
+        endRematch.disabled = !rematch.enabled;
+      }
+      endQuit.textContent = quitLabel;
     },
     isEndOpen(): boolean {
       return !endScreen.hidden;

@@ -142,6 +142,9 @@ export function createHud(): Hud {
     throw new Error('hud: reload arc must be an SVG element');
   }
 
+  // A second match on the same page (online rooms play several) rebuilds the rows.
+  squadList.replaceChildren();
+  feedList.replaceChildren();
   const playerSegments = segments(playerHp, 'hp-seg');
   const targetSegments = segments(targetHp, 'hp-seg');
   const squadRows: SquadRow[] = [];
