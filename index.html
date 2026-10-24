@@ -355,6 +355,8 @@
         outline: none;
       }
       .tron-button:active { background: rgba(0, 229, 255, 0.42); }
+      a.tron-button { text-decoration: none; box-sizing: border-box; }
+      .title-board { grid-column: 1 / -1; }
       .title-meta {
         display: grid;
         gap: 7px;
@@ -727,6 +729,7 @@
           <button id="title-spectate" class="tron-button" type="button">SPECTATE <span>ALL AI</span></button>
           <button id="title-settings" class="tron-button" type="button">SETTINGS <span>SYSTEM</span></button>
           <button id="title-whatsnew" class="tron-button" type="button">WHAT'S NEW <span id="title-version">V0.000</span></button>
+          <a id="title-board" class="tron-button title-board" href="https://board.futuremagic.de/" target="_blank" rel="noopener noreferrer">BOARD <span>DISCUSS · OPENS NEW TAB ↗</span></a>
         </div>
         <div class="title-meta">
           <div>WASD DRIVE · MOUSE LOOK + AIM · CLICK / SPACE FIRE · WHEEL ZOOM · C RECENTRE · ESC PAUSE · L DETAIL</div>
