@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { createRng } from './rng.ts';
 import {
-  blockAt,
-  cellAt,
-  cellState,
-  damageCell,
-  listShards,
-  shardDeflection,
-  shatterShard,
+  blastTerrain,
+  boxTerrain,
+  buildTerrain,
+  densityAt,
+  flatTerrain,
+  isSolidAt,
+  type TerrainBox,
   type WorldSpec,
 } from './world.ts';
 import {
@@ -37,16 +36,18 @@ import {
 } from './sim.ts';
 import { ScriptedController as Scripted } from './sim/controller.ts';
 
-const FLOOR = 0.25;
+const FLOOR = 1.5;
 const TICK = 1 / 60;
 
-function level(overrides: Partial<WorldSpec> = {}): WorldSpec {
-  return {
-    columns: 12,
-    rows: 12,
-    floorSurfaceHeightMetres: FLOOR,
-    ...overrides,
-  };
+/** A flat 24 × 24 m field (16 cells of 1.5 m), optionally with upright blocks. */
+function level(options: { cellsX?: number; boxes?: readonly TerrainBox[] } = {}): WorldSpec {
+  const cellsX = options.cellsX ?? 16;
+  return options.boxes ? boxTerrain(cellsX, 16, FLOOR, options.boxes) : flatTerrain(cellsX, 16, FLOOR);
+}
+
+/** A wall block across x 0…24 between two z planes, 3 m tall. */
+function wallAcross(minZ: number, maxZ: number): TerrainBox {
+  return { minX: -3, maxX: 27, minZ, maxZ, topMetres: FLOOR + 3 };
 }
 
 function duel(options: {
@@ -122,30 +123,29 @@ function tankAt(state: MatchState, id: number) {
 }
 
 describe('the combat core', () => {
-  it('a tank cannot drive into a wall cell but can drive over a floor hole', () => {
-    const wallWorld = level({
-      placements: [{ x: 2, z: 2, material: 'wall', heightMetres: 3 }],
-    });
+  it('a tank cannot drive into a wall but drives down into and out of a crater', () => {
     const blocked = duel({
-      world: wallWorld,
-      shooter: { xMetres: 5, zMetres: 9, hullYawDegrees: 0 },
+      world: level({ boxes: [wallAcross(3, 6)] }),
+      shooter: { xMetres: 5, zMetres: 10, hullYawDegrees: 0 },
     });
-    for (let tick = 0; tick < 60; tick += 1) {
+    for (let tick = 0; tick < 90; tick += 1) {
       step(blocked, onlyOverrides([[0, { throttle: 1 }]]));
     }
-    // The wall cell is z = 4…6; a radius-1 tank stops with its centre at z ≈ 7.
-    expect(tankAt(blocked, 0).z).toBeGreaterThanOrEqual(7 - 1e-9);
-    expect(tankAt(blocked, 0).z).toBeLessThan(9);
+    // The wall face is at z = 6; the hull (radius 1, probes 1 m ahead) stops short of it.
+    expect(tankAt(blocked, 0).z).toBeGreaterThan(6.5);
+    expect(tankAt(blocked, 0).z).toBeLessThan(10);
+    expect(tankAt(blocked, 0).y).toBeCloseTo(FLOOR, 1);
 
-    const holeWorld = level();
-    const holeMatch = duel({ world: holeWorld, shooter: { xMetres: 5, zMetres: 9 } });
-    // Destroy the floor cell the tank is heading for.
-    damageCell(holeMatch.world, 2, 2, 1, createRng(3));
-    expect(cellState(cellAt(holeMatch.world, 2, 2))).toBe('hole');
-    for (let tick = 0; tick < 40; tick += 1) {
-      step(holeMatch, onlyOverrides([[0, { throttle: 1 }]]));
+    const craterMatch = duel({ shooter: { xMetres: 5, zMetres: 12, hullYawDegrees: 0 } });
+    blastTerrain(craterMatch.world, 5, FLOOR, 7);
+    let lowest = Infinity;
+    for (let tick = 0; tick < 90; tick += 1) {
+      step(craterMatch, onlyOverrides([[0, { throttle: 1 }]]));
+      lowest = Math.min(lowest, tankAt(craterMatch, 0).y);
     }
-    expect(tankAt(holeMatch, 0).z).toBeLessThan(7);
+    expect(lowest).toBeLessThan(FLOOR - 0.3);
+    expect(tankAt(craterMatch, 0).z).toBeLessThan(4);
+    expect(tankAt(craterMatch, 0).alive).toBe(true);
   });
 
   it('a tank cannot drive through another tank', () => {
@@ -201,8 +201,7 @@ describe('the combat core', () => {
     expect(() =>
       matchWithTeams([
         { id: 0, tanks: [{ xMetres: 5, zMetres: 5 }] },
-        // Cell (2, 2) is x 4…6; cell (3, 2) is x 6…8. The centres are 1.9 m apart,
-        // so the SAME-CELL check cannot catch this one; only circle overlap can.
+        // The centres are 1.9 m apart: only circle overlap can catch this one.
         { id: 1, tanks: [{ xMetres: 6.9, zMetres: 5 }] },
       ]),
     ).toThrow(/overlaps/);
@@ -212,17 +211,15 @@ describe('the combat core', () => {
     // A wall directly north; a diagonal north-east move must slide east rather than
     // stop dead. The tank starts clear of the wall and drives until it reaches it.
     const state = duel({
-      world: level({
-        placements: Array.from({ length: 12 }, (_, x) => ({ x, z: 2, material: 'wall' as const, heightMetres: 3 })),
-      }),
-      shooter: { xMetres: 4.7, zMetres: 9, hullYawDegrees: -45 },
+      world: level({ boxes: [wallAcross(3, 6)] }),
+      shooter: { xMetres: 4.7, zMetres: 10, hullYawDegrees: -45 },
     });
     for (let tick = 0; tick < 60; tick += 1) {
       step(state, onlyOverrides([[0, { throttle: 1 }]]));
     }
     const tank = tankAt(state, 0);
-    expect(tank.x).toBeGreaterThan(4.7);
-    expect(tank.z).toBeGreaterThanOrEqual(7 - 1e-9);
+    expect(tank.x).toBeGreaterThan(4.7 + 3);
+    expect(tank.z).toBeGreaterThan(6.5);
   });
 
   it('throttle and steer produce the documented speed and turn rate', () => {
@@ -294,7 +291,7 @@ describe('the combat core', () => {
   });
 
   it('a shell advances the documented distance per tick and despawns at max range', () => {
-    const wide = level({ columns: 80, rows: 12 });
+    const wide = level({ cellsX: 107 });
     const state = duel({
       world: wide,
       shooter: { xMetres: 10, zMetres: 10, hullYawDegrees: -90, turretYawDegrees: -90 },
@@ -319,69 +316,60 @@ describe('the combat core', () => {
     expect(ticks).toBeGreaterThanOrEqual(Math.floor(SHELL_RANGE_METRES / SHELL_METRES_PER_TICK));
   });
 
-  it('a shell that strikes a wall cell damages it by one and despawns', () => {
+  it('a shell that strikes a wall blasts a crater into it and despawns', () => {
     const state = duel({
-      world: level({ placements: [{ x: 2, z: 5, material: 'wall', heightMetres: 3 }] }),
-      shooter: { xMetres: 5, zMetres: 16, hullYawDegrees: 0, turretYawDegrees: 0 },
+      world: level({ boxes: [wallAcross(9, 12)] }),
+      shooter: { xMetres: 5, zMetres: 20, hullYawDegrees: 0, turretYawDegrees: 0 },
     });
-    const wallBefore = cellAt(state.world, 2, 5);
-    expect(wallBefore.hp).toBe(2);
+    const probe = { x: 5, y: FLOOR + MUZZLE_HEIGHT_METRES, z: 12.2 };
+    expect(isSolidAt(state.world, probe.x, probe.y, probe.z - 0.5)).toBe(true);
+    const revision = state.world.revision;
     step(state, onlyOverrides([[0, { fire: true }]]));
     for (let tick = 0; tick < 5 && state.shells.length > 0; tick += 1) {
       step(state);
     }
     expect(state.shells).toHaveLength(0);
-    expect(cellAt(state.world, 2, 5).hp).toBe(1);
+    expect(state.world.revision).toBeGreaterThan(revision);
+    // The face where the shell struck is now open air.
+    expect(isSolidAt(state.world, probe.x, probe.y, probe.z - 0.5)).toBe(false);
   });
 
-  it('a shell aimed downward breaks the floor cell it strikes', () => {
+  it('a shell aimed downward blasts a crater into the ground it strikes', () => {
     const state = duel({ shooter: { xMetres: 5, zMetres: 16, hullYawDegrees: 0, turretYawDegrees: 0, aimPitchDegrees: -30 } });
+    // The descending path meets the ground about 5 m ahead of the muzzle.
+    const before = densityAt(state.world, 5, FLOOR - 0.5, 10.9);
     step(state, onlyOverrides([[0, { fire: true }]]));
     for (let tick = 0; tick < 8 && state.shells.length > 0; tick += 1) {
       step(state);
     }
-    // The floor cell under the descending path, not the shooter's own cell.
-    expect(cellState(cellAt(state.world, 2, 5))).toBe('hole');
+    expect(densityAt(state.world, 5, FLOOR - 0.5, 10.9)).toBeLessThan(before);
+    // Not under the shooter.
+    expect(densityAt(state.world, 5, FLOOR - 0.5, 16)).toBe(before);
   });
 
-  it('a wall between the hull and the muzzle stops the shell on the spawn tick and the reload is still spent', () => {
+  it('rock between the hull and the muzzle stops the shell on the spawn tick and the reload is still spent', () => {
+    // The tank stands 1.5 m from a wall; its 3 m barrel reaches into the rock.
     const state = duel({
-      world: level({ placements: [{ x: 2, z: 6, material: 'wall', heightMetres: 3 }] }),
-      shooter: { xMetres: 5, zMetres: 15, hullYawDegrees: 0, turretYawDegrees: 0 },
+      world: level({ boxes: [wallAcross(9, 12)] }),
+      shooter: { xMetres: 5, zMetres: 14, hullYawDegrees: 0, turretYawDegrees: 0 },
     });
-    expect(cellAt(state.world, 2, 6).hp).toBe(2);
+    const revision = state.world.revision;
 
     step(state, onlyOverrides([[0, { fire: true }]]));
 
     expect(state.shells).toHaveLength(0);
-    expect(cellAt(state.world, 2, 6).hp).toBe(1);
+    expect(state.world.revision).toBeGreaterThan(revision);
     expect(tankAt(state, 0).reloadTicksRemaining).toBe(RELOAD_TICKS);
     expect(state.stats.shotsFired).toBe(1);
   });
 
-  it('a shell that spawns inside a solid cell resolves that hit exactly once', () => {
-    const state = duel({
-      world: level({ placements: [{ x: 2, z: 5, material: 'wall', heightMetres: 3 }] }),
-      shooter: { xMetres: 5, zMetres: 13.5, hullYawDegrees: 0, turretYawDegrees: 0 },
-    });
-    // The muzzle is at z = 10.5, inside the wall cell occupying 10…12 m.
-    step(state, onlyOverrides([[0, { fire: true }]]));
 
-    expect(state.shells).toHaveLength(0);
-    expect(cellAt(state.world, 2, 5).hp).toBe(1);
-    expect(blockAt(state.world, 2, 5)).toBeNull();
-    expect(tankAt(state, 0).reloadTicksRemaining).toBe(RELOAD_TICKS);
-    expect(state.stats.shotsFired).toBe(1);
-  });
 
-  it('attributes a destroyed cell to the team that fired the shell', () => {
+  it('attributes blasted rock to the team that fired the shell', () => {
     const state = duel({
-      world: level({ placements: [{ x: 2, z: 5, material: 'wall', heightMetres: 3 }] }),
-      shooter: { xMetres: 5, zMetres: 16, hullYawDegrees: 0, turretYawDegrees: 0 },
+      world: level({ boxes: [wallAcross(9, 12)] }),
+      shooter: { xMetres: 5, zMetres: 20, hullYawDegrees: 0, turretYawDegrees: 0 },
     });
-    // Leave the wall at one HP; the next shell is the destroying shot.
-    damageCell(state.world, 2, 5, 1, createRng(7));
-    expect(cellAt(state.world, 2, 5).hp).toBe(1);
     expect(state.stats.worldDestructionByTeam[0]).toBe(0);
     expect(state.stats.worldDestructionByTeam[1]).toBe(0);
 
@@ -390,79 +378,16 @@ describe('the combat core', () => {
       step(state);
     }
 
-    expect(cellState(cellAt(state.world, 2, 5))).toBe('hole');
-    expect(state.stats.worldDestructionByTeam[0]).toBe(1);
+    expect(state.stats.worldDestructionByTeam[0]).toBeGreaterThan(0);
+    expect(state.stats.worldDamageByTeam[0]).toBeGreaterThanOrEqual(state.stats.worldDestructionByTeam[0]!);
     expect(state.stats.worldDestructionByTeam[1]).toBe(0);
   });
 
-  it('a shell that strikes a big block damages it', () => {
-    const state = duel({
-      world: level({ placements: [{ x: 2, z: 5, material: 'wall', heightMetres: 3 }] }),
-      shooter: { xMetres: 5, zMetres: 16, hullYawDegrees: 0, turretYawDegrees: 0 },
-    });
-    const destroyed = damageCell(state.world, 2, 5, 2, createRng(7));
-    expect(destroyed.destroyedNow).toBe(true);
-    expect(blockAt(state.world, 2, 5)?.hp).toBe(2);
-    step(state, onlyOverrides([[0, { fire: true }]]));
-    for (let tick = 0; tick < 8 && state.shells.length > 0; tick += 1) {
-      step(state);
-    }
-    expect(state.shells).toHaveLength(0);
-    expect(blockAt(state.world, 2, 5)?.hp).toBe(1);
-  });
 
-  it('a moving tank shoves floor shards out of its cell', () => {
-    const state = duel({ shooter: { xMetres: 5, zMetres: 9, hullYawDegrees: 0 } });
-    damageCell(state.world, 2, 2, 1, createRng(3));
-    expect(listShards(state.world).filter((shard) => shard.x === 2 && shard.z === 2)).toHaveLength(3);
-    for (let tick = 0; tick < 45; tick += 1) {
-      step(state, onlyOverrides([[0, { throttle: 1 }]]));
-    }
-    expect(listShards(state.world).filter((shard) => shard.x === 2 && shard.z === 2)).toHaveLength(0);
-  });
 
-  it('a shard shatters and deflects the shell at its stored mirror angle', () => {
-    const state = duel({
-      shooter: { xMetres: 5, zMetres: 16, hullYawDegrees: 0, turretYawDegrees: 0, aimPitchDegrees: -30 },
-    });
-    // Make a clear 3×3 wound around the target cell, keep exactly one shard in it.
-    for (let z = 4; z <= 6; z += 1) {
-      for (let x = 1; x <= 3; x += 1) {
-        damageCell(state.world, x, z, 1, createRng(x * 10 + z));
-      }
-    }
-    const centreShard = listShards(state.world).find(
-      (candidate) => candidate.x === 2 && candidate.z === 5,
-    );
-    if (!centreShard) throw new Error('test: no shard in the target cell');
-    for (const shard of [...listShards(state.world)]) {
-      if (shard.id !== centreShard.id) {
-        shatterShard(state.world, shard.id);
-      }
-    }
-    const shards = listShards(state.world);
-    expect(shards).toHaveLength(1);
-    const shard = shards[0];
-    if (!shard) throw new Error('test: no shard');
-    const horizontalBefore = { x: 0, z: -1 };
-    const reflected = shardDeflection(shard, horizontalBefore);
-    const before = state.world.shards.length;
 
-    step(state, onlyOverrides([[0, { fire: true }]]));
-    for (let tick = 0; tick < 8 && state.shells.length > 0; tick += 1) {
-      step(state);
-    }
-    expect(state.world.shards.length).toBe(before - 1);
-    const shell = state.shells[0];
-    expect(shell).toBeDefined();
-    if (shell) {
-      // The horizontal direction is the stored mirror reflection; the vertical
-      // component is unchanged by a 2D shard facet.
-      expect(shell.dx).toBeCloseTo(reflected.x * Math.cos((-30 * Math.PI) / 180), 6);
-      expect(shell.dz).toBeCloseTo(reflected.z * Math.cos((-30 * Math.PI) / 180), 6);
-      expect(shell.dy).toBeCloseTo(Math.sin((-30 * Math.PI) / 180), 9);
-    }
-  });
+
+
 
   it('a shell striking an enemy tank deals one damage and despawns; three kill', () => {
     const state = duel({
@@ -717,5 +642,102 @@ describe('the combat core', () => {
       step(state, onlyOverrides([[0, { fire: 1 as unknown as boolean }]])),
     ).toThrow(/fire/);
     expect(state.tick).toBe(0);
+  });
+});
+
+describe('tanks on a landscape', () => {
+  it('drives up a ramp: the hull rises and pitches nose-up, and slows on the climb', () => {
+    // A 25° ramp rising towards −z from z = 14, topping out 4 m up.
+    const ramp = buildTerrain({
+      cellsX: 16,
+      cellsY: 8,
+      cellsZ: 16,
+      sample: (_x, y, z) => ({ solidity: Math.min(FLOOR + 4, FLOOR + Math.max(0, 14 - z) * Math.tan((25 * Math.PI) / 180)) - y }),
+    });
+    const state = duel({ world: ramp, shooter: { xMetres: 5, zMetres: 18, hullYawDegrees: 0 } });
+    let pitched = false;
+    let slowest = Infinity;
+    for (let tick = 0; tick < 300; tick += 1) {
+      const z = tankAt(state, 0).z;
+      step(state, onlyOverrides([[0, { throttle: 1 }]]));
+      if (tankAt(state, 0).hullPitchDegrees > 15) {
+        pitched = true;
+        slowest = Math.min(slowest, z - tankAt(state, 0).z);
+      }
+    }
+    expect(pitched).toBe(true);
+    expect(tankAt(state, 0).y).toBeGreaterThan(FLOOR + 3.5);
+    // Climbing costs speed, but the tank still makes headway.
+    expect(slowest).toBeLessThan(TANK_SPEED_METRES_PER_SECOND * TICK * 0.8);
+    expect(slowest).toBeGreaterThan(TANK_SPEED_METRES_PER_SECOND * TICK * 0.3);
+  });
+
+  it('a wall steeper than the climb limit stops the tank', () => {
+    const state = duel({
+      world: level({ boxes: [wallAcross(3, 6)] }),
+      shooter: { xMetres: 5, zMetres: 10, hullYawDegrees: 0 },
+    });
+    for (let tick = 0; tick < 120; tick += 1) step(state, onlyOverrides([[0, { throttle: 1 }]]));
+    expect(tankAt(state, 0).y).toBeLessThan(FLOOR + 0.5);
+  });
+
+  it('drives off a cliff, falls under gravity and takes fall damage on a hard landing', () => {
+    // A 12 m mesa over the west half of the field.
+    const mesa = buildTerrain({
+      cellsX: 16,
+      cellsY: 12,
+      cellsZ: 16,
+      sample: (x, y) => ({ solidity: Math.max(FLOOR - y, Math.min(12 - x, FLOOR + 12 - y)) }),
+    });
+    const state = duel({
+      world: mesa,
+      shooter: { xMetres: 8, zMetres: 5, hullYawDegrees: -90 },
+      target: { xMetres: 20, zMetres: 20 },
+    });
+    expect(tankAt(state, 0).y).toBeCloseTo(FLOOR + 12, 0);
+    let fell = false;
+    for (let tick = 0; tick < 150 && tankAt(state, 0).alive; tick += 1) {
+      step(state, onlyOverrides([[0, { throttle: tick < 60 ? 1 : 0 }]]));
+      if (tankAt(state, 0).verticalSpeed < -5) fell = true;
+    }
+    expect(fell).toBe(true);
+    const tank = tankAt(state, 0);
+    expect(tank.hp).toBeLessThan(TANK_MAX_HP);
+    if (tank.alive) expect(tank.y).toBeCloseTo(FLOOR, 0);
+    else expect(tank.deathCause).toBe('terrain');
+  });
+
+  it('shooting out a stem drops the rock above it on a tank and credits the shooter', () => {
+    // A mushroom: a 1.2 m stem holding a 4 m cap whose underside is 5 m up.
+    const mushroom = buildTerrain({
+      cellsX: 16,
+      cellsY: 8,
+      cellsZ: 16,
+      sample: (x, y, z) => {
+        const r = Math.hypot(x - 12, z - 12);
+        const stem = Math.min(1.2 - r, FLOOR + 6 - y);
+        const cap = Math.min(4 - r, y - (FLOOR + 5), FLOOR + 6.5 - y);
+        return { solidity: Math.max(FLOOR - y, stem, cap) };
+      },
+    });
+    const state = duel({
+      world: mushroom,
+      shooter: { xMetres: 3, zMetres: 12, hullYawDegrees: -90, turretYawDegrees: -90 },
+      target: { xMetres: 14.6, zMetres: 12, hullYawDegrees: 0 },
+    });
+    let crushed = false;
+    for (let tick = 0; tick < 200 && state.status === 'active'; tick += 1) {
+      step(state, onlyOverrides([[0, { fire: tick === 0 }]]));
+      if (tankAt(state, 1).hp < TANK_MAX_HP) crushed = true;
+    }
+    expect(crushed).toBe(true);
+    const victim = tankAt(state, 1);
+    if (!victim.alive) {
+      expect(victim.deathCause).toBe('terrain');
+      expect(victim.killedByTeamId).toBe(0);
+    }
+    // The cap no longer stands over the stem's old place.
+    expect(isSolidAt(state.world, 12, FLOOR + 5.7, 12)).toBe(false);
+    expect(state.world.chunks).toHaveLength(0);
   });
 });

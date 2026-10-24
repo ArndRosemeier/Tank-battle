@@ -218,6 +218,9 @@ export interface CameraPoseRequest {
 export function cameraPose(request: CameraPoseRequest): CameraPose {
   const { name, arena, floorY, focus, focusYawDegrees } = request;
   requireFinite(floorY, 'floorY');
+  requireFinite(focus.y, 'focus.y');
+  // The tank's own ground: on a hill the close poses ride with it.
+  const groundY = focus.y;
   const forward = forwardFromYawDegrees(focusYawDegrees);
 
   switch (name) {
@@ -247,7 +250,7 @@ export function cameraPose(request: CameraPoseRequest): CameraPose {
     case 'tank': {
       const eye: Vec3 = {
         x: focus.x,
-        y: floorY + CAMERA.focusHeightMetres,
+        y: groundY + CAMERA.focusHeightMetres,
         z: focus.z,
       };
       const yaw = (CAMERA.tankPoseYawOffsetDegrees * Math.PI) / 180;
@@ -272,7 +275,7 @@ export function cameraPose(request: CameraPoseRequest): CameraPose {
       return spectatorPose({
         centerX: focus.x,
         centerZ: focus.z,
-        floorY,
+        floorY: groundY,
         yawDegrees: focusYawDegrees + CAMERA.teamPoseYawOffsetDegrees,
         distanceMetres: CAMERA.teamPoseDistanceMetres,
         pitchDegrees: CAMERA.teamPosePitchDegrees,
@@ -281,7 +284,7 @@ export function cameraPose(request: CameraPoseRequest): CameraPose {
     case 'first': {
       const eye: Vec3 = {
         x: focus.x + forward.x * 0.35,
-        y: floorY + CAMERA.eyeHeightMetres,
+        y: groundY + CAMERA.eyeHeightMetres,
         z: focus.z + forward.z * 0.35,
       };
       const pitchRadians = (CAMERA.firstPersonPitchDegrees * Math.PI) / 180;
@@ -302,7 +305,7 @@ export function cameraPose(request: CameraPoseRequest): CameraPose {
       const eye: Vec3 = {
         x:
           focus.x - forward.x * CAMERA.combatBackMetres + right.x * CAMERA.combatSideMetres,
-        y: floorY + CAMERA.combatUpMetres,
+        y: groundY + CAMERA.combatUpMetres,
         z:
           focus.z - forward.z * CAMERA.combatBackMetres + right.z * CAMERA.combatSideMetres,
       };
@@ -310,7 +313,7 @@ export function cameraPose(request: CameraPoseRequest): CameraPose {
         position: eye,
         target: {
           x: focus.x + forward.x * CAMERA.combatLookAheadMetres,
-          y: floorY + CAMERA.combatTargetHeightMetres,
+          y: groundY + CAMERA.combatTargetHeightMetres,
           z: focus.z + forward.z * CAMERA.combatLookAheadMetres,
         },
         up: UP,

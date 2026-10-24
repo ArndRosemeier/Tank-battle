@@ -8,14 +8,15 @@
  *    count);
  *  - `hits` — shells or swept-muzzle shots that DAMAGED an enemy tank (a teammate's
  *    body is not a hit, and a wall/block hit is not a tank hit);
- *  - `kills` — tanks killed by a shell or a muzzle hit;
+ *  - `kills` — tanks killed by a shell or a muzzle hit (a rockfall kill is a
+ *    `terrain` death, credited to the team that broke the rock loose but not a kill);
  *  - `damageDealt` — HP removed from tanks by shells/muzzle shots (clock damage is not
  *    "dealt");
  *  - `causes` — where every tank death came from; `kills` equals `causes.shell`.
  */
 
-/** How a tank died. The owner's clock is a real kill path (Q1). */
-export type DeathCause = 'shell' | 'clock';
+/** How a tank died. The owner's clock is a real kill path (Q1); `terrain` is a rockfall or a fall. */
+export type DeathCause = 'shell' | 'clock' | 'terrain';
 
 /** Why the match stopped. A tick-cap tie is a draw, not a winner. */
 export type MatchOutcome = 'last-team' | 'tick-cap' | 'draw';
@@ -27,13 +28,13 @@ export interface MatchStats {
   damageDealt: number;
   /** The tick the match has reached; mirrors `MatchState.tick`. */
   ticks: number;
-  /** Deaths by cause. `shell + clock` equals the number of dead tanks. */
+  /** Deaths by cause. `shell + clock + terrain` equals the number of dead tanks. */
   readonly causes: Record<DeathCause, number>;
   /** Tank HP removed by shells, attributed to the firing team. */
   readonly damageByTeam: Record<number, number>;
-  /** World cells/block HP removed, attributed to the firing team. */
+  /** Terrain samples damaged, attributed to the firing team. */
   readonly worldDamageByTeam: Record<number, number>;
-  /** Cells destroyed plus big blocks broken, by firing team. */
+  /** Terrain samples blasted from solid to air, by firing team. */
   readonly worldDestructionByTeam: Record<number, number>;
   winnerTeamId: number | null;
   outcome: MatchOutcome | null;
@@ -47,7 +48,7 @@ export function createMatchStats(): MatchStats {
     kills: 0,
     damageDealt: 0,
     ticks: 0,
-    causes: { shell: 0, clock: 0 },
+    causes: { shell: 0, clock: 0, terrain: 0 },
     damageByTeam: { 0: 0, 1: 0, 2: 0, 3: 0 },
     worldDamageByTeam: { 0: 0, 1: 0, 2: 0, 3: 0 },
     worldDestructionByTeam: { 0: 0, 1: 0, 2: 0, 3: 0 },

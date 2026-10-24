@@ -2,13 +2,16 @@
  * One deterministic simulation tick.
  *
  * Phase order (fixed, and part of the contract):
- *  1. commands are validated; hull steering, turret slew and drive happen;
- *  2. the A1 world advances one tick (regeneration + occupant displacement);
+ *  1. commands are validated; hull steering, turret slew, drive over the terrain and
+ *     the vertical settle (ground following, falling, landing) happen per tank;
+ *  2. the world advances one tick: falling chunks drop, land or crush tanks, and the
+ *     regeneration clock runs;
  *  3. the wound clock bleeds already-wounded tanks (a tank damaged in phase 5 starts
  *     its clock next tick);
- *  4. shells already in flight advance and resolve collisions; the last-team check
- *     happens AFTER those shells, so a clock death and a shell in flight in the same
- *     tick are resolved in one deterministic order;
+ *  4. shells already in flight advance and resolve collisions; a terrain hit carves a
+ *     crater, which can break rock loose; the last-team check happens AFTER those
+ *     shells, so a clock death and a shell in flight in the same tick are resolved in
+ *     one deterministic order;
  *  5. if the match is still active, live tanks fire: the barrel segment from the
  *     turret origin to the muzzle is swept first; a muzzle hit resolves immediately
  *     (and can end the match if it removes the last team), otherwise a shell is spawned;
@@ -23,30 +26,30 @@
 
 import { STEP_SECONDS } from '../timestep.ts';
 import {
-  blockAt,
-  cellAt,
-  damageBlock,
-  damageCell,
-  shardDeflection,
-  shatterShard,
-  shoveShard,
+  GRAVITY_METRES_PER_SECOND_SQUARED,
+  blastTerrain,
+  groundBelow,
+  raycastTerrain,
   stepWorld,
-  type Cell,
-  type Shard,
+  type DebrisEvent,
+  type Occupant,
 } from '../world.ts';
 import {
-  CELL_SIZE_METRES,
   MUZZLE_FORWARD_METRES,
   MUZZLE_HEIGHT_METRES,
   RELOAD_TICKS,
   SHELL_DAMAGE,
   SHELL_METRES_PER_TICK,
   SHELL_RANGE_METRES,
-  SHARD_HIT_HEIGHT_METRES,
+  TANK_FALL_DAMAGE_SPEEDS,
   TANK_HEIGHT_METRES,
+  TANK_MAX_SLOPE_DEGREES,
   TANK_RADIUS_METRES,
+  TANK_SNAP_DOWN_SLOPE,
   TANK_SPEED_METRES_PER_SECOND,
+  TANK_STEP_METRES,
   TANK_TURN_RATE_DEGREES_PER_SECOND,
+  TANK_UPHILL_SPEED_FLOOR,
   TURRET_RATE_DEGREES_PER_SECOND,
 } from './constants.ts';
 import {
@@ -61,16 +64,20 @@ import {
   normaliseDegrees,
   pointAt,
   rotateTowards,
-  segmentAabbIntersection,
   segmentCircleIntersection,
   segmentCylinderIntersection,
   type Vec3,
 } from './geometry.ts';
-import { isTankPositionFree, type MatchState, type Shell, type Tank, type PresentationEvent } from './match.ts';
-import type { MatchOutcome } from './stats.ts';
+import type { MatchState, Shell, Tank, PresentationEvent } from './match.ts';
+import type { DeathCause, MatchOutcome } from './stats.ts';
+import { bodyHeadroomClear, footprintInsideArena, hullPoseAt, type HullPose } from './terrainBody.ts';
 import { teamTurnOrder } from './turnOrder.ts';
 
 const EPSILON = 1e-9;
+const MAX_SLOPE_TAN = Math.tan((TANK_MAX_SLOPE_DEGREES * Math.PI) / 180);
+/** A tank resting within this of the ground counts as on it. */
+const GROUND_TOLERANCE_METRES = 0.05;
+
 function emit(state: MatchState, event: PresentationEvent): void {
   if (state.capturePresentationEvents) (state.presentationEvents ??= []).push(event);
 }
@@ -100,7 +107,7 @@ export function stepMatch(state: MatchState, orders: readonly TankCommandOrder[]
     applyCommand(state, tank, command, turnOrder);
   }
 
-  advanceWorld(state);
+  advanceWorld(state, turnOrder);
   bleedWoundedTanks(state, turnOrder);
   advanceShells(state, turnOrder);
 
@@ -165,7 +172,7 @@ function validateOrders(
   return commands;
 }
 
-/** Hull turn, turret/pitch slew, drive, and the reload countdown for one tank. */
+/** Hull turn, turret/pitch slew, drive, settle, and the reload countdown for one tank. */
 function applyCommand(state: MatchState, tank: Tank, command: TankCommand, turnOrder: readonly number[]): void {
   tank.hullYawDegrees = normaliseDegrees(
     tank.hullYawDegrees + command.steer * TANK_TURN_RATE_DEGREES_PER_SECOND * STEP_SECONDS,
@@ -174,14 +181,17 @@ function applyCommand(state: MatchState, tank: Tank, command: TankCommand, turnO
   tank.turretYawDegrees = rotateTowards(tank.turretYawDegrees, command.aimYaw, turretStep);
   tank.aimPitchDegrees = moveTowards(tank.aimPitchDegrees, command.aimPitch, turretStep);
 
-  const distance = command.throttle * TANK_SPEED_METRES_PER_SECOND * STEP_SECONDS;
-  if (distance !== 0) {
+  let moved = 0;
+  // Tracks only push while they touch the ground: a falling tank keeps its x/z.
+  if (command.throttle !== 0 && tank.verticalSpeed === 0) {
+    const climb = Math.tan((tank.hullPitchDegrees * Math.PI) / 180) * Math.sign(command.throttle);
+    const uphill = Math.max(0, Math.min(1, climb / MAX_SLOPE_TAN));
+    const speedScale = 1 - (1 - TANK_UPHILL_SPEED_FLOOR) * uphill;
+    const distance = command.throttle * TANK_SPEED_METRES_PER_SECOND * STEP_SECONDS * speedScale;
     const forward = forwardFromYaw(tank.hullYawDegrees);
-    const moved = moveTank(state, tank, forward.x * distance, forward.z * distance, turnOrder);
-    if (moved.x !== 0 || moved.z !== 0) {
-      shoveShardsUnderTank(state, tank, moved.x, moved.z);
-    }
+    moved = moveTank(state, tank, forward.x * distance, forward.z * distance, turnOrder);
   }
+  settleTank(state, tank, moved);
 
   if (tank.reloadTicksRemaining > 0) {
     tank.reloadTicksRemaining -= 1;
@@ -202,46 +212,118 @@ function orderedTanks(state: MatchState, turnOrder: readonly number[]): readonly
 
 /**
  * Tries the full move, then the x-only slide, then the z-only slide. A candidate is
- * allowed only when the world is free at its endpoint AND the swept circle does not
- * pass through a live tank before that endpoint. A hard stop is the last resort.
+ * allowed when the terrain lets the hull stand there (`terrainMove`) AND the swept
+ * circle does not pass through a live tank. Returns the horizontal distance moved.
  */
-function moveTank(state: MatchState, tank: Tank, dx: number, dz: number, turnOrder: readonly number[]): { x: number; z: number } {
-  const full = canTankMoveTo(state, tank, tank.x + dx, tank.z + dz, turnOrder);
-  if (full) {
-    tank.x += dx;
-    tank.z += dz;
-    return { x: dx, z: dz };
+function moveTank(state: MatchState, tank: Tank, dx: number, dz: number, turnOrder: readonly number[]): number {
+  const candidates: readonly (readonly [number, number])[] = [[dx, dz], [dx, 0], [0, dz]];
+  for (const [cx, cz] of candidates) {
+    if (cx === 0 && cz === 0) continue;
+    const x = tank.x + cx;
+    const z = tank.z + cz;
+    const pose = terrainMove(state, tank, x, z, Math.hypot(cx, cz));
+    if (!pose || tankBodyBlocksMove(state, tank, x, z, turnOrder)) continue;
+    tank.x = x;
+    tank.z = z;
+    if (pose.y > tank.y) {
+      // Climbing: the hull rises onto the new ground at once.
+      tank.y = pose.y;
+    }
+    return Math.hypot(cx, cz);
   }
-  if (canTankMoveTo(state, tank, tank.x + dx, tank.z, turnOrder)) {
-    tank.x += dx;
-    return { x: dx, z: 0 };
-  }
-  if (canTankMoveTo(state, tank, tank.x, tank.z + dz, turnOrder)) {
-    tank.z += dz;
-    return { x: 0, z: dz };
-  }
-  return { x: 0, z: 0 };
-}
-
-function canTankMoveTo(state: MatchState, tank: Tank, x: number, z: number, turnOrder: readonly number[]): boolean {
-  if (!isTankPositionFree(state.world, x, z)) {
-    return false;
-  }
-  return !tankBodyBlocksMove(state, tank, x, z, turnOrder);
+  return 0;
 }
 
 /**
- * The swept circle-vs-circle test against every other live tank. The sum of the two
- * radii is the contact distance. Starting exactly on contact is allowed when the move
- * does not end inside; a candidate that would pass through is blocked even if its
- * endpoint is clear. Max speed moves 0.1 m/tick, well below the 2 m body diameter, so
- * the sweep also makes the no-tunnelling property explicit rather than incidental.
+ * The terrain half of a move. The ground ahead may rise by the slope allowance for
+ * this distance, or by up to a small ledge if the hull's pitch stays climbable; rock in
+ * the body's headroom (a wall, a low cave ceiling) blocks.
+ */
+function terrainMove(state: MatchState, tank: Tank, x: number, z: number, distance: number): HullPose | null {
+  const world = state.world;
+  if (!footprintInsideArena(world, x, z)) return null;
+  const fromY = tank.y + TANK_STEP_METRES + distance * MAX_SLOPE_TAN;
+  const pose = hullPoseAt(world, x, z, tank.hullYawDegrees, fromY);
+  if (pose.y >= fromY - EPSILON) return null;
+  const rise = pose.y - tank.y;
+  if (rise > distance * MAX_SLOPE_TAN + 0.02) {
+    // Steeper than a slope: only a ledge the hull can pitch over.
+    if (rise > TANK_STEP_METRES || Math.abs(pose.pitchDegrees) > TANK_MAX_SLOPE_DEGREES) return null;
+  }
+  if (!bodyHeadroomClear(world, x, Math.max(pose.y, tank.y), z)) return null;
+  return pose;
+}
+
+/**
+ * Ground following and gravity. A tank on the ground follows it down a slope; when the
+ * ground falls away faster than a slope (a cliff, a crater opening under it, a
+ * collapsing bridge) the tank falls and lands with damage if the fall was hard.
+ */
+function settleTank(state: MatchState, tank: Tank, movedMetres: number): void {
+  const world = state.world;
+  const pose = hullPoseAt(world, tank.x, tank.z, tank.hullYawDegrees, tank.y + GROUND_TOLERANCE_METRES);
+  if (pose.y >= tank.y + GROUND_TOLERANCE_METRES - EPSILON) {
+    // A probe is inside rock: the hull turned on a slope, or rock arrived under it.
+    // Rise onto the lowest ground above with room for the body; never through a roof.
+    const lifted = liftedPose(state, tank);
+    if (lifted) {
+      applyPose(tank, lifted);
+      tank.verticalSpeed = 0;
+    }
+    return;
+  }
+  const snap = GROUND_TOLERANCE_METRES + movedMetres * TANK_SNAP_DOWN_SLOPE;
+  if (tank.verticalSpeed === 0 && pose.y >= tank.y - snap) {
+    applyPose(tank, pose);
+    return;
+  }
+  tank.verticalSpeed -= GRAVITY_METRES_PER_SECOND_SQUARED * STEP_SECONDS;
+  const nextY = tank.y + tank.verticalSpeed * STEP_SECONDS;
+  if (nextY > pose.y) {
+    tank.y = nextY;
+    return;
+  }
+  const impactSpeed = -tank.verticalSpeed;
+  applyPose(tank, pose);
+  tank.verticalSpeed = 0;
+  let damage = 0;
+  for (const speed of TANK_FALL_DAMAGE_SPEEDS) {
+    if (impactSpeed >= speed) damage += 1;
+  }
+  if (damage > 0) {
+    damageTank(state, tank, damage, null, 'terrain');
+  }
+}
+
+function liftedPose(state: MatchState, tank: Tank): HullPose | null {
+  for (let rise = TANK_STEP_METRES; rise <= TANK_HEIGHT_METRES * 2; rise += 0.25) {
+    const fromY = tank.y + rise;
+    const pose = hullPoseAt(state.world, tank.x, tank.z, tank.hullYawDegrees, fromY);
+    if (pose.y < fromY - EPSILON && bodyHeadroomClear(state.world, tank.x, pose.y, tank.z)) return pose;
+  }
+  return null;
+}
+
+function applyPose(tank: Tank, pose: HullPose): void {
+  tank.y = pose.y;
+  tank.hullPitchDegrees = pose.pitchDegrees;
+  tank.hullRollDegrees = pose.rollDegrees;
+}
+
+/**
+ * The swept circle-vs-circle test against every other live tank at an overlapping
+ * height. The sum of the two radii is the contact distance. Starting exactly on contact
+ * is allowed when the move does not end inside; a candidate that would pass through is
+ * blocked even if its endpoint is clear.
  */
 function tankBodyBlocksMove(state: MatchState, tank: Tank, toX: number, toZ: number, turnOrder: readonly number[]): boolean {
   const contact = TANK_RADIUS_METRES * 2;
   const contactSq = contact * contact;
   for (const other of orderedTanks(state, turnOrder)) {
     if (other.id === tank.id || !other.alive) {
+      continue;
+    }
+    if (Math.abs(other.y - tank.y) >= TANK_HEIGHT_METRES) {
       continue;
     }
     const startDx = tank.x - other.x;
@@ -254,15 +336,7 @@ function tankBodyBlocksMove(state: MatchState, tank: Tank, toX: number, toZ: num
     const endDx = toX - other.x;
     const endDz = toZ - other.z;
     const endDistSq = endDx * endDx + endDz * endDz;
-    const t = segmentCircleIntersection(
-      tank.x,
-      tank.z,
-      toX,
-      toZ,
-      other.x,
-      other.z,
-      contact,
-    );
+    const t = segmentCircleIntersection(tank.x, tank.z, toX, toZ, other.x, other.z, contact);
     if (t === null) {
       continue;
     }
@@ -282,47 +356,44 @@ function tankBodyBlocksMove(state: MatchState, tank: Tank, toX: number, toZ: num
   return false;
 }
 
-/** One A1 world tick; any displacement the world decided is applied to live tanks. */
-function advanceWorld(state: MatchState): void {
-  const occupants = state.tanks
+/** The world's tick: falling rock lands or crushes tanks; regeneration runs. */
+function advanceWorld(state: MatchState, turnOrder: readonly number[]): void {
+  const occupants: Occupant[] = state.tanks
     .filter((tank) => tank.alive)
     .map((tank) => ({
       id: tank.id,
-      x: cellCoordinate(tank.x, state.world.columns, 'x'),
-      z: cellCoordinate(tank.z, state.world.rows, 'z'),
+      x: tank.x,
+      z: tank.z,
+      radius: TANK_RADIUS_METRES,
+      bottomY: tank.y,
+      topY: tank.y + TANK_HEIGHT_METRES,
     }));
-
-  const result = stepWorld(state.world, 1, occupants);
-  for (const displacement of result.displacements) {
-    const tank = state.tanks.find((candidate) => candidate.id === displacement.id);
-    if (!tank || !tank.alive) {
-      continue;
-    }
-    const fromX = tank.x;
-    const fromZ = tank.z;
-    tank.x = (displacement.toX + 0.5) * CELL_SIZE_METRES;
-    tank.z = (displacement.toZ + 0.5) * CELL_SIZE_METRES;
-    shoveShardsUnderTank(state, tank, tank.x - fromX, tank.z - fromZ);
+  const result = stepWorld(state.world, occupants);
+  const rank = new Map(turnOrder.map((teamId, index) => [teamId, index]));
+  const crushes = [...result.crushes].sort((a, b) => {
+    const tankA = state.tanks[a.occupantId]!;
+    const tankB = state.tanks[b.occupantId]!;
+    return (rank.get(tankA.teamId) ?? 0) - (rank.get(tankB.teamId) ?? 0) || a.occupantId - b.occupantId || a.chunkId - b.chunkId;
+  });
+  for (const crush of crushes) {
+    const tank = state.tanks.find((candidate) => candidate.id === crush.occupantId);
+    if (!tank || !tank.alive || crush.damage <= 0) continue;
+    damageTank(state, tank, crush.damage, state.chunkCauses.get(crush.chunkId) ?? null, 'terrain');
   }
+  recordDebris(state, result.debris, null);
 }
 
-/**
- * A tank entering a cell shoves any floor shards in that cell one cell along its
- * movement (A1's `shoveShard` owns the destination and the fixed side order). Shards
- * never block a tank; a trapped shard may legally stay put.
- */
-function shoveShardsUnderTank(state: MatchState, tank: Tank, movedX: number, movedZ: number): void {
-  if (movedX === 0 && movedZ === 0) {
-    return;
-  }
-  const cellX = Math.floor(tank.x / CELL_SIZE_METRES);
-  const cellZ = Math.floor(tank.z / CELL_SIZE_METRES);
-  const direction = { x: movedX, z: movedZ };
-  for (const shard of [...state.world.shards]) {
-    if (shard.x !== cellX || shard.z !== cellZ) {
-      continue;
+/** Emits presentation events for terrain debris and tracks who broke each chunk loose. */
+function recordDebris(state: MatchState, debris: readonly DebrisEvent[], causeTeamId: number | null): void {
+  for (const event of debris) {
+    if (event.chunkId !== null) {
+      if (event.kind === 'break' && causeTeamId !== null) {
+        state.chunkCauses.set(event.chunkId, causeTeamId);
+      } else if (event.kind === 'land' || event.kind === 'crush') {
+        state.chunkCauses.delete(event.chunkId);
+      }
     }
-    shoveShard(state.world, shard.id, direction);
+    emit(state, { type: 'terrain', kind: event.kind, x: event.x, y: event.y, z: event.z, samples: event.samples });
   }
 }
 
@@ -362,300 +433,114 @@ function advanceShells(state: MatchState, turnOrder: readonly number[]): void {
   state.shells.splice(0, state.shells.length, ...survivors);
 }
 
-/**
- * Moves one shell through at most one tick of distance. Returns true when it should
- * remain in flight. A shard hit bounces it and the remaining distance continues in the
- * same tick (so a shell cannot teleport through a second obstacle).
- */
+/** Moves one shell through one tick of distance. Returns true while it stays in flight. */
 function advanceShell(state: MatchState, shell: Shell): boolean {
-  let from: Vec3 = { x: shell.x, y: shell.y, z: shell.z };
+  const from: Vec3 = { x: shell.x, y: shell.y, z: shell.z };
   if (outsideArena(state, from.x, from.z)) {
     return false;
   }
-
-  let remaining = Math.min(
-    SHELL_METRES_PER_TICK,
-    SHELL_RANGE_METRES - shell.travelledMetres,
-  );
+  const remaining = Math.min(SHELL_METRES_PER_TICK, SHELL_RANGE_METRES - shell.travelledMetres);
   if (remaining <= EPSILON) {
     return false;
   }
-
-  while (remaining > EPSILON) {
-    const to: Vec3 = {
-      x: from.x + shell.dx * remaining,
-      y: from.y + shell.dy * remaining,
-      z: from.z + shell.dz * remaining,
-    };
-    const hit = earliestCollision(state, from, to);
-
-    if (!hit) {
-      shell.x = to.x;
-      shell.y = to.y;
-      shell.z = to.z;
-      shell.travelledMetres += remaining;
-      if (outsideArena(state, shell.x, shell.z)) {
-        return false;
-      }
-      return shell.travelledMetres < SHELL_RANGE_METRES - EPSILON;
-    }
-
-    const distance = hit.t * remaining;
-    const impact = pointAt(from, to, hit.t);
-    shell.x = impact.x;
-    shell.y = impact.y;
-    shell.z = impact.z;
-    shell.travelledMetres += distance;
-
-    if (hit.kind === 'world') {
-      if (hit.block) {
-        const result = damageBlock(state.world, hit.cellX, hit.cellZ, SHELL_DAMAGE);
-        state.stats.worldDamageByTeam[shell.ownerTeamId] = (state.stats.worldDamageByTeam[shell.ownerTeamId] ?? 0) + result.damageApplied;
-        if (result.destroyedNow) state.stats.worldDestructionByTeam[shell.ownerTeamId] = (state.stats.worldDestructionByTeam[shell.ownerTeamId] ?? 0) + 1;
-      } else {
-        const result = damageCell(state.world, hit.cellX, hit.cellZ, SHELL_DAMAGE, state.rng);
-        state.stats.worldDamageByTeam[shell.ownerTeamId] = (state.stats.worldDamageByTeam[shell.ownerTeamId] ?? 0) + result.damageApplied;
-        if (result.destroyedNow) state.stats.worldDestructionByTeam[shell.ownerTeamId] = (state.stats.worldDestructionByTeam[shell.ownerTeamId] ?? 0) + 1;
-      }
+  const to: Vec3 = {
+    x: from.x + shell.dx * remaining,
+    y: from.y + shell.dy * remaining,
+    z: from.z + shell.dz * remaining,
+  };
+  const hit = earliestCollision(state, from, to);
+  if (!hit) {
+    shell.x = to.x;
+    shell.y = to.y;
+    shell.z = to.z;
+    shell.travelledMetres += remaining;
+    if (outsideArena(state, shell.x, shell.z)) {
       return false;
     }
-
-    if (hit.kind === 'tank') {
-      const target = hit.tank;
-      if (!target) {
-        throw new Error('sim: a tank hit lost its tank');
-      }
-      if (target.teamId === shell.ownerTeamId) {
-        // Q2: a teammate's body stops the shell and takes no damage.
-        return false;
-      }
-      damageEnemyTank(state, target, shell.ownerTeamId, { x: shell.dx, y: shell.dy, z: shell.dz });
-      return false;
-    }
-
-    if (hit.kind === 'shard') {
-      const shard = hit.shard;
-      if (!shard) {
-        throw new Error('sim: a shard hit lost its shard');
-      }
-      const horizontal = Math.hypot(shell.dx, shell.dz);
-      if (horizontal < 1e-12) {
-        throw new Error(`sim: shell ${shell.id} is vertical and cannot reflect off a shard`);
-      }
-      const reflected = shardDeflection(shard, {
-        x: shell.dx / horizontal,
-        z: shell.dz / horizontal,
-      });
-      shatterShard(state.world, shard.id);
-      shell.dx = reflected.x * horizontal;
-      shell.dz = reflected.z * horizontal;
-      shell.travelledMetres += 0;
-
-      from = { x: shell.x, y: shell.y, z: shell.z };
-      remaining -= distance;
-      if (shell.travelledMetres >= SHELL_RANGE_METRES - EPSILON) {
-        return false;
-      }
-      if (remaining <= EPSILON) {
-        return true;
-      }
-      continue;
-    }
-
-    throw new Error(`sim: unknown shell collision kind ${String((hit as { kind: string }).kind)}`);
+    return shell.travelledMetres < SHELL_RANGE_METRES - EPSILON;
   }
 
-  return true;
+  const point = pointAt(from, to, hit.t);
+  shell.x = point.x;
+  shell.y = point.y;
+  shell.z = point.z;
+  shell.travelledMetres += hit.t * remaining;
+  resolveHit(state, shell.ownerTeamId, hit, point, { x: shell.dx, y: shell.dy, z: shell.dz });
+  return false;
 }
 
 interface ShellHit {
   readonly t: number;
-  readonly kind: 'world' | 'shard' | 'tank';
-  readonly cellX: number;
-  readonly cellZ: number;
-  readonly block: boolean;
-  readonly shard: Shard | null;
+  readonly kind: 'terrain' | 'tank';
   readonly tank: Tank | null;
 }
 
 /**
- * The earliest collision along the segment, with a fixed tie-break: world geometry
- * first, then a shard, then a tank (the brief's list), and then cell index / shard id /
- * tank id. The earliest POSITION always wins; the tie-break only settles equal `t`.
+ * The earliest collision along the segment: the terrain, then live tank bodies. On an
+ * exact tie the terrain wins, then the lower tank id. The earliest POSITION always wins.
  */
-function earliestCollision(
-  state: MatchState,
-  from: Vec3,
-  to: Vec3,
-  ignoredTankId?: number,
-): ShellHit | null {
+function earliestCollision(state: MatchState, from: Vec3, to: Vec3, ignoredTankId?: number): ShellHit | null {
   let best: ShellHit | null = null;
-
-  // Include the cells adjacent to the segment's endpoints. A segment that touches a
-  // cell face exactly (the muzzle flush with a wall, a shell grazing a boundary) must
-  // still test that cell; the AABB intersection rejects the extra cells honestly.
-  const minCellX = Math.max(0, Math.floor(Math.min(from.x, to.x) / CELL_SIZE_METRES) - 1);
-  const maxCellX = Math.min(
-    state.world.columns - 1,
-    Math.floor(Math.max(from.x, to.x) / CELL_SIZE_METRES) + 1,
-  );
-  const minCellZ = Math.max(0, Math.floor(Math.min(from.z, to.z) / CELL_SIZE_METRES) - 1);
-  const maxCellZ = Math.min(
-    state.world.rows - 1,
-    Math.floor(Math.max(from.z, to.z) / CELL_SIZE_METRES) + 1,
-  );
-
-  for (let cellZ = minCellZ; cellZ <= maxCellZ; cellZ += 1) {
-    for (let cellX = minCellX; cellX <= maxCellX; cellX += 1) {
-      const block = blockAt(state.world, cellX, cellZ);
-      const cell: Cell = cellAt(state.world, cellX, cellZ);
-      let topMetres = 0;
-      if (block) {
-        topMetres = block.heightMetres;
-      } else if (cell.hp > 0) {
-        topMetres = cell.heightMetres;
-      }
-      if (topMetres <= 0) {
-        continue;
-      }
-      const t = segmentAabbIntersection(
-        from,
-        to,
-        { x: cellX * CELL_SIZE_METRES, y: 0, z: cellZ * CELL_SIZE_METRES },
-        {
-          x: (cellX + 1) * CELL_SIZE_METRES,
-          y: topMetres,
-          z: (cellZ + 1) * CELL_SIZE_METRES,
-        },
-      );
-      if (t === null) {
-        continue;
-      }
-      const candidate: ShellHit = {
-        t,
-        kind: 'world',
-        cellX,
-        cellZ,
-        block: block !== null,
-        shard: null,
-        tank: null,
-      };
-      if (isBetter(candidate, best, state.world.columns)) {
-        best = candidate;
-      }
-    }
+  const terrain = raycastTerrain(state.world, from, to);
+  if (terrain) {
+    best = { t: terrain.t, kind: 'terrain', tank: null };
   }
-
-  const floorY = state.world.floorSurfaceHeightMetres;
-  for (const shard of state.world.shards) {
-    const t = segmentAabbIntersection(
-      from,
-      to,
-      { x: shard.x * CELL_SIZE_METRES, y: floorY, z: shard.z * CELL_SIZE_METRES },
-      {
-        x: (shard.x + 1) * CELL_SIZE_METRES,
-        y: floorY + SHARD_HIT_HEIGHT_METRES,
-        z: (shard.z + 1) * CELL_SIZE_METRES,
-      },
-    );
-    if (t === null) {
-      continue;
-    }
-    const candidate: ShellHit = {
-      t,
-      kind: 'shard',
-      cellX: shard.x,
-      cellZ: shard.z,
-      block: false,
-      shard,
-      tank: null,
-    };
-    if (isBetter(candidate, best, state.world.columns)) {
-      best = candidate;
-    }
-  }
-
   for (const tank of state.tanks) {
     if (!tank.alive || tank.id === ignoredTankId) {
       continue;
     }
-    const t = segmentCylinderIntersection(
-      from,
-      to,
-      tank.x,
-      tank.z,
-      TANK_RADIUS_METRES,
-      floorY,
-      floorY + TANK_HEIGHT_METRES,
-    );
+    const t = segmentCylinderIntersection(from, to, tank.x, tank.z, TANK_RADIUS_METRES, tank.y, tank.y + TANK_HEIGHT_METRES);
     if (t === null) {
       continue;
     }
-    const candidate: ShellHit = {
-      t,
-      kind: 'tank',
-      cellX: -1,
-      cellZ: -1,
-      block: false,
-      shard: null,
-      tank,
-    };
-    if (isBetter(candidate, best, state.world.columns)) {
-      best = candidate;
+    if (!best || t < best.t - EPSILON || (best.kind === 'tank' && Math.abs(t - best.t) <= EPSILON && tank.id < best.tank!.id)) {
+      best = { t, kind: 'tank', tank };
     }
   }
-
   return best;
 }
 
-function isBetter(candidate: ShellHit, best: ShellHit | null, columns: number): boolean {
-  if (!best) {
-    return true;
+/** Applies a shell's (or a barrel's) hit: a crater in the terrain or damage to a tank. */
+function resolveHit(state: MatchState, ownerTeamId: number, hit: ShellHit, point: Vec3, direction: Vec3): void {
+  if (hit.kind === 'terrain') {
+    const blast = blastTerrain(state.world, point.x, point.y, point.z);
+    state.stats.worldDamageByTeam[ownerTeamId] = (state.stats.worldDamageByTeam[ownerTeamId] ?? 0) + blast.samplesDamaged;
+    state.stats.worldDestructionByTeam[ownerTeamId] = (state.stats.worldDestructionByTeam[ownerTeamId] ?? 0) + blast.samplesDestroyed;
+    emit(state, { type: 'terrain', kind: 'crater', x: point.x, y: point.y, z: point.z, samples: blast.samplesDestroyed });
+    recordDebris(state, blast.debris, ownerTeamId);
+    return;
   }
-  if (candidate.t < best.t - EPSILON) {
-    return true;
+  const target = hit.tank;
+  if (!target) {
+    throw new Error('sim: a tank hit lost its tank');
   }
-  if (candidate.t > best.t + EPSILON) {
-    return false;
+  if (target.teamId === ownerTeamId) {
+    // Q2: a teammate's body stops the shell and takes no damage.
+    return;
   }
-  const candidateRank = rank(candidate);
-  const bestRank = rank(best);
-  if (candidateRank !== bestRank) {
-    return candidateRank < bestRank;
-  }
-  return tieKey(candidate, columns) < tieKey(best, columns);
+  emit(state, { type: 'hit', tankId: target.id, teamId: target.teamId, x: target.x, y: target.y + 1.1, z: target.z });
+  state.stats.hits += 1;
+  const applied = Math.min(SHELL_DAMAGE, target.hp);
+  state.stats.damageDealt += applied;
+  state.stats.damageByTeam[ownerTeamId] = (state.stats.damageByTeam[ownerTeamId] ?? 0) + applied;
+  damageTank(state, target, SHELL_DAMAGE, ownerTeamId, 'shell', direction);
 }
 
-function rank(hit: ShellHit): number {
-  if (hit.kind === 'world') return 0;
-  if (hit.kind === 'shard') return 1;
-  return 2;
-}
-
-function tieKey(hit: ShellHit, columns: number): number {
-  if (hit.kind === 'tank') return hit.tank?.id ?? Number.MAX_SAFE_INTEGER;
-  if (hit.kind === 'shard') return hit.shard?.id ?? Number.MAX_SAFE_INTEGER;
-  return hit.cellZ * columns + hit.cellX;
-}
-
-/** One shell's damage to an enemy tank. */
-function damageEnemyTank(
+/** Removes HP from a live tank; starts its wound clock or kills it. */
+function damageTank(
   state: MatchState,
   tank: Tank,
-  ownerTeamId: number,
+  damage: number,
+  creditTeamId: number | null,
+  cause: DeathCause,
   shotDirection?: Vec3,
 ): void {
   if (!tank.alive) {
-    throw new Error(`sim: a shell tried to damage dead tank ${tank.id}`);
+    throw new Error(`sim: tried to damage dead tank ${tank.id}`);
   }
-  emit(state, { type: 'hit', tankId: tank.id, teamId: tank.teamId, x: tank.x, y: state.world.floorSurfaceHeightMetres + 1.1, z: tank.z });
-  state.stats.hits += 1;
-  const applied = Math.min(SHELL_DAMAGE, tank.hp);
-  tank.hp -= applied;
-  state.stats.damageDealt += applied;
-  state.stats.damageByTeam[ownerTeamId] = (state.stats.damageByTeam[ownerTeamId] ?? 0) + applied;
+  tank.hp -= Math.min(damage, tank.hp);
   if (tank.hp <= 0) {
-    killTank(state, tank, 'shell', ownerTeamId, shotDirection);
+    killTank(state, tank, cause, creditTeamId, shotDirection);
   } else if (tank.bleedTicksRemaining === 0) {
     tank.bleedTicksRemaining = state.rules.bleedIntervalTicks;
   }
@@ -664,7 +549,7 @@ function damageEnemyTank(
 function killTank(
   state: MatchState,
   tank: Tank,
-  cause: 'shell' | 'clock',
+  cause: DeathCause,
   killerTeamId: number | null,
   shotDirection?: Vec3,
 ): void {
@@ -674,7 +559,7 @@ function killTank(
     teamId: tank.teamId,
     tick: state.tick,
     x: tank.x,
-    y: state.world.floorSurfaceHeightMetres + 0.8,
+    y: tank.y + 0.8,
     z: tank.z,
     ...(shotDirection
       ? { dx: shotDirection.x, dy: shotDirection.y, dz: shotDirection.z }
@@ -684,21 +569,32 @@ function killTank(
   tank.hp = 0;
   tank.bleedTicksRemaining = 0;
   tank.reloadTicksRemaining = 0;
+  tank.verticalSpeed = 0;
   tank.deathCause = cause;
   tank.diedAtTick = state.tick;
-  tank.killedByTeamId = killerTeamId;
+  tank.killedByTeamId = killerTeamId === tank.teamId ? null : killerTeamId;
   state.stats.causes[cause] += 1;
   if (cause === 'shell') {
     state.stats.kills += 1;
   }
 }
 
+/** The muzzle point: `MUZZLE_FORWARD_METRES` ahead of the hull origin, at muzzle height. */
+export function muzzlePosition(tank: Tank): Vec3 {
+  const forward = forwardFromYaw(tank.turretYawDegrees);
+  return {
+    x: tank.x + forward.x * MUZZLE_FORWARD_METRES,
+    y: tank.y + MUZZLE_HEIGHT_METRES,
+    z: tank.z + forward.z * MUZZLE_FORWARD_METRES,
+  };
+}
+
 /**
  * Fires every live tank that held `fire` with a clear reload. Before a shell can enter
  * flight, the barrel segment from the turret origin to the muzzle is traced: the first
- * wall, big block, shard or live tank in that segment resolves the shot immediately.
- * The shot still counts and still spends the reload, so a blocked barrel is not a free
- * trigger. The owner tank is excluded from its own barrel trace.
+ * rock or live tank in that segment resolves the shot immediately. The shot still
+ * counts and still spends the reload, so a blocked barrel is not a free trigger. The
+ * owner tank is excluded from its own barrel trace.
  *
  * Returns true when a barrel hit ended the match immediately (last team or draw); the
  * caller must not apply the tick cap in that case.
@@ -712,15 +608,9 @@ function fireShells(state: MatchState, commands: ReadonlyMap<number, TankCommand
     if (!command || !command.fire || tank.reloadTicksRemaining > 0) {
       continue;
     }
-    const forward = forwardFromYaw(tank.turretYawDegrees);
     const direction = directionFromAim(tank.turretYawDegrees, tank.aimPitchDegrees);
-    const muzzleY = state.world.floorSurfaceHeightMetres + MUZZLE_HEIGHT_METRES;
-    const origin: Vec3 = { x: tank.x, y: muzzleY, z: tank.z };
-    const muzzle: Vec3 = {
-      x: tank.x + forward.x * MUZZLE_FORWARD_METRES,
-      y: muzzleY,
-      z: tank.z + forward.z * MUZZLE_FORWARD_METRES,
-    };
+    const muzzle = muzzlePosition(tank);
+    const origin: Vec3 = { x: tank.x, y: muzzle.y, z: tank.z };
 
     state.stats.shotsFired += 1;
     tank.reloadTicksRemaining = RELOAD_TICKS;
@@ -732,7 +622,7 @@ function fireShells(state: MatchState, commands: ReadonlyMap<number, TankCommand
 
     const obstruction = earliestCollision(state, origin, muzzle, tank.id);
     if (obstruction) {
-      resolveMuzzleHit(state, tank, obstruction, direction);
+      resolveHit(state, tank.teamId, obstruction, pointAt(origin, muzzle, obstruction.t), direction);
       if (checkLastTeam(state)) {
         return true;
       }
@@ -756,63 +646,9 @@ function fireShells(state: MatchState, commands: ReadonlyMap<number, TankCommand
   return false;
 }
 
-/**
- * The damage/stop side of the barrel sweep. A shard in the barrel is shattered and
- * consumes the shot; the current shard band (floor to 0.5 m) is below the muzzle
- * height, so this is a defensive branch rather than a common path. The shell never
- * enters `state.shells`, which is what makes a muzzle-cell hit count exactly once.
- */
-function resolveMuzzleHit(state: MatchState, owner: Tank, hit: ShellHit, shotDirection: Vec3): void {
-  if (hit.kind === 'world') {
-    if (hit.block) {
-      const result = damageBlock(state.world, hit.cellX, hit.cellZ, SHELL_DAMAGE);
-      state.stats.worldDamageByTeam[owner.teamId] = (state.stats.worldDamageByTeam[owner.teamId] ?? 0) + result.damageApplied;
-      if (result.destroyedNow) state.stats.worldDestructionByTeam[owner.teamId] = (state.stats.worldDestructionByTeam[owner.teamId] ?? 0) + 1;
-    } else {
-      const result = damageCell(state.world, hit.cellX, hit.cellZ, SHELL_DAMAGE, state.rng);
-      state.stats.worldDamageByTeam[owner.teamId] = (state.stats.worldDamageByTeam[owner.teamId] ?? 0) + result.damageApplied;
-      if (result.destroyedNow) state.stats.worldDestructionByTeam[owner.teamId] = (state.stats.worldDestructionByTeam[owner.teamId] ?? 0) + 1;
-    }
-    return;
-  }
-  if (hit.kind === 'tank') {
-    const target = hit.tank;
-    if (!target) {
-      throw new Error('sim: a muzzle tank hit lost its tank');
-    }
-    if (target.teamId === owner.teamId) {
-      return;
-    }
-    damageEnemyTank(state, target, owner.teamId, shotDirection);
-    return;
-  }
-  if (hit.kind === 'shard') {
-    const shard = hit.shard;
-    if (!shard) {
-      throw new Error('sim: a muzzle shard hit lost its shard');
-    }
-    shatterShard(state.world, shard.id);
-    return;
-  }
-  throw new Error(`sim: unknown muzzle collision kind ${String((hit as { kind: string }).kind)}`);
-}
-
-/** A shell exists in the horizontal arena; below the floor is allowed (bedrock). */
+/** A shell exists over the arena; past the four sides it is gone. */
 function outsideArena(state: MatchState, x: number, z: number): boolean {
-  return (
-    x < 0 ||
-    z < 0 ||
-    x > state.world.columns * CELL_SIZE_METRES ||
-    z > state.world.rows * CELL_SIZE_METRES
-  );
-}
-
-function cellCoordinate(value: number, cells: number, axis: 'x' | 'z'): number {
-  const coordinate = Math.floor(value / CELL_SIZE_METRES);
-  if (!Number.isInteger(coordinate) || coordinate < 0 || coordinate >= cells) {
-    throw new Error(`sim: tank ${axis} ${value} maps outside its ${cells}-cell arena`);
-  }
-  return coordinate;
+  return x < 0 || z < 0 || x > state.world.widthMetres || z > state.world.depthMetres;
 }
 
 /** True when the match has ended because at most one team remains. */
@@ -869,26 +705,17 @@ function finish(state: MatchState, winnerTeamId: number | null, outcome: MatchOu
 }
 
 /**
- * A renderer-free segment cast for the player's pointer aim. It reuses the same
- * geometry primitives and world-cell scan as shell collision, but its hit list is the
- * one the P6 brief names: live enemy tanks, world cells/big blocks and the floor plane.
- * Shards are deliberately absent from the AIM list (the brief lists no debris); a shell
- * can still be stopped by one in flight, which is a recorded limit rather than a second
- * aim implementation here.
- *
- * `direction` need not be unit length; `maxDistanceMetres` is in metres. The returned
- * point is on the first hit surface, so the caller can aim a muzzle at it and project it
- * back to the pointer. A null result means nothing was hit inside the range.
+ * A renderer-free segment cast for the player's pointer aim: the first live enemy tank
+ * or terrain surface along the ray, using the same terrain march and tank cylinders as
+ * shells. `direction` need not be unit length. A null result means nothing was hit
+ * inside the range.
  */
 export interface AimRayHit {
   readonly distanceMetres: number;
   readonly point: Vec3;
-  readonly kind: 'tank' | 'world' | 'ground';
+  readonly kind: 'tank' | 'terrain';
   readonly tankId: number | null;
   readonly teamId: number | null;
-  readonly cellX: number;
-  readonly cellZ: number;
-  readonly block: boolean;
 }
 
 export function castAimRay(
@@ -916,11 +743,7 @@ export function castAimRay(
   if (magnitude < EPSILON) {
     throw new Error('sim.castAimRay: direction must be non-zero');
   }
-  const unit: Vec3 = {
-    x: direction.x / magnitude,
-    y: direction.y / magnitude,
-    z: direction.z / magnitude,
-  };
+  const unit: Vec3 = { x: direction.x / magnitude, y: direction.y / magnitude, z: direction.z / magnitude };
   const to: Vec3 = {
     x: from.x + unit.x * maxDistanceMetres,
     y: from.y + unit.y * maxDistanceMetres,
@@ -928,120 +751,36 @@ export function castAimRay(
   };
 
   let best: AimRayHit | null = null;
-  const consider = (candidate: AimRayHit): void => {
-    if (!best) {
-      best = candidate;
-      return;
-    }
-    if (candidate.distanceMetres < best.distanceMetres - EPSILON) {
-      best = candidate;
-      return;
-    }
-    if (candidate.distanceMetres > best.distanceMetres + EPSILON) {
-      return;
-    }
-    const rank = (hit: AimRayHit): number =>
-      hit.kind === 'world' ? 0 : hit.kind === 'ground' ? 1 : 2;
-    const candidateRank = rank(candidate);
-    const bestRank = rank(best);
-    if (candidateRank !== bestRank) {
-      if (candidateRank < bestRank) best = candidate;
-      return;
-    }
-    if (candidate.kind === 'tank' && best.kind === 'tank') {
-      const candidateId = candidate.tankId ?? Number.MAX_SAFE_INTEGER;
-      const bestId = best.tankId ?? Number.MAX_SAFE_INTEGER;
-      if (candidateId < bestId) best = candidate;
-      return;
-    }
-    if (candidate.kind === 'world' && best.kind === 'world') {
-      const candidateKey = candidate.cellZ * state.world.columns + candidate.cellX;
-      const bestKey = best.cellZ * state.world.columns + best.cellX;
-      if (candidateKey < bestKey) best = candidate;
-    }
-  };
-  const pointAtDistance = (distanceMetres: number): Vec3 => ({
-    x: from.x + unit.x * distanceMetres,
-    y: from.y + unit.y * distanceMetres,
-    z: from.z + unit.z * distanceMetres,
-  });
-
-  const minCellX = Math.max(0, Math.floor(Math.min(from.x, to.x) / CELL_SIZE_METRES) - 1);
-  const maxCellX = Math.min(
-    state.world.columns - 1,
-    Math.floor(Math.max(from.x, to.x) / CELL_SIZE_METRES) + 1,
-  );
-  const minCellZ = Math.max(0, Math.floor(Math.min(from.z, to.z) / CELL_SIZE_METRES) - 1);
-  const maxCellZ = Math.min(
-    state.world.rows - 1,
-    Math.floor(Math.max(from.z, to.z) / CELL_SIZE_METRES) + 1,
-  );
-  for (let cellZ = minCellZ; cellZ <= maxCellZ; cellZ += 1) {
-    for (let cellX = minCellX; cellX <= maxCellX; cellX += 1) {
-      const block = blockAt(state.world, cellX, cellZ);
-      const cell: Cell = cellAt(state.world, cellX, cellZ);
-      const topMetres = block ? block.heightMetres : cell.hp > 0 ? cell.heightMetres : 0;
-      if (topMetres <= 0) continue;
-      const t = segmentAabbIntersection(
-        from,
-        to,
-        { x: cellX * CELL_SIZE_METRES, y: 0, z: cellZ * CELL_SIZE_METRES },
-        { x: (cellX + 1) * CELL_SIZE_METRES, y: topMetres, z: (cellZ + 1) * CELL_SIZE_METRES },
-      );
-      if (t === null) continue;
-      consider({
-        distanceMetres: t * maxDistanceMetres,
-        point: pointAtDistance(t * maxDistanceMetres),
-        kind: 'world',
-        tankId: null,
-        teamId: null,
-        cellX,
-        cellZ,
-        block: block !== null,
-      });
-    }
+  const terrain = raycastTerrain(state.world, from, to);
+  if (terrain) {
+    best = {
+      distanceMetres: terrain.t * maxDistanceMetres,
+      point: { x: terrain.x, y: terrain.y, z: terrain.z },
+      kind: 'terrain',
+      tankId: null,
+      teamId: null,
+    };
   }
-
-  const floorY = state.world.floorSurfaceHeightMetres;
   for (const tank of state.tanks) {
     if (!tank.alive || tank.teamId === ownerTeamId) continue;
-    const t = segmentCylinderIntersection(
-      from,
-      to,
-      tank.x,
-      tank.z,
-      TANK_RADIUS_METRES,
-      floorY,
-      floorY + TANK_HEIGHT_METRES,
-    );
+    const t = segmentCylinderIntersection(from, to, tank.x, tank.z, TANK_RADIUS_METRES, tank.y, tank.y + TANK_HEIGHT_METRES);
     if (t === null) continue;
-    consider({
-      distanceMetres: t * maxDistanceMetres,
-      point: pointAtDistance(t * maxDistanceMetres),
+    const distanceMetres = t * maxDistanceMetres;
+    if (best && (distanceMetres > best.distanceMetres + EPSILON || (Math.abs(distanceMetres - best.distanceMetres) <= EPSILON && (best.kind === 'terrain' || (best.tankId ?? Infinity) < tank.id)))) {
+      continue;
+    }
+    best = {
+      distanceMetres,
+      point: pointAt(from, to, t),
       kind: 'tank',
       tankId: tank.id,
       teamId: tank.teamId,
-      cellX: -1,
-      cellZ: -1,
-      block: false,
-    });
+    };
   }
-
-  if (unit.y < -EPSILON) {
-    const distanceMetres = (floorY - from.y) / unit.y;
-    if (distanceMetres >= 0 && distanceMetres <= maxDistanceMetres) {
-      consider({
-        distanceMetres,
-        point: pointAtDistance(distanceMetres),
-        kind: 'ground',
-        tankId: null,
-        teamId: null,
-        cellX: -1,
-        cellZ: -1,
-        block: false,
-      });
-    }
-  }
-
   return best;
+}
+
+/** The ground height under a point, for callers that only need "how high is it here". */
+export function terrainHeightAt(state: MatchState, x: number, z: number, fromY = Infinity): number {
+  return groundBelow(state.world, x, z, Math.min(fromY, state.world.heightMetres + 1));
 }

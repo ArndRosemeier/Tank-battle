@@ -568,10 +568,10 @@ export function runTeamBatch(setup: TeamSetup, options: TeamBatchOptions): TeamB
 function teamHasSight(state: MatchState, teamId: number): boolean {
   for (const tank of state.tanks) {
     if (!tank.alive || tank.teamId !== teamId) continue;
-    const eye = eyePosition(state.world, tank);
+    const eye = eyePosition(tank);
     for (const enemy of state.tanks) {
       if (!enemy.alive || enemy.teamId === teamId) continue;
-      if (hasLineOfSight(state.world, eye, targetCentre(state.world, enemy))) return true;
+      if (hasLineOfSight(state.world, eye, targetCentre(enemy))) return true;
     }
   }
   return false;

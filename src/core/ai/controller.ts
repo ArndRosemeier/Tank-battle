@@ -14,34 +14,39 @@ import { createRng, type Rng } from '../rng.ts';
 import {
   AIM_PITCH_MAX_DEGREES,
   AIM_PITCH_MIN_DEGREES,
-  MUZZLE_HEIGHT_METRES,
   RELOAD_TICKS,
   TANK_TURN_RATE_DEGREES_PER_SECOND,
   clamp,
+  directionFromAim,
   forwardFromYaw,
-  isTankPositionFree,
   normaliseDegrees,
   shortestAngleDelta,
   type Controller,
   type MatchState,
   type Tank,
   type TankCommand,
+  type Vec3,
 } from '../sim.ts';
-import { CELL_SIZE_METRES, cellAt, isSolidAt } from '../world.ts';
+import { hasClearLine, isSolidAt, raycastTerrain, type World } from '../world.ts';
 import {
+  AI_PATH_LOOKAHEAD_METRES,
+  AI_PATROL_ARRIVED_METRES,
+  AI_PATROL_LEG_TICKS,
+  AI_PATROL_MIN_METRES,
   AI_DECISION_INTERVAL_TICKS,
   AI_DODGE_TICKS,
-  AI_TARGET_CENTRE_HEIGHT_METRES,
+  AI_EYE_HEIGHT_METRES,
   AI_WAYPOINT_REACHED_METRES,
 } from './constants.ts';
-import { PerceptionMemory, hasLineOfSight, hasShotLine, targetCentre } from './perception.ts';
-import { NavigationCache, findPath, reachablePointNear, type GridPoint } from './navigation.ts';
+import { PerceptionMemory, gunPosition, hasLineOfSight, hasShotLine, targetCentre } from './perception.ts';
 import {
-  frameForPose,
-  frameToWorld,
-  worldToFrame,
-  type SpatialFrame,
-} from './spatial.ts';
+  NavigationCache,
+  findNodePath,
+  navGraphFor,
+  nodeNear,
+  reachableFrom,
+  type NavPoint,
+} from './navigation.ts';
 import {
   VANGUARD_PROFILE,
   validateAIProfile,
@@ -68,7 +73,7 @@ export interface AIControllerDebug {
   readonly lastDecisionTick: number | null;
   readonly targetTankId: number | null;
   readonly visibleTankIds: readonly number[];
-  readonly path: readonly GridPoint[] | null;
+  readonly path: readonly NavPoint[] | null;
   readonly pathIndex: number;
   readonly pathRevision: number;
   readonly pathGoalKey: string;
@@ -77,9 +82,13 @@ export interface AIControllerDebug {
 interface TargetChoice {
   readonly tank: Tank | null;
   readonly x: number;
+  readonly y: number;
   readonly z: number;
   readonly visible: boolean;
 }
+
+/** Keep movement goals this far inside the arena edge (the rim is unclimbable). */
+const GOAL_MARGIN_METRES = 6;
 
 export class AIController implements Controller {
   readonly tankId: number;
@@ -95,11 +104,10 @@ export class AIController implements Controller {
   private lastDecisionTick: number | null = null;
   private lastSeenTick: number | null = null;
   private decisionCount = 0;
-  private path: readonly GridPoint[] | null = null;
+  private path: readonly NavPoint[] | null = null;
   private pathIndex = 0;
   private targetTankId: number | null = null;
   private visibleTankIds: readonly number[] = [];
-  private frame: SpatialFrame | null = null;
   private lastDecisionPosition: { x: number; z: number } | null = null;
   private lastDecisionThrottle = 0;
   private stuckDecisions = 0;
@@ -109,10 +117,14 @@ export class AIController implements Controller {
   private lastHp: number | null = null;
   private strafeSign: 1 | -1 = 1;
   private nextStrafeFlip = 0;
-  private movementGoal: { x: number; z: number } | null = null;
-  private ambushSpot: { x: number; z: number } | null = null;
+  private movementGoal: NavPoint | null = null;
+  private ambushSpot: NavPoint | null = null;
+  private patrolPoint: NavPoint | null = null;
+  private patrolUntilTick = 0;
+  private home: { x: number; z: number } | null = null;
   private ambushUntilTick = 0;
-  private breachedCell: { x: number; z: number } | null = null;
+  /** A point just inside the rock the brute is shooting a way through. */
+  private breachPoint: Vec3 | null = null;
   private bruteBreachDone = false;
 
   constructor(options: AIControllerOptions) {
@@ -201,10 +213,6 @@ export class AIController implements Controller {
   }
 
   private decide(state: MatchState, tank: Tank): TankCommand {
-    if (!this.frame) {
-      this.frame = frameForPose(state.world, tank.x, tank.z, tank.hullYawDegrees);
-      this.navigation.setFrame(this.frame);
-    }
     if (
       this.lastDecisionPosition !== null &&
       this.lastDecisionThrottle > 0 &&
@@ -220,8 +228,8 @@ export class AIController implements Controller {
     const target = this.chooseTarget(tank, visible);
     this.targetTankId = target?.tank?.id ?? null;
 
-    const targetPoint = target
-      ? { x: target.x, z: target.z }
+    const targetPoint: NavPoint = target
+      ? { x: target.x, y: target.y, z: target.z }
       : this.fallbackPoint(state, tank);
     const distance = target
       ? Math.hypot(target.x - tank.x, target.z - tank.z)
@@ -239,11 +247,10 @@ export class AIController implements Controller {
     }
 
     const mode = this.mode();
-    if (this.breachedCell && mode === 'brute') {
-      const cell = cellAt(state.world, this.breachedCell.x, this.breachedCell.z);
-      if (cell.material === 'floor' || cell.hp === 0) {
+    if (this.breachPoint && mode === 'brute') {
+      if (!isSolidAt(state.world, this.breachPoint.x, this.breachPoint.y, this.breachPoint.z)) {
         this.bruteBreachDone = true;
-        this.breachedCell = null;
+        this.breachPoint = null;
       }
     }
     if (
@@ -251,22 +258,17 @@ export class AIController implements Controller {
       target &&
       target.visible &&
       target.tank &&
-      !this.breachedCell &&
+      !this.breachPoint &&
       (!this.bruteBreachDone || !shotClear)
     ) {
-      this.breachedCell =
-        this.blockingCell(state, tank, target.tank) ??
-        (this.bruteBreachDone ? null : this.coverCell(state, tank));
+      this.breachPoint =
+        this.blockingPoint(state, tank, target.tank) ??
+        (this.bruteBreachDone ? null : this.coverPoint(state, tank));
     }
-    const breachPoint = this.breachedCell
-      ? {
-          x: (this.breachedCell.x + 0.5) * CELL_SIZE_METRES,
-          z: (this.breachedCell.z + 0.5) * CELL_SIZE_METRES,
-        }
-      : null;
-    const aimPoint = breachPoint ?? (target ? { x: target.x, z: target.z } : null);
+    const breachPoint = this.breachPoint;
+    const aimPoint: Vec3 | null = breachPoint ?? (target ? { x: target.x, y: target.y + 1, z: target.z } : null);
     const aim = aimPoint
-      ? aimAt(state, tank, aimPoint.x, aimPoint.z, breachPoint ? state.world.floorSurfaceHeightMetres + 0.6 : undefined)
+      ? aimAt(tank, aimPoint)
       : { yaw: tank.turretYawDegrees, pitch: tank.aimPitchDegrees };
     if (aimPoint) {
       const aimDistance = Math.hypot(aimPoint.x - tank.x, aimPoint.z - tank.z);
@@ -291,7 +293,7 @@ export class AIController implements Controller {
     const pitchError = Math.abs(tank.aimPitchDegrees - aim.pitch);
     const fire =
       Boolean(target && target.visible) &&
-      (shotClear || this.breachedCell !== null) &&
+      (shotClear || this.breachPoint !== null) &&
       this.profile.weights['fire-in-cone'] > 0 &&
       tank.reloadTicksRemaining === 0 &&
       yawError <= this.profile.fireConeDegrees &&
@@ -309,7 +311,7 @@ export class AIController implements Controller {
     const wounded =
       this.profile.weights['wounded-retreat'] > 0 && tank.hp < tank.maxHp;
     const dodging = state.tick < this.dodgeUntilTick;
-    let goal: { x: number; z: number } | null = null;
+    let goal: NavPoint | null = null;
 
     if (wounded && target) {
       goal = this.retreatPoint(state, tank, targetPoint);
@@ -354,11 +356,11 @@ export class AIController implements Controller {
         target.visible &&
         shotClear &&
         this.bruteBreachDone &&
-        !this.breachedCell &&
+        !this.breachPoint &&
         this.profile.weights['flank'] > 0;
       goal = brawling && target ? this.strafePoint(state, tank, targetPoint) : target || dodging ? targetPoint : this.fallbackPoint(state, tank);
-      if (this.breachedCell) goal = breachPoint ?? targetPoint;
-      if (dodging && !this.breachedCell) goal = this.dodgePoint(state, tank, targetPoint);
+      if (this.breachPoint) goal = { x: this.breachPoint.x, y: tank.y, z: this.breachPoint.z };
+      if (dodging && !this.breachPoint) goal = this.dodgePoint(state, tank, targetPoint);
     } else {
       const wantsApproach =
         target !== null &&
@@ -395,7 +397,7 @@ export class AIController implements Controller {
       this.movementGoal = null;
     }
 
-    const movement = this.steerAlongPath(tank);
+    const movement = this.steerAlongPath(state.world, tank);
     this.lastHp = tank.hp;
     this.lastDecisionPosition = { x: tank.x, z: tank.z };
     this.lastDecisionThrottle = movement.throttle;
@@ -416,26 +418,25 @@ export class AIController implements Controller {
     this.dodgeUntilTick = Math.max(this.dodgeUntilTick, tick + durationTicks);
   }
 
-  private strafePoint(state: MatchState, tank: Tank, target: { x: number; z: number }): { x: number; z: number } {
-    const angle = Math.atan2(tank.z - target.z, tank.x - target.x) + 0.9 * this.strafeSign;
-    const radius = Math.max(6, Math.min(14, this.profile.preferredRangeMetres));
-    const width = state.world.columns * CELL_SIZE_METRES;
-    const height = state.world.rows * CELL_SIZE_METRES;
+  /** Clamps a goal into the drivable interior, keeping the reference height. */
+  private interior(state: MatchState, x: number, y: number, z: number): NavPoint {
     return {
-      x: clamp(target.x + Math.cos(angle) * radius, CELL_SIZE_METRES * 1.5, width - CELL_SIZE_METRES * 1.5),
-      z: clamp(target.z + Math.sin(angle) * radius, CELL_SIZE_METRES * 1.5, height - CELL_SIZE_METRES * 1.5),
+      x: clamp(x, GOAL_MARGIN_METRES, state.world.widthMetres - GOAL_MARGIN_METRES),
+      y,
+      z: clamp(z, GOAL_MARGIN_METRES, state.world.depthMetres - GOAL_MARGIN_METRES),
     };
   }
 
-  private dodgePoint(state: MatchState, tank: Tank, reference: { x: number; z: number }): { x: number; z: number } {
+  private strafePoint(state: MatchState, tank: Tank, target: NavPoint): NavPoint {
+    const angle = Math.atan2(tank.z - target.z, tank.x - target.x) + 0.9 * this.strafeSign;
+    const radius = Math.max(6, Math.min(14, this.profile.preferredRangeMetres));
+    return this.interior(state, target.x + Math.cos(angle) * radius, tank.y, target.z + Math.sin(angle) * radius);
+  }
+
+  private dodgePoint(state: MatchState, tank: Tank, reference: NavPoint): NavPoint {
     const direction = yawTo(tank.x, tank.z, reference.x, reference.z) + 90 * this.dodgeSign;
     const forward = forwardFromYaw(direction);
-    const width = state.world.columns * CELL_SIZE_METRES;
-    const height = state.world.rows * CELL_SIZE_METRES;
-    return {
-      x: clamp(tank.x + forward.x * 9, CELL_SIZE_METRES * 1.5, width - CELL_SIZE_METRES * 1.5),
-      z: clamp(tank.z + forward.z * 9, CELL_SIZE_METRES * 1.5, height - CELL_SIZE_METRES * 1.5),
-    };
+    return this.interior(state, tank.x + forward.x * 9, tank.y, tank.z + forward.z * 9);
   }
 
   private incomingShell(state: MatchState, tank: Tank): boolean {
@@ -459,87 +460,76 @@ export class AIController implements Controller {
     return 'vanguard';
   }
 
-  private retreatPoint(state: MatchState, tank: Tank, target: { x: number; z: number }): { x: number; z: number } {
+  private retreatPoint(state: MatchState, tank: Tank, target: NavPoint): NavPoint {
     const direction = yawTo(tank.x, tank.z, target.x, target.z) + 180;
     const forward = forwardFromYaw(direction);
-    const width = state.world.columns * CELL_SIZE_METRES;
-    const height = state.world.rows * CELL_SIZE_METRES;
-    return {
-      x: clamp(tank.x + forward.x * 12, CELL_SIZE_METRES * 1.5, width - CELL_SIZE_METRES * 1.5),
-      z: clamp(tank.z + forward.z * 12, CELL_SIZE_METRES * 1.5, height - CELL_SIZE_METRES * 1.5),
-    };
+    return this.interior(state, tank.x + forward.x * 12, tank.y, tank.z + forward.z * 12);
   }
 
-  private hiddenPoint(state: MatchState, tank: Tank, target: { x: number; z: number }): { x: number; z: number } | null {
-    const candidates: { x: number; z: number; distance: number }[] = [];
-    const eye = {
-      x: target.x,
-      y: state.world.floorSurfaceHeightMetres + 1.6,
-      z: target.z,
-    };
-    for (let z = 1; z < state.world.rows - 1; z += 1) {
-      for (let x = 1; x < state.world.columns - 1; x += 1) {
-        const wx = (x + 0.5) * CELL_SIZE_METRES;
-        const wz = (z + 0.5) * CELL_SIZE_METRES;
-        const distance = Math.hypot(wx - tank.x, wz - tank.z);
-        if (distance > 28) continue;
-        if (!isTankPositionFree(state.world, wx, wz)) continue;
-        if (hasLineOfSight(state.world, eye, { x: wx, y: state.world.floorSurfaceHeightMetres + 1, z: wz })) continue;
-        candidates.push({ x: wx, z: wz, distance });
-      }
+  /**
+   * The nearest reachable place within 28 m that the target cannot see: a reverse
+   * slope, the far side of a ridge, a tunnel. Searched over the navigation graph, so
+   * the ambusher never picks a sealed pocket it cannot drive to.
+   */
+  private hiddenPoint(state: MatchState, tank: Tank, target: NavPoint): NavPoint | null {
+    const graph = navGraphFor(state.world, state.tick);
+    const start = nodeNear(graph, tank.x, tank.y, tank.z);
+    if (start === null) return null;
+    const reached = reachableFrom(graph, start);
+    const eye = { x: target.x, y: target.y + AI_EYE_HEIGHT_METRES, z: target.z };
+    const candidates: { node: number; distance: number }[] = [];
+    for (let node = 0; node < graph.nodeCount; node += 1) {
+      if (!reached[node]) continue;
+      const distance = Math.hypot(graph.nodeX[node]! - tank.x, graph.nodeZ[node]! - tank.z);
+      if (distance > 28) continue;
+      candidates.push({ node, distance });
     }
-    candidates.sort((a, b) => a.distance - b.distance || a.x - b.x || a.z - b.z);
-    // A hidden cell is only useful if the tank can walk to it; sealed pockets behind
-    // the rings look hidden but leave the ambusher exposed while it fails to arrive.
-    for (const candidate of candidates.slice(0, 12)) {
-      if (findPath(state.world, tank.x, tank.z, candidate.x, candidate.z, this.frame ?? undefined) !== null) {
-        return { x: candidate.x, z: candidate.z };
-      }
+    candidates.sort((a, b) => a.distance - b.distance || a.node - b.node);
+    let checked = 0;
+    for (const candidate of candidates) {
+      const point = { x: graph.nodeX[candidate.node]!, y: graph.nodeY[candidate.node]!, z: graph.nodeZ[candidate.node]! };
+      if (hasLineOfSight(state.world, eye, { x: point.x, y: point.y + 1, z: point.z })) continue;
+      checked += 1;
+      if (findNodePath(graph, start, candidate.node) !== null) return point;
+      if (checked >= 12) break;
     }
     return null;
   }
 
-  private coverCell(state: MatchState, tank: Tank): { x: number; z: number } | null {
-    let best: { x: number; z: number } | null = null;
+  /** The nearest rock face around the tank at gun height: something to blast a way into. */
+  private coverPoint(state: MatchState, tank: Tank): Vec3 | null {
+    const gun = gunPosition(tank);
+    let best: Vec3 | null = null;
     let bestDistance = Infinity;
-    for (let z = 1; z < state.world.rows - 1; z += 1) {
-      for (let x = 1; x < state.world.columns - 1; x += 1) {
-        const cell = cellAt(state.world, x, z);
-        if (cell.material === 'floor') continue;
-        const wx = (x + 0.5) * CELL_SIZE_METRES;
-        const wz = (z + 0.5) * CELL_SIZE_METRES;
-        const distance = Math.hypot(wx - tank.x, wz - tank.z);
-        if (distance > this.profile.breachRangeMetres || distance < 3) continue;
-        if (distance < bestDistance) {
-          best = { x, z };
-          bestDistance = distance;
-        }
-      }
+    for (let step = 0; step < 16; step += 1) {
+      const direction = directionFromAim(step * 22.5 - 180, 0);
+      const to = {
+        x: gun.x + direction.x * this.profile.breachRangeMetres,
+        y: gun.y,
+        z: gun.z + direction.z * this.profile.breachRangeMetres,
+      };
+      const hit = raycastTerrain(state.world, gun, to);
+      if (!hit) continue;
+      const distance = hit.t * this.profile.breachRangeMetres;
+      if (distance < 3 || distance >= bestDistance) continue;
+      best = { x: hit.x + direction.x * 0.3, y: hit.y, z: hit.z + direction.z * 0.3 };
+      bestDistance = distance;
     }
     return best;
   }
 
-  private blockingCell(state: MatchState, tank: Tank, target: Tank): { x: number; z: number } | null {
-    const from = {
-      x: tank.x,
-      y: state.world.floorSurfaceHeightMetres + MUZZLE_HEIGHT_METRES,
-      z: tank.z,
-    };
-    const to = targetCentre(state.world, target);
-    const distance = Math.hypot(to.x - from.x, to.z - from.z);
-    const steps = Math.ceil(distance / 0.25);
-    for (let step = 1; step < steps; step += 1) {
-      const t = step / steps;
-      const x = from.x + (to.x - from.x) * t;
-      const y = from.y + (to.y - from.y) * t;
-      const z = from.z + (to.z - from.z) * t;
-      const cx = Math.floor(x / CELL_SIZE_METRES);
-      const cz = Math.floor(z / CELL_SIZE_METRES);
-      if (cx < 0 || cz < 0 || cx >= state.world.columns || cz >= state.world.rows) return null;
-      if (isSolidAt(state.world, cx, cz, y)) return { x: cx, z: cz };
-      if (Math.hypot(to.x - x, to.z - z) > this.profile.breachRangeMetres) return null;
-    }
-    return null;
+  /** The first rock on the line of fire to a target within breach range, if any. */
+  private blockingPoint(state: MatchState, tank: Tank, target: Tank): Vec3 | null {
+    const from = gunPosition(tank);
+    const to = targetCentre(target);
+    const distance = Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z);
+    if (distance > this.profile.breachRangeMetres || distance < 1e-6) return null;
+    const hit = raycastTerrain(state.world, from, to);
+    if (!hit) return null;
+    const ux = (to.x - from.x) / distance;
+    const uy = (to.y - from.y) / distance;
+    const uz = (to.z - from.z) / distance;
+    return { x: hit.x + ux * 0.3, y: hit.y + uy * 0.3, z: hit.z + uz * 0.3 };
   }
 
   private chooseTarget(tank: Tank, visible: readonly Tank[]): TargetChoice | null {
@@ -553,96 +543,123 @@ export class AIController implements Controller {
       // The seeded draw settles an exact distance tie only; single candidates never
       // consume RNG, so unrelated decisions cannot perturb a reproducible sequence.
       const chosen = tied.length > 1 ? tied[this.rng.int(tied.length)]! : tied[0]!;
-      return { tank: chosen, x: chosen.x, z: chosen.z, visible: true };
+      return { tank: chosen, x: chosen.x, y: chosen.y, z: chosen.z, visible: true };
     }
     const remembered = this.memory.latest();
     if (remembered) {
-      return { tank: null, x: remembered.x, z: remembered.z, visible: false };
+      return { tank: null, x: remembered.x, y: remembered.y, z: remembered.z, visible: false };
     }
     return null;
   }
 
-  private fallbackPoint(state: MatchState, tank: Tank): { x: number; z: number } {
-    const centreX = (state.world.columns * CELL_SIZE_METRES) / 2;
-    const centreZ = (state.world.rows * CELL_SIZE_METRES) / 2;
-    // Seeded patrol jitter, at most one cell: different seeds explore different
-    // approaches to the centre instead of every match being the same rehearsal.
-    const jitterX = (this.rng.next() - 0.5) * CELL_SIZE_METRES;
-    const jitterZ = (this.rng.next() - 0.5) * CELL_SIZE_METRES;
-    const canonicalCentre = worldToFrame(state.world, this.frame!, centreX, centreZ);
-    const canonicalGoal = {
-      x: canonicalCentre.x + jitterX,
-      z: canonicalCentre.z + jitterZ,
+  /**
+   * Where to go with no enemy known: a patrol. The tank picks a seeded random reachable
+   * place at least `AI_PATROL_MIN_METRES` away and drives there; once it arrives (or
+   * the leg times out) it picks the next. On a landscape the old "drive to the centre"
+   * parked tanks in the cavern under the hill, blind; a patrol sweeps the arena.
+   */
+  private fallbackPoint(state: MatchState, tank: Tank): NavPoint {
+    const current = this.patrolPoint;
+    if (
+      current &&
+      state.tick < this.patrolUntilTick &&
+      Math.hypot(tank.x - current.x, tank.z - current.z) > AI_PATROL_ARRIVED_METRES
+    ) {
+      return current;
+    }
+    const graph = navGraphFor(state.world, state.tick);
+    const start = nodeNear(graph, tank.x, tank.y, tank.z);
+    let next: NavPoint | null = null;
+    if (start !== null) {
+      const reached = reachableFrom(graph, start);
+      const candidates: number[] = [];
+      const minSq = AI_PATROL_MIN_METRES * AI_PATROL_MIN_METRES;
+      for (let n = 0; n < graph.nodeCount; n += 1) {
+        if (!reached[n]) continue;
+        const dx = graph.nodeX[n]! - tank.x;
+        const dz = graph.nodeZ[n]! - tank.z;
+        if (dx * dx + dz * dz >= minSq) candidates.push(n);
+      }
+      if (candidates.length > 0) {
+        // Best of three seeded draws, scored by distance from home: patrols push out
+        // into the arena (where enemies come from) instead of circling the own pad.
+        this.home ??= { x: tank.x, z: tank.z };
+        let node = -1;
+        let best = -Infinity;
+        for (let draw = 0; draw < 3; draw += 1) {
+          const candidate = candidates[this.rng.int(candidates.length)]!;
+          const score = Math.hypot(graph.nodeX[candidate]! - this.home.x, graph.nodeZ[candidate]! - this.home.z);
+          if (score > best) {
+            best = score;
+            node = candidate;
+          }
+        }
+        next = { x: graph.nodeX[node]!, y: graph.nodeY[node]!, z: graph.nodeZ[node]! };
+      }
+    }
+    this.patrolPoint = next ?? {
+      x: state.world.widthMetres / 2,
+      y: tank.y,
+      z: state.world.depthMetres / 2,
     };
-    const worldGoal = frameToWorld(state.world, this.frame!, canonicalGoal.x, canonicalGoal.z);
-    return (
-      reachablePointNear(
-        state.world,
-        tank.x,
-        tank.z,
-        worldGoal.x,
-        worldGoal.z,
-        this.frame!,
-      ) ?? { x: centreX, z: centreZ }
-    );
+    this.patrolUntilTick = state.tick + AI_PATROL_LEG_TICKS;
+    return this.patrolPoint;
   }
 
-  private setPath(state: MatchState, tank: Tank, goal: { x: number; z: number }): void {
+  private setPath(state: MatchState, tank: Tank, goal: NavPoint): void {
     this.movementGoal = goal;
-    const next = this.navigation.findPath(state.world, tank.x, tank.z, goal.x, goal.z, this.forcePath);
+    const next = this.navigation.findPath(state.world, state.tick, tank, goal, this.forcePath);
     if (next !== this.path) {
       this.path = next;
       this.pathIndex = 0;
     }
-    if (this.path && this.path.length > 0) {
-      if (this.pathIndex === 0 && this.path.length > 1) {
-        this.pathIndex = 1;
-      }
-      while (
-        this.pathIndex < this.path.length &&
-        distanceTo(tank, this.path[this.pathIndex]!) <= AI_WAYPOINT_REACHED_METRES
-      ) {
+    if (this.path) {
+      while (this.pathIndex < this.path.length && reached(tank, this.path[this.pathIndex]!)) {
         this.pathIndex += 1;
       }
     }
   }
 
-  private steerAlongPath(tank: Tank): { throttle: number; steer: number } {
+  private steerAlongPath(world: World, tank: Tank): { throttle: number; steer: number } {
     if (!this.path || this.pathIndex >= this.path.length) {
       if (!this.movementGoal) {
         return { throttle: 0, steer: 0 };
       }
-      const dx = this.movementGoal.x - tank.x;
-      const dz = this.movementGoal.z - tank.z;
-      if (Math.hypot(dx, dz) < AI_WAYPOINT_REACHED_METRES) {
+      if (reached(tank, this.movementGoal)) {
         return { throttle: 0, steer: 0 };
       }
       return this.steerToward(tank, this.movementGoal.x, this.movementGoal.z);
     }
-    const waypoint = this.path[this.pathIndex]!;
-    return this.steerToward(
-      tank,
-      (waypoint.x + 0.5) * CELL_SIZE_METRES,
-      (waypoint.z + 0.5) * CELL_SIZE_METRES,
-    );
+    // Steer for the furthest upcoming waypoint within the look-ahead that the hull can
+    // see straight: the waypoints are only 1.5 m apart, well inside the tank's turning
+    // circle, so chasing the next one makes it orbit instead of drive.
+    let aim = this.pathIndex;
+    for (let next = this.pathIndex + 1; next < this.path.length; next += 1) {
+      const point = this.path[next]!;
+      if (Math.hypot(point.x - tank.x, point.z - tank.z) > AI_PATH_LOOKAHEAD_METRES) break;
+      if (!hasClearLine(world, { x: tank.x, y: tank.y + 0.8, z: tank.z }, { x: point.x, y: point.y + 0.8, z: point.z })) break;
+      aim = next;
+    }
+    const waypoint = this.path[aim]!;
+    return this.steerToward(tank, waypoint.x, waypoint.z);
   }
 
   private steerToward(tank: Tank, x: number, z: number): { throttle: number; steer: number } {
     const desiredYaw = yawTo(tank.x, tank.z, x, z);
     const yawError = shortestAngleDelta(tank.hullYawDegrees, desiredYaw);
     const steer = clamp(yawError / (TANK_TURN_RATE_DEGREES_PER_SECOND / 10), -1, 1);
-    const throttle = Math.abs(yawError) <= 45 ? 0.85 : 0.35;
+    // Pivot on the spot for a sharp turn rather than circling wide.
+    const throttle = Math.abs(yawError) <= 30 ? 0.85 : Math.abs(yawError) <= 75 ? 0.4 : 0;
     return { throttle, steer };
   }
 }
 
-function aimAt(state: MatchState, tank: Tank, x: number, z: number, targetYOverride?: number): { yaw: number; pitch: number } {
-  const angle = yawTo(tank.x, tank.z, x, z);
-  const horizontal = Math.hypot(x - tank.x, z - tank.z);
-  const muzzleY = state.world.floorSurfaceHeightMetres + MUZZLE_HEIGHT_METRES;
-  const targetY = targetYOverride ?? state.world.floorSurfaceHeightMetres + AI_TARGET_CENTRE_HEIGHT_METRES;
-  const pitch = horizontal < 1e-9 ? 0 : (Math.atan2(targetY - muzzleY, horizontal) * 180) / Math.PI;
-  return { yaw: normaliseDegrees(angle), pitch };
+/** Turret yaw and pitch from the tank's gun to a point. */
+function aimAt(tank: Tank, point: Vec3): { yaw: number; pitch: number } {
+  const gun = gunPosition(tank);
+  const horizontal = Math.hypot(point.x - gun.x, point.z - gun.z);
+  const pitch = horizontal < 1e-9 ? 0 : (Math.atan2(point.y - gun.y, horizontal) * 180) / Math.PI;
+  return { yaw: normaliseDegrees(yawTo(tank.x, tank.z, point.x, point.z)), pitch };
 }
 
 /**
@@ -659,6 +676,7 @@ function squaredDistance(a: { x: number; z: number }, b: { x: number; z: number 
   return dx * dx + dz * dz;
 }
 
-function distanceTo(a: { x: number; z: number }, b: GridPoint): number {
-  return Math.hypot(a.x - (b.x + 0.5) * CELL_SIZE_METRES, a.z - (b.z + 0.5) * CELL_SIZE_METRES);
+/** A waypoint is reached when the tank is on it horizontally and on the same level. */
+function reached(tank: Tank, point: NavPoint): boolean {
+  return Math.hypot(tank.x - point.x, tank.z - point.z) <= AI_WAYPOINT_REACHED_METRES && Math.abs(tank.y - point.y) < 2;
 }

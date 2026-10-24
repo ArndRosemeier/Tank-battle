@@ -1,5 +1,5 @@
 /**
- * The match: teams of tanks in a real A1 world, shells in flight, a seeded RNG and the
+ * The match: teams of tanks on a destructible terrain, shells in flight, a seeded RNG and the
  * match clock. This module creates the state; `step.ts` advances it one deterministic
  * tick.
  *
@@ -8,32 +8,26 @@
  * `Controller` (local human or AI; A3c wires the former, Slice B the latter).
  *
  * Conventions (all documented in `src/render` too, via `docs/ARCHITECTURE.md`):
- *  - positions are metres in the world's floor plane; `CELL_SIZE_METRES` converts to
- *    the A1 grid (the A1 model carries heights only, not a horizontal cell size);
+ *  - positions are metres; `y` is up and a tank's `y` is its hull origin on the ground;
  *  - hull/turret yaw 0 faces -z, positive turns towards -x;
  *  - aim pitch is degrees above the horizon, negative aims down;
  *  - all teams are hostile to every other team; a teammate is never damaged.
  */
 
 import { createRng, type Rng } from '../rng.ts';
-import {
-  createWorld,
-  isCellPassable,
-  isSolidAt,
-  type World,
-  type WorldSpec,
-} from '../world.ts';
+import { createWorld, type World, type WorldSpec } from '../world.ts';
 import {
   AIM_PITCH_MAX_DEGREES,
   AIM_PITCH_MIN_DEGREES,
-  CELL_SIZE_METRES,
   MAX_TANKS_PER_TEAM,
   MAX_TEAMS,
-  TANK_COLLISION_HEIGHT_METRES,
+  TANK_HEIGHT_METRES,
   TANK_MAX_HP,
   TANK_RADIUS_METRES,
+  TANK_STEP_METRES,
   type MatchRules,
 } from './constants.ts';
+import { standingPoseAt } from './terrainBody.ts';
 import { normaliseDegrees } from './geometry.ts';
 import {
   createMatchStats,
@@ -46,6 +40,11 @@ import {
 export interface TankSpawn {
   readonly xMetres: number;
   readonly zMetres: number;
+  /**
+   * Optional height hint: the tank stands on the highest ground at or below this
+   * height (a cave floor under a hill). Default: the highest ground in the column.
+   */
+  readonly yMetres?: number;
   /** Hull yaw in degrees; default 0 (faces -z). */
   readonly hullYawDegrees?: number;
   /** Absolute turret yaw; default the hull yaw. */
@@ -75,8 +74,15 @@ export interface Tank {
   /** Position within its team, 0-based. */
   readonly teamIndex: number;
   x: number;
+  /** Height of the hull origin (the ground it rests on, or mid-fall). */
+  y: number;
   z: number;
+  /** Vertical speed in m/s, negative while falling; 0 on the ground. */
+  verticalSpeed: number;
   hullYawDegrees: number;
+  /** The hull's tilt on the terrain: pitch nose-up positive, roll left-up positive. */
+  hullPitchDegrees: number;
+  hullRollDegrees: number;
   turretYawDegrees: number;
   aimPitchDegrees: number;
   hp: number;
@@ -87,7 +93,7 @@ export interface Tank {
   bleedTicksRemaining: number;
   deathCause: DeathCause | null;
   diedAtTick: number | null;
-  /** The team whose shell killed this tank; null for a clock death or a living tank. */
+  /** The team whose shell (or rockfall) killed this tank; null otherwise. */
   killedByTeamId: number | null;
 }
 
@@ -117,6 +123,16 @@ export type PresentationEvent =
   | { readonly type: 'impact'; readonly teamId: number; readonly x: number; readonly y: number; readonly z: number }
   | { readonly type: 'hit'; readonly tankId: number; readonly teamId: number; readonly x: number; readonly y: number; readonly z: number }
   | {
+      /** Terrain breaking up: a crater, dust, a chunk breaking off, landing or crushing. */
+      readonly type: 'terrain';
+      readonly kind: 'crater' | 'dust' | 'break' | 'land' | 'crush';
+      readonly x: number;
+      readonly y: number;
+      readonly z: number;
+      /** Lattice samples involved (crater: samples destroyed). */
+      readonly samples: number;
+    }
+  | {
       readonly type: 'death';
       readonly tankId: number;
       readonly teamId: number;
@@ -141,6 +157,8 @@ export interface MatchState {
   readonly teams: readonly MatchTeam[];
   readonly tanks: Tank[];
   readonly shells: Shell[];
+  /** The team whose shell broke each falling chunk loose (crush kills are credited to it). */
+  readonly chunkCauses: Map<number, number>;
   /** Optional presentation-only event capture, enabled by a live scene. */
   capturePresentationEvents?: boolean;
   presentationEvents?: PresentationEvent[];
@@ -213,23 +231,28 @@ export function createMatch(input: CreateMatchInput): MatchState {
           `sim.createMatch: tank ${teamSpec.id}/${teamIndex} aimPitch must be within ${AIM_PITCH_MIN_DEGREES}…${AIM_PITCH_MAX_DEGREES}, got ${aimPitchDegrees}`,
         );
       }
-      if (!Number.isFinite(spawn.xMetres) || !Number.isFinite(spawn.zMetres)) {
+      if (!Number.isFinite(spawn.xMetres) || !Number.isFinite(spawn.zMetres) || !Number.isFinite(spawn.yMetres ?? 0)) {
         throw new Error(`sim.createMatch: tank ${teamSpec.id}/${teamIndex} has a non-finite spawn position`);
       }
-      if (!isTankPositionFree(world, spawn.xMetres, spawn.zMetres)) {
+      const pose = spawnPose(world, spawn, hullYawDegrees);
+      if (!pose) {
         throw new Error(
           `sim.createMatch: tank ${teamSpec.id}/${teamIndex} spawn (${spawn.xMetres}, ${spawn.zMetres}) is blocked or outside the arena`,
         );
       }
-      assertTankSpawnDoesNotOverlap(tanks, spawn, teamSpec.id, teamIndex);
+      assertTankSpawnDoesNotOverlap(tanks, spawn, pose.y, teamSpec.id, teamIndex);
 
       const tank: Tank = {
         id: tanks.length,
         teamId: teamSpec.id,
         teamIndex,
         x: spawn.xMetres,
+        y: pose.y,
         z: spawn.zMetres,
+        verticalSpeed: 0,
         hullYawDegrees,
+        hullPitchDegrees: pose.pitchDegrees,
+        hullRollDegrees: pose.rollDegrees,
         turretYawDegrees,
         aimPitchDegrees,
         hp: TANK_MAX_HP,
@@ -255,6 +278,7 @@ export function createMatch(input: CreateMatchInput): MatchState {
     teams,
     tanks,
     shells: [],
+    chunkCauses: new Map(),
     tick: 0,
     nextShellId: 0,
     status: 'active',
@@ -265,70 +289,34 @@ export function createMatch(input: CreateMatchInput): MatchState {
 }
 
 /**
- * Is the tank's circular footprint free at `(x, z)`? A tank is blocked by a wall,
- * pillar or big block (the A1 `isCellPassable` answer for ground units) and by any
- * material at hull height (`isSolidAt`), never by a floor hole. The circle is tested
- * against each cell's AABB, so a tank cannot clip a wall corner.
+ * Is a tank body free at `(x, z)` standing on the ground at or below `fromY`? The
+ * footprint must be inside the arena and no rock may fill the body. Tank-vs-tank
+ * contact is the step's business, not this query's.
  */
-export function isTankPositionFree(world: World, x: number, z: number): boolean {
-  if (!Number.isFinite(x) || !Number.isFinite(z)) {
-    throw new Error(`sim: tank position must be finite, got (${x}, ${z})`);
-  }
-  const radius = TANK_RADIUS_METRES;
-  const width = world.columns * CELL_SIZE_METRES;
-  const height = world.rows * CELL_SIZE_METRES;
-  if (x - radius < 0 || x + radius > width || z - radius < 0 || z + radius > height) {
-    return false;
-  }
+export function isTankPositionFree(world: World, x: number, z: number, fromY: number, yawDegrees = 0): boolean {
+  return standingPoseAt(world, x, z, yawDegrees, fromY) !== null;
+}
 
-  const minCellX = Math.max(0, Math.floor((x - radius) / CELL_SIZE_METRES));
-  const maxCellX = Math.min(world.columns - 1, Math.floor((x + radius) / CELL_SIZE_METRES));
-  const minCellZ = Math.max(0, Math.floor((z - radius) / CELL_SIZE_METRES));
-  const maxCellZ = Math.min(world.rows - 1, Math.floor((z + radius) / CELL_SIZE_METRES));
-
-  for (let cellZ = minCellZ; cellZ <= maxCellZ; cellZ += 1) {
-    for (let cellX = minCellX; cellX <= maxCellX; cellX += 1) {
-      const blocked =
-        !isCellPassable(world, cellX, cellZ) ||
-        isSolidAt(world, cellX, cellZ, TANK_COLLISION_HEIGHT_METRES);
-      if (!blocked) {
-        continue;
-      }
-      const nearX = clampNumber(x, cellX * CELL_SIZE_METRES, (cellX + 1) * CELL_SIZE_METRES);
-      const nearZ = clampNumber(z, cellZ * CELL_SIZE_METRES, (cellZ + 1) * CELL_SIZE_METRES);
-      const dx = x - nearX;
-      const dz = z - nearZ;
-      if (dx * dx + dz * dz < radius * radius) {
-        return false;
-      }
-    }
-  }
-  return true;
+/** The pose a spawn stands in: on the highest ground (or below the hint), or null. */
+function spawnPose(world: World, spawn: TankSpawn, yawDegrees: number) {
+  const fromY = spawn.yMetres !== undefined ? spawn.yMetres + TANK_STEP_METRES : world.heightMetres + 1;
+  return standingPoseAt(world, spawn.xMetres, spawn.zMetres, yawDegrees, fromY);
 }
 
 /**
- * Rejects a spawn that shares a cell with, or whose circular body overlaps, an already
- * created tank. This is authoring validation, not a nudge: a level with two tanks on
- * one another is a broken level. A same-cell pair is rejected even when two corners of
- * that 2 m cell would leave the circles just clear.
+ * Rejects a spawn whose body overlaps an already created tank. This is authoring
+ * validation, not a nudge: a level with two tanks on one another is a broken level.
  */
 function assertTankSpawnDoesNotOverlap(
   tanks: readonly Tank[],
   spawn: TankSpawn,
+  y: number,
   teamId: number,
   teamIndex: number,
 ): void {
-  const cellX = Math.floor(spawn.xMetres / CELL_SIZE_METRES);
-  const cellZ = Math.floor(spawn.zMetres / CELL_SIZE_METRES);
   const minimumDistance = TANK_RADIUS_METRES * 2;
   for (const tank of tanks) {
-    const otherCellX = Math.floor(tank.x / CELL_SIZE_METRES);
-    const otherCellZ = Math.floor(tank.z / CELL_SIZE_METRES);
-    if (cellX === otherCellX && cellZ === otherCellZ) {
-      throw new Error(
-        `sim.createMatch: tank ${teamId}/${teamIndex} spawn (${spawn.xMetres}, ${spawn.zMetres}) shares cell (${cellX}, ${cellZ}) with tank ${tank.id}; spawn overlap is rejected`,
-      );
-    }
+    if (Math.abs(tank.y - y) >= TANK_HEIGHT_METRES) continue;
     const dx = spawn.xMetres - tank.x;
     const dz = spawn.zMetres - tank.z;
     if (dx * dx + dz * dz < minimumDistance * minimumDistance) {
@@ -351,8 +339,4 @@ function validateRules(rules: MatchRules): void {
       `sim.createMatch: bleedIntervalTicks must be a positive integer, got ${rules.bleedIntervalTicks}`,
     );
   }
-}
-
-function clampNumber(value: number, min: number, max: number): number {
-  return value < min ? min : value > max ? max : value;
 }

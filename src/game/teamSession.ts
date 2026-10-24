@@ -33,7 +33,7 @@ import {
   type Tank,
 } from '../core/sim.ts';
 import { arenaTeamSetup, TEAM_MODE_AIM_ERROR_SCALE } from './aiBatch.ts';
-import { ARENA, ARENA_BOUNDS } from './levels/arena.ts';
+import { ARENA_BASE_HEIGHT_METRES, ARENA_BOUNDS } from './levels/arena.ts';
 import { idlePlayerInput, type PlayerInput } from './input.ts';
 import { PlayerAimController, type AimCamera } from './aim.ts';
 import { interpolateTanks, snapshotTanks, type TankRenderFrame } from './tankFrames.ts';
@@ -192,7 +192,7 @@ export class TeamSession {
   }
 
   get floorY(): number {
-    return ARENA.cells.floorSurfaceHeightMetres;
+    return ARENA_BASE_HEIGHT_METRES;
   }
 
   get frozenFrame(): boolean {

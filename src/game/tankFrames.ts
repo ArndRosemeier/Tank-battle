@@ -2,7 +2,7 @@
  * The one render-frame snapshot/interpolation seam shared by the playable and
  * spectator sessions. It is game layer: plain data, no three.js and no clock.
  *
- * Tanks interpolate x/z/hull/turret/pitch between the previous and current tick; yaw
+ * Tanks interpolate position, hull tilt, turret and pitch between the previous and current tick; yaw
  * uses the shortest arc. Shells deliberately do not interpolate.
  */
 
@@ -13,8 +13,12 @@ export interface TankRenderFrame {
   readonly id: number;
   readonly teamId: number;
   readonly x: number;
+  /** The hull origin's height on the terrain. */
+  readonly y: number;
   readonly z: number;
   readonly hullYawDegrees: number;
+  readonly hullPitchDegrees: number;
+  readonly hullRollDegrees: number;
   readonly turretYawDegrees: number;
   readonly aimPitchDegrees: number;
   readonly hp: number;
@@ -29,8 +33,11 @@ export function snapshotTanks(state: MatchState): Map<number, TankRenderFrame> {
       id: tank.id,
       teamId: tank.teamId,
       x: tank.x,
+      y: tank.y,
       z: tank.z,
       hullYawDegrees: tank.hullYawDegrees,
+      hullPitchDegrees: tank.hullPitchDegrees,
+      hullRollDegrees: tank.hullRollDegrees,
       turretYawDegrees: tank.turretYawDegrees,
       aimPitchDegrees: tank.aimPitchDegrees,
       hp: tank.hp,
@@ -68,7 +75,10 @@ export function interpolateTanks(
     frames.push({
       ...current,
       x: lerp(previous.x, current.x, t),
+      y: lerp(previous.y, current.y, t),
       z: lerp(previous.z, current.z, t),
+      hullPitchDegrees: lerp(previous.hullPitchDegrees, current.hullPitchDegrees, t),
+      hullRollDegrees: lerp(previous.hullRollDegrees, current.hullRollDegrees, t),
       hullYawDegrees: lerpAngle(previous.hullYawDegrees, current.hullYawDegrees, t),
       turretYawDegrees: lerpAngle(previous.turretYawDegrees, current.turretYawDegrees, t),
       aimPitchDegrees: lerp(previous.aimPitchDegrees, current.aimPitchDegrees, t),

@@ -1,28 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import { runBatchMatches, runTeamBatch } from '../core/ai.ts';
 import { createMatch, DEFAULT_MATCH_RULES } from '../core/sim.ts';
-import { CELL_SIZE_METRES } from '../core/world.ts';
-import { ARENA } from './levels/arena.ts';
+import { ARENA_BOUNDS } from './levels/arena.ts';
 import { arenaDuelSetup, arenaTeamSetup } from './aiBatch.ts';
 
 describe('the duel staging', () => {
-  it('pins the two spawns as an exact mirror pair across the arena centre', () => {
+  it('pins the two spawns as an exact half-turn pair across the arena centre', () => {
     const setup = arenaDuelSetup();
     const first = setup.spawns[0]!;
     const second = setup.spawns[1]!;
-    expect(first).toEqual({
-      teamId: 0,
-      spawn: { xMetres: 18, zMetres: 6, hullYawDegrees: -90 },
-    });
-    expect(second).toEqual({
-      teamId: 1,
-      spawn: { xMetres: 30, zMetres: 6, hullYawDegrees: 90 },
-    });
-    // Mirroring x through the 48 m arena's centre must map one spawn onto the other,
-    // and reverse the hull's facing.
-    expect(first.spawn.xMetres + second.spawn.xMetres).toBe(ARENA.cells.columns * CELL_SIZE_METRES);
-    expect(first.spawn.zMetres).toBe(second.spawn.zMetres);
-    expect(first.spawn.hullYawDegrees ?? NaN).toBe(-(second.spawn.hullYawDegrees ?? NaN));
+    expect(first.teamId).toBe(0);
+    expect(second.teamId).toBe(1);
+    // Opposite pads: a half turn about the centre maps one spawn onto the other and
+    // reverses the hull's facing.
+    const size = ARENA_BOUNDS.maxX;
+    expect(first.spawn.xMetres + second.spawn.xMetres).toBeCloseTo(size, 9);
+    expect(first.spawn.zMetres + second.spawn.zMetres).toBeCloseTo(size, 9);
+    const turn = ((((second.spawn.hullYawDegrees ?? NaN) - (first.spawn.hullYawDegrees ?? NaN)) % 360) + 360) % 360;
+    expect(turn).toBeCloseTo(180, 9);
   });
 });
 

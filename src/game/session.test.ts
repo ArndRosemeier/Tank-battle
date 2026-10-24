@@ -38,7 +38,7 @@ describe('the playable session bridge', () => {
   it('the demo reaches a real last-team win and leaves a dead dummy', () => {
     const session = new PlayableSession({ demo: true });
     session.runDemo(600);
-    expect(session.state.tick).toBe(574);
+    expect(session.state.tick).toBe(576);
     expect(session.state.status).toBe('ended');
     expect(session.state.outcome).toBe('last-team');
     expect(session.state.winnerTeamId).toBe(0);
@@ -68,13 +68,14 @@ describe('the playable session bridge', () => {
     // "sitting directly next to me". The opponent must come from the opposite corner.
     expect(Math.hypot(start.x - player.x, start.z - player.z)).toBeGreaterThan(24);
 
-    for (let tick = 0; tick < 900; tick += 1) {
+    // With no enemy in sight the AI patrols the landscape until it finds the player.
+    for (let tick = 0; tick < 1800 && session.state.stats.shotsFired === 0; tick += 1) {
       session.step(IDLE);
     }
 
     const after = session.dummy;
     expect(Math.hypot(after.x - start.x, after.z - start.z)).toBeGreaterThan(2);
     expect(session.state.stats.shotsFired).toBeGreaterThan(0);
-    expect(session.state.tick).toBe(900);
+    expect(session.state.tick).toBeLessThan(1800);
   });
 });

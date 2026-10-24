@@ -1,11 +1,10 @@
 /**
  * The ONE tuning module for the simulation (`src/core/sim/`).
  *
- * World numbers (materials, heights, regen delays, mirror steps and the shared cell
- * size) stay in `src/core/world/constants.ts`; this file owns the combat layer's
- * numbers. The cell size is re-exported here so sim callers keep one import path, but
- * the ONE definition lives in the world module. A3b renders these values; it does not
- * invent its own.
+ * Terrain numbers (lattice spacing, blast, collapse, regeneration, gravity) stay in
+ * `src/core/world/constants.ts`; this file owns the combat layer's numbers and the
+ * tank's terrain-driving limits. The renderer draws these values; it does not invent
+ * its own.
  *
  * Units: metres, seconds, degrees, and whole simulation ticks. A tick IS
  * `STEP_SECONDS` (`src/core/timestep.ts`), so a speed in m/s becomes a per-tick move
@@ -16,10 +15,6 @@
  */
 
 import { STEP_SECONDS } from '../timestep.ts';
-import { CELL_SIZE_METRES } from '../world.ts';
-
-/** Re-exported from `src/core/world/constants.ts`, the ONE cell-size definition. */
-export { CELL_SIZE_METRES };
 
 /** One tank's full health. Three shell hits kill (owner, §4). */
 export const TANK_MAX_HP = 3;
@@ -34,16 +29,35 @@ export const TANK_TURN_RATE_DEGREES_PER_SECOND = 60;
 export const TURRET_RATE_DEGREES_PER_SECOND = 120;
 
 /** Aim pitch: positive is UP from the horizon. */
-export const AIM_PITCH_MIN_DEGREES = -30;
-export const AIM_PITCH_MAX_DEGREES = 25;
+export const AIM_PITCH_MIN_DEGREES = -35;
+export const AIM_PITCH_MAX_DEGREES = 35;
 
 /** Tank collision footprint. The simulation is not the renderer's 4 m hull model. */
 export const TANK_RADIUS_METRES = 1;
 export const TANK_HEIGHT_METRES = 1.5;
-/** The height at which a cell counts as blocking a ground tank (floor is below it). */
-export const TANK_COLLISION_HEIGHT_METRES = 0.8;
 
-/** The gun's muzzle: 3 m forward of the hull origin at this height above the floor. */
+/**
+ * Driving on terrain. The hull rests on the highest of five ground probes (centre,
+ * front, back, left, right). A move is refused when the ground ahead rises more than
+ * `TANK_STEP_METRES` in one tick plus the slope allowance, or when rock fills the
+ * body's headroom (a wall or a cave ceiling).
+ */
+export const TANK_PROBE_FORWARD_METRES = 1.0;
+export const TANK_PROBE_SIDE_METRES = 0.9;
+/** The tallest ledge a tank drives up without a ramp. */
+export const TANK_STEP_METRES = 0.3;
+/** The steepest slope a tank can climb. */
+export const TANK_MAX_SLOPE_DEGREES = 40;
+/** Ground that drops away faster than this per metre is a fall, not a slope. */
+export const TANK_SNAP_DOWN_SLOPE = 1.3;
+/** Climbing at the maximum slope keeps this fraction of the flat speed. */
+export const TANK_UPHILL_SPEED_FLOOR = 0.5;
+/** Body heights (above the hull origin) that must be clear of rock. */
+export const TANK_HEADROOM_HEIGHTS_METRES: readonly number[] = Object.freeze([0.55, 1.35]);
+/** A landing faster than these speeds costs 1 / 2 HP. */
+export const TANK_FALL_DAMAGE_SPEEDS: readonly number[] = Object.freeze([13, 19]);
+
+/** The gun's muzzle: 3 m forward of the hull origin at this height above the hull. */
 export const MUZZLE_FORWARD_METRES = 3;
 export const MUZZLE_HEIGHT_METRES = 1.1;
 
@@ -55,16 +69,10 @@ export const RELOAD_TICKS = 285;
 /** Shell speed and the distance one tick advances it. */
 export const SHELL_SPEED_METRES_PER_SECOND = 90;
 export const SHELL_METRES_PER_TICK = SHELL_SPEED_METRES_PER_SECOND * STEP_SECONDS;
-/** Range is the total path length, including a shard bounce. */
+/** Range is the total path length. */
 export const SHELL_RANGE_METRES = 120;
-/** One shell removes one HP from a tank, a cell or a big block. */
+/** One shell removes one HP from a tank; on terrain it carves a crater. */
 export const SHELL_DAMAGE = 1;
-
-/**
- * A shard is floor debris; it only intercepts a shell within this height above the
- * floor. A high shot flies over floor shards, a low/downward shot is deflected.
- */
-export const SHARD_HIT_HEIGHT_METRES = 0.5;
 
 /**
  * The lethal wound clock: a damaged tank loses 1 HP every this many ticks (15 s at
