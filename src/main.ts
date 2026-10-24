@@ -7,6 +7,7 @@ import { requireElement } from './entry/dom.ts';
 import { createAimHud, createHud, type HudState } from './entry/hud.ts';
 import { AudioEngine } from './entry/audio.ts';
 import { createScreens, type Screens } from './entry/screens.ts';
+import { loadCuedSession, showCuedBadge } from './entry/cued.ts';
 import { createTitleBackground, type TitleBackground } from './entry/titleBackground.ts';
 import { loadSettings, saveSettings, type GameSettings } from './entry/settings.ts';
 import { CameraRig } from './render/cameraRig.ts';
@@ -1345,6 +1346,14 @@ try {
     },
   });
   applySettings(currentSettings);
+
+  // Launched from cued.de? Read the pass once per page (and keep it for later in-game navigations).
+  try {
+    const cued = loadCuedSession();
+    if (cued) showCuedBadge(cued);
+  } catch (error) {
+    reportError(error);
+  }
 
   if (launch.mode === 'title') {
     gameStarted = false;

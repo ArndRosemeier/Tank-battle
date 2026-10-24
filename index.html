@@ -367,6 +367,33 @@
         letter-spacing: 0.16em;
       }
       #title-audio-hint { color: #ffb347; opacity: 0.9; }
+      /* cued badge (src/entry/cued.ts): who is playing when the game was launched from cued.de */
+      .cued-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        margin: 4px 0 18px;
+        padding: 4px 14px 4px 4px;
+        border: 1px solid rgba(0, 229, 255, 0.45);
+        border-radius: 999px;
+        background: rgba(2, 10, 14, 0.72);
+        color: #8ff4ff;
+        font-size: 11px;
+        letter-spacing: 0.16em;
+      }
+      .cued-badge[hidden] { display: none; }
+      .cued-badge.expired { border-color: rgba(255, 179, 71, 0.6); color: #ffb347; }
+      .cued-badge-circle {
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        object-fit: cover;
+        display: inline-grid;
+        place-items: center;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0;
+      }
       #settings-screen::before, #pause-screen::before {
         content: '';
         position: absolute;
@@ -595,6 +622,7 @@
         <div class="screen-eyebrow">FOURFOLD CRUCIBLE // NEON ARMOUR</div>
         <h1 class="wordmark">TANK <span>BATTLE</span></h1>
         <div class="tagline">LAST TEAM STANDING</div>
+        <div id="cued-badge" class="cued-badge" hidden></div>
         <div class="title-menu">
           <button id="title-play" class="tron-button" type="button">PLAY <span>1 V 1</span></button>
           <button id="title-setup" class="tron-button" type="button">BATTLE <span>CUSTOM SETUP</span></button>
