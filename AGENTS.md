@@ -35,6 +35,15 @@ not work. The smoke needs a dev-only install:
 A user-visible change is **VERIFIED-DEPLOYED** only when that chain passes. Otherwise say
 **VERIFIED-LOCAL** and name what was not verified.
 
+## Version number and What's new (added 2026-10-24)
+
+The version is **counted from git, never stored**: 0.100 was the first main commit after
+the anchor in `scripts/buildInfo.ts`, and every commit on main's first-parent line (every
+merged PR) adds 0.001. Never hand-edit a version anywhere. Every user-visible change adds
+**one new file** in `changelog/` (`# Title` + `- item` lines, see `changelog/README.md`);
+it shows up in the game's What's new screen with the version its merge received. CI
+checks out with `fetch-depth: 0` because a shallow clone cannot count.
+
 ## Cross-tool contract (DSH and Claude Code)
 
 This project is worked from **two harnesses**. The contract is
