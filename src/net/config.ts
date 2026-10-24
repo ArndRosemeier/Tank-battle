@@ -5,9 +5,9 @@
  */
 
 export const GAMEHUB_URL: string = import.meta.env.VITE_GAMEHUB_URL || 'https://games.futuremagic.de';
-export const GAMEHUB_APP: string = import.meta.env.VITE_GAMEHUB_APP || 'tank-battle';
-/** Filled in once the app is registered on the server (`npm run apps -- mint-key tank-battle`). */
-const COMMITTED_KEY = '';
+export const GAMEHUB_APP: string = import.meta.env.VITE_GAMEHUB_APP || 'tank';
+/** The `tank` app's key on games.futuremagic.de (minted 2026-10-24). */
+const COMMITTED_KEY = 'ghk_tank_LOOZz1lNKc-htULVYCb2CJ25r8Aoiujc';
 export const GAMEHUB_KEY: string = import.meta.env.VITE_GAMEHUB_KEY || COMMITTED_KEY;
 
 /** Why online play cannot start in this build, or null when it can. */

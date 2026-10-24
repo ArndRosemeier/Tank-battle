@@ -65,7 +65,8 @@ describe('the procedural arena generator', () => {
         expect(collapseTerrain(world)).toEqual([]);
       }
     }
-  });
+    // 75 full arenas: ~3 s on a dev box, over vitest's 5 s default on a Windows CI runner.
+  }, 30_000);
 
   it('sizes the arena: small < medium < large', () => {
     const widths = ARENA_SIZES.map((size) => generateArena(77, size).widthMetres);

@@ -37,7 +37,7 @@ continues. A player who leaves mid-match is handed to the AI at a tick every pee
 | `src/net/netMatch.ts` | one match: produce (host) / consume (client), migration, hash check |
 | `src/net/onlineSession.ts` | hub events → room transitions and matches |
 | `src/net/fakeHub.ts` | in-memory GameHub for tests |
-| `src/net/config.ts` | server URL, app id `tank-battle`, app key |
+| `src/net/config.ts` | server URL, app id `tank`, app key |
 | `src/entry/onlineScreens.ts` | the ONLINE / LOBBY / HOST / ROOM screens |
 | `src/main.ts` (`openOnline` … `onlineStatus`) | boots and tears down online matches |
 
@@ -46,12 +46,11 @@ modes do not pass them and behave as before.
 
 ## Setup
 
-1. Register the app on the box: `npm run apps -- add tank-battle --name "Tank Battle"
-   --access key --max-players 16`, then `npm run apps -- mint-key tank-battle`.
-2. Put the key in `COMMITTED_KEY` in `src/net/config.ts` (app keys are not secrets), or build
-   with `VITE_GAMEHUB_KEY=…`. Without a key the ONLINE screen says so instead of connecting.
+1. The app is registered on the box as `tank` (done 2026-10-24).
+2. Its key is `COMMITTED_KEY` in `src/net/config.ts` (app keys are not secrets); a build may
+   override it with `VITE_GAMEHUB_KEY=…`. Without a key the ONLINE screen says so.
 3. For the futuremagic lobby, add a `gamehub` block to the game's `apps.json` entry with
-   `"app": "tank-battle"`, the key and `"join": "?room={code}"`. `?room=CODE` joins straight
+   `"app": "tank"`, the key and `"join": "?room={code}"`. `?room=CODE` joins straight
    into the room.
 
 ## Known limits
