@@ -1,84 +1,64 @@
 /**
- * The ONE numbers module for the world model.
+ * The ONE tuning module for the terrain (`src/core/world/`).
  *
- * Every material, debris, regeneration and mirror number lives here, so tuning is a
- * single file and nothing is duplicated across the model (`COPIES: 1`). The values
- * are the vetoable defaults recorded in `docs/DESIGN.md` §7; the design decisions
- * they express are the owner's (ledger rows 9, 16, 17, 19).
+ * The world is a volumetric DENSITY LATTICE: one byte per sample point, spaced
+ * `TERRAIN_SPACING_METRES` apart in x, y and z. A point is solid when its trilinearly
+ * interpolated density is at least `DENSITY_ISO`. The renderer draws the iso-surface
+ * with marching tetrahedra, which is where the glowing triangles come from; the
+ * simulation only ever asks density questions, so it never depends on a mesh.
+ *
+ * Units: metres, seconds, density bytes (0…255) and whole simulation ticks.
  */
 
-import { STEP_SECONDS } from '../timestep.ts';
+/** Distance between neighbouring lattice samples, in metres. */
+export const TERRAIN_SPACING_METRES = 1.5;
+
+/** The density at which a point turns solid. */
+export const DENSITY_ISO = 128;
+export const DENSITY_MAX = 255;
+
+/** Sample materials. Bedrock is the indestructible bottom layer (`j = 0`). */
+export const MATERIAL_ROCK = 0;
+export const MATERIAL_CRYSTAL = 1;
+export const MATERIAL_BEDROCK = 2;
+export type TerrainMaterial = typeof MATERIAL_ROCK | typeof MATERIAL_CRYSTAL | typeof MATERIAL_BEDROCK;
+export const MATERIAL_COUNT = 3;
+
+/** How much a blast is divided by on each material. Bedrock never takes damage. */
+export const MATERIAL_HARDNESS: readonly number[] = Object.freeze([1, 1.8, Infinity]);
+
+/** A shell's crater: density removed at the centre, falling linearly to the radius. */
+export const BLAST_RADIUS_METRES = 2.4;
+export const BLAST_STRENGTH = 360;
 
 /**
- * The horizontal size of one world cell, in metres. This is the ONE definition:
- * the simulation and the renderer both import it (render may import a core constant;
- * core never imports render). It is world data because every cell address, grid
- * query and displacement is expressed in cells.
+ * Collapse: after material is removed, every solid sample that is no longer connected
+ * (6-neighbour) to the bedrock layer breaks off. A piece of at most this many samples
+ * crumbles to dust; a bigger one becomes a falling chunk.
  */
-export const CELL_SIZE_METRES = 2;
+export const DUST_MAX_SAMPLES = 3;
+
+/** Gravity for falling chunks and falling tanks, in m/s² (a little heavier than Earth: it reads better). */
+export const GRAVITY_METRES_PER_SECOND_SQUARED = 20;
+
+/** A landed chunk becomes rubble at this fraction of its density (cracked, looser rock). */
+export const RUBBLE_DENSITY_FACTOR = 0.85;
+
+/** Crush damage by chunk size in samples: at least 6 → 1 HP, 30 → 2 HP, 80 → 3 HP. */
+export const CRUSH_DAMAGE_STEPS: readonly { readonly samples: number; readonly damage: number }[] = Object.freeze([
+  { samples: 80, damage: 3 },
+  { samples: 30, damage: 2 },
+  { samples: 6, damage: 1 },
+]);
 
 /**
- * What a cell is BUILT as. A destroyed cell is not a fourth material: it is a `hole`
- * derived from `hp === 0` (`cellState`), because the material is what regeneration
- * must restore, and two competing representations would drift apart.
+ * Regeneration: every `REGEN_INTERVAL_TICKS`, each sample moves `REGEN_STEP` density
+ * towards its authored target. A missing sample only regrows next to solid material,
+ * so a crater heals from its walls inwards; rubble that is not part of the authored
+ * landscape erodes away. A sample inside a tank never grows.
  */
-export type CellMaterial = 'floor' | 'wall' | 'pillar';
+export const REGEN_INTERVAL_TICKS = 30;
+export const REGEN_STEP = 5;
 
-/** The damage a cell takes before it becomes a hole, and what it leaves behind. */
-export interface MaterialProfile {
-  readonly maxHp: number;
-  /** Seconds from a wound to the next repaired frame of damage. */
-  readonly regenDelaySeconds: number;
-  /** Debris spawned when the cell is destroyed. */
-  readonly debris: DebrisYield;
-}
-
-/** What one destroyed cell yields. Both counts are per cell; big blocks are uncapped. */
-export interface DebrisYield {
-  readonly blocks: number;
-  readonly shards: number;
-}
-
-/**
- * A floor is one hit; a wall two; a pillar three. The wall/pillar split is what makes
- * a pillar worth a detour around rather than a shot through.
- */
-export const MATERIAL_PROFILES: Readonly<Record<CellMaterial, MaterialProfile>> = {
-  floor: { maxHp: 1, regenDelaySeconds: 20, debris: { blocks: 0, shards: 3 } },
-  wall: { maxHp: 2, regenDelaySeconds: 20, debris: { blocks: 1, shards: 0 } },
-  pillar: { maxHp: 3, regenDelaySeconds: 20, debris: { blocks: 1, shards: 0 } },
-};
-
-/** HP of the static big block a destroyed wall/pillar leaves in its cell. */
-export const BLOCK_MAX_HP = 2;
-
-/**
- * How tall a big block stands, in metres. Deliberately lower than a wall: the hole's
- * debris is rubble, so a shot can clear the rubble while still being stopped by an
- * intact wall — that is the height-aware cover the owner asked for.
- */
-export const BLOCK_HEIGHT_METRES = 1.5;
-
-/** Live shards allowed at once; beyond it the OLDEST despawns. Big blocks are not capped. */
-export const SHARD_CAP = 64;
-
-/**
- * A shard's mirror facet has one of 16 fixed normals, 22.5° apart. Sixteen discrete
- * angles are a design choice, not a shortcut: the normal is data the AI can learn,
- * and every engine sees the identical double because `debris.ts` holds literals.
- */
-export const MIRROR_ANGLE_STEPS = 16;
-
-/** Degrees between adjacent mirror normals. */
-export const MIRROR_ANGLE_STEP_DEGREES = 360 / MIRROR_ANGLE_STEPS;
-
-/**
- * Converts seconds of simulation time to whole ticks — the ONE conversion between the
- * two, so a tick is always one fixed slice of `src/core/timestep.ts`.
- */
-export function secondsToTicks(seconds: number): number {
-  if (!Number.isFinite(seconds) || seconds <= 0) {
-    throw new Error(`world: seconds must be finite and > 0, got ${seconds}`);
-  }
-  return Math.max(1, Math.round(seconds / STEP_SECONDS));
-}
+/** The renderer rebuilds the mesh in blocks of this many cells per axis. */
+export const RENDER_BLOCK_CELLS = 8;

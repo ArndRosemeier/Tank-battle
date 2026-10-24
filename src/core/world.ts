@@ -1,102 +1,93 @@
 /**
- * The world model — the ONE public entrance to it. Everything below `src/core/` is
- * renderer-free, and this module is the surface the next slice talks to.
+ * The world model — the ONE public entrance to the terrain. Everything below
+ * `src/core/` is renderer-free, and this module is the surface the rest talks to.
  *
  * ## What the world is
  *
- * A grid of `(x, z)` cells on a flat floor plane, each with a material, a height, HP,
- * and a slow regeneration timer. The model is FULLY 3D in the only sense the core can
- * own: every height is in metres and every query about blocking is made AT A HEIGHT
- * (`isSolidAt`), so a low wall never stops a high shot. The renderer slice will draw
- * these numbers; it will not own them.
+ * A volumetric density lattice (`src/core/world/constants.ts`): one byte per sample,
+ * 1.5 m apart in all three axes. The iso-surface of that field is the landscape —
+ * rolling ground, hills, arches, overhangs and caves — and the renderer draws it as
+ * glowing triangles (marching tetrahedra). The simulation never sees a mesh; it asks
+ * density questions (`densityAt`, `isSolidAt`, `groundBelow`, `raycastTerrain`).
  *
- * ## The rules the owner set (ledger rows 9, 16, 17, 19)
+ * ## The rules
  *
- *  - **Everything is breakable, including the floor.** A destroyed wall/pillar leaves
- *    a hole and one static big block of rubble; a destroyed floor leaves a hole and
- *    three shards. A floor hole is still drivable — tanks stand on the bottomless
- *    bedrock and never fall — so `floorSurfaceHeightAt` keeps the floor plane through
- *    a hole even though `isSolidAt` says the cell has no material.
- *  - **Regeneration is slow.** One frame of damage per `regenDelaySeconds`, and a
- *    regenerating cell shoves an occupant to the nearest free cell without damaging it.
- *  - **Debris blocks if big enough.** A big block occupies its cell (blocks movement
- *    and shells), holds that cell's regeneration frozen until it is destroyed, and is
- *    never part of the shard cap. Small debris (shards) is shoved by tanks, deflects a
- *    shell at a stored mirror angle, shatters when hit, and is absorbed by a cell that
- *    heals under it. The live shard count is capped; the oldest despawns first.
+ *  - **Everything above bedrock is breakable.** A shell carves a crater
+ *    (`blastTerrain`); crystal is harder than rock; the bedrock layer never changes.
+ *  - **Unsupported rock falls.** After every change the solid samples are flood-filled
+ *    from bedrock. A piece that lost its connection crumbles (tiny) or breaks off as a
+ *    falling chunk, which lands as rubble or shatters on a tank and crushes it.
+ *  - **The landscape heals slowly.** Regeneration regrows the authored terrain from its
+ *    surviving walls and erodes rubble that is not part of it.
  *
  * ## What the world deliberately is not
  *
- * It knows nothing about tanks, shells or AI. Tanks arrive as `Occupant` positions each
- * step and leave as `Displacement`s; shells arrive as `damageCell` calls; a shell's
- * reflection is a pure `shardDeflection` query the shell slice applies. That is what
- * keeps this slice small and every later slice honest.
+ * It knows nothing about tanks, shells or AI. Tanks arrive as `Occupant` cylinders each
+ * step and leave as `Crush` results; shells arrive as `blastTerrain` calls.
  *
  * ## Determinism
  *
- * `createRng(seed)` is the only randomness; `stepWorld` and every query are ordered by
- * data (row-major cells, occupant id, a fixed neighbour order); and `hashState` turns
- * the whole state into one comparable string. A test asserts that two identical runs
- * agree byte for byte.
+ * Every loop runs in lattice-index or chunk-id order and every density is an integer
+ * byte; `hashState` folds the whole state into one comparable string.
  */
 
-export type {
-  CellMaterial,
-  DebrisYield,
-  MaterialProfile,
-} from './world/constants.ts';
 export {
-  BLOCK_HEIGHT_METRES,
-  BLOCK_MAX_HP,
-  CELL_SIZE_METRES,
-  MATERIAL_PROFILES,
-  MIRROR_ANGLE_STEP_DEGREES,
-  MIRROR_ANGLE_STEPS,
-  SHARD_CAP,
-  secondsToTicks,
+  BLAST_RADIUS_METRES,
+  BLAST_STRENGTH,
+  DENSITY_ISO,
+  DENSITY_MAX,
+  DUST_MAX_SAMPLES,
+  GRAVITY_METRES_PER_SECOND_SQUARED,
+  MATERIAL_BEDROCK,
+  MATERIAL_COUNT,
+  MATERIAL_CRYSTAL,
+  MATERIAL_HARDNESS,
+  MATERIAL_ROCK,
+  REGEN_INTERVAL_TICKS,
+  REGEN_STEP,
+  RENDER_BLOCK_CELLS,
+  RUBBLE_DENSITY_FACTOR,
+  TERRAIN_SPACING_METRES,
+  type TerrainMaterial,
 } from './world/constants.ts';
 
-export type {
-  BigBlock,
-  Cell,
-  CellPlacement,
-  CellState,
-  Shard,
-  World,
-  WorldSpec,
-} from './world/state.ts';
 export {
-  blockAt,
-  cellAt,
-  cellIndex,
-  cellState,
+  columnProfile,
+  columnSurfaces,
   createWorld,
-  floorSurfaceHeightAt,
-  isCellPassable,
+  densityAt,
+  groundBelow,
+  isInsideArena,
   isSolidAt,
-  listBlocks,
-  listShards,
-  shardAt,
-} from './world/state.ts';
+  sampleCoordinates,
+  sampleDensity,
+  sampleIndex,
+  type FallingChunk,
+  type World,
+  type WorldSpec,
+} from './world/field.ts';
 
-export type {
-  BlockDamageResult,
-  CellDamageResult,
-} from './world/destruction.ts';
-export { damageBlock, damageCell } from './world/destruction.ts';
+export { hasClearLine, raycastTerrain, RAYCAST_STEP_METRES, type TerrainHit } from './world/raycast.ts';
 
-export type { DebrisSpawn, Direction, ShoveResult } from './world/debris.ts';
 export {
-  shardDeflection,
-  shatterShard,
-  shoveShard,
-} from './world/debris.ts';
+  blastTerrain,
+  collapseTerrain,
+  crushDamage,
+  type BlastResult,
+  type Crush,
+  type DebrisEvent,
+  type Occupant,
+} from './world/destruction.ts';
 
-export type {
-  Displacement,
-  Occupant,
-  WorldStepResult,
-} from './world/regeneration.ts';
-export { stepWorld } from './world/regeneration.ts';
+export { stepWorld, type WorldStepResult } from './world/regeneration.ts';
 
 export { hashState } from './world/hash.ts';
+
+export {
+  boxTerrain,
+  buildTerrain,
+  flatTerrain,
+  type TerrainBox,
+  type TerrainSample,
+  type TerrainShape,
+} from './world/builder.ts';

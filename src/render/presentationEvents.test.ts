@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { flatTerrain } from '../core/world.ts';
 import { createMatch, stepMatch, idleTankCommand } from '../core/sim.ts';
 import { createPlayableScene } from './playableScene.ts';
-import { ARENA } from '../game/levels/arena.ts';
 
 describe('tick-level presentation events', () => {
   it('keeps firing events across multiple simulation ticks before one rendered frame', () => {
     const state = createMatch({
-      level: ARENA.cells,
+      level: flatTerrain(40, 40, 1.5),
       teams: [
         { id: 0, tanks: [{ xMetres: 18, zMetres: 6, hullYawDegrees: -90 }] },
         { id: 1, tanks: [{ xMetres: 30, zMetres: 6, hullYawDegrees: 90 }] },
@@ -36,7 +36,7 @@ describe('tick-level presentation events', () => {
   });
   it('does not collect presentation events in headless simulations', () => {
     const state = createMatch({
-      level: ARENA.cells,
+      level: flatTerrain(40, 40, 1.5),
       teams: [
         { id: 0, tanks: [{ xMetres: 18, zMetres: 6, hullYawDegrees: -90 }] },
         { id: 1, tanks: [{ xMetres: 30, zMetres: 6, hullYawDegrees: 90 }] },
@@ -55,7 +55,7 @@ describe('tick-level presentation events', () => {
 describe('death direction', () => {
   it('carries the killing shell direction and its death tick', () => {
     const state = createMatch({
-      level: { columns: 40, rows: 20, floorSurfaceHeightMetres: 0.2 },
+      level: flatTerrain(53, 26, 1.5),
       teams: [
         { id: 0, tanks: [{ xMetres: 18, zMetres: 6, hullYawDegrees: -90 }] },
         { id: 1, tanks: [{ xMetres: 30, zMetres: 6, hullYawDegrees: 90 }] },

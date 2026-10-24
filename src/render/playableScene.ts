@@ -1,16 +1,14 @@
 /**
- * The playable scene: the REAL match world, two sim tanks, debris, shells and the
- * world mesh. It is deliberately separate from the A2 showcase assembly: the app now
- * renders the simulation, and the world mesh/debris rebuild ONLY when
- * `world.revision` changes.
+ * The playable scene: the REAL match terrain, the sim tanks, shells, wrecks and the
+ * glow dressing. The terrain re-meshes only the block columns the world marked as
+ * changed, and falling chunks follow the simulation's fall every frame.
  */
 
-import { Group, type Vector3 } from 'three';
+import { Group } from 'three';
 import { MUZZLE_FORWARD_METRES, forwardFromYaw, type MatchState, type Tank } from '../core/sim.ts';
-import { CELL_SIZE_METRES } from '../core/world.ts';
 import { STEP_SECONDS } from '../core/timestep.ts';
-import { PALETTE, isLowCover, teamColor } from './config.ts';
-import { createDebrisView, type DebrisView } from './debrisView.ts';
+import { groundBelow } from '../core/world.ts';
+import { TERRAIN_PALETTE, teamColor } from './config.ts';
 import { createEffectsView, type EffectsView } from './effectsView.ts';
 import { advanceGlowClock, setGlowPulseEnabled } from './glowClock.ts';
 import { createGlowView, type GlowView } from './glowView.ts';
@@ -20,7 +18,7 @@ import {
   createPlaceholderTank,
   type PlaceholderTank,
 } from './placeholderTank.ts';
-import { createWorldMesh, type WorldMesh } from './worldMesh.ts';
+import { createTerrainView, type TerrainView } from './terrainView.ts';
 import type { TankRenderFrame } from '../game/session.ts';
 
 /** A presentation event for the audio seam; positions are world metres. */
@@ -31,7 +29,7 @@ export type SceneEvent =
   | { readonly type: 'hit'; readonly tankId: number; readonly teamId: number; readonly x: number; readonly y: number; readonly z: number }
   | { readonly type: 'death'; readonly tankId: number; readonly teamId: number; readonly tick: number; readonly x: number; readonly y: number; readonly z: number; readonly dx?: number; readonly dy?: number; readonly dz?: number }
   | { readonly type: 'wall-break'; readonly x: number; readonly y: number; readonly z: number }
-  | { readonly type: 'regen'; readonly x: number; readonly y: number; readonly z: number };
+  | { readonly type: 'rockfall'; readonly x: number; readonly y: number; readonly z: number; readonly samples: number };
 
 export interface PlayableSceneOptions {
   /** The player's tank in the playable session; omitted by the spectator. */
@@ -44,15 +42,14 @@ export interface PlayableSceneOptions {
 
 export interface PlayableScene {
   readonly group: Group;
-  readonly worldMesh: WorldMesh;
-  readonly debris: DebrisView;
+  readonly terrain: TerrainView;
   readonly shells: ShellView;
   readonly effects: EffectsView;
   readonly wreck: WreckView;
   readonly glow: GlowView;
   readonly tanks: ReadonlyMap<number, PlaceholderTank>;
   readonly focusTank: PlaceholderTank;
-  /** Rebuild the merged world/debris only when the world revision changed. */
+  /** Re-mesh changed terrain and move falling chunks. True when anything was re-meshed. */
   syncWorld(): boolean;
   setTanks(frames: readonly TankRenderFrame[]): void;
   setShells(state: MatchState['shells']): void;
@@ -65,7 +62,6 @@ export interface PlayableScene {
   setPlayerHidden(hidden: boolean): void;
   /** Hide every tank for the review plan; the spawn markers carry the plan. */
   setTanksHidden(hidden: boolean): void;
-  updateCamera(cameraPosition: Vector3): void;
   dispose(): void;
 }
 
@@ -76,17 +72,16 @@ export function createPlayableScene(
   const group = new Group();
   group.name = 'playable-scene';
 
-  const worldMesh = createWorldMesh(state.world);
-  const debris = createDebrisView(state.world);
+  const terrain = createTerrainView(state.world);
   const shells = createShellView();
   const effects = createEffectsView();
-  const wreck = createWreckView(state.world.floorSurfaceHeightMetres);
+  const wreck = createWreckView((x, z, fromY) => groundBelow(state.world, x, z, fromY));
   const glow = createGlowView({
-    centerX: (state.world.columns * CELL_SIZE_METRES) / 2,
-    centerZ: (state.world.rows * CELL_SIZE_METRES) / 2,
-    floorY: state.world.floorSurfaceHeightMetres,
+    centerX: state.world.widthMetres / 2,
+    centerZ: state.world.depthMetres / 2,
+    floorY: 0,
   });
-  group.add(worldMesh.group, debris.group, shells.group, effects.group, wreck.group, glow.group);
+  group.add(terrain.group, shells.group, effects.group, wreck.group, glow.group);
 
   const tanks = new Map<number, PlaceholderTank>();
   for (const tank of state.tanks) {
@@ -107,6 +102,7 @@ export function createPlayableScene(
   }
 
   let lastRevision = state.world.revision;
+  let chunksShown = state.world.chunks.length;
   let playerHidden = false;
   let vfxEnabled = true;
   let disposed = false;
@@ -137,6 +133,7 @@ export function createPlayableScene(
     // (seed, tank, tick), so the breakup must not depend on when the frame was drawn.
     wreck.spawn({
       x: tank.x,
+      y: tank.y,
       z: tank.z,
       hullYawDegrees: tank.hullYawDegrees,
       turretYawDegrees: tank.turretYawDegrees,
@@ -150,26 +147,29 @@ export function createPlayableScene(
     });
   };
 
-  const previousCellHp = new Int16Array(state.world.cells.length);
-  state.world.cells.forEach((cell, index) => {
-    previousCellHp[index] = cell.hp;
-  });
-  const previousBlocks = new Map<number, number>();
-  for (const [key, block] of state.world.blocks) {
-    previousBlocks.set(key, block.hp);
-  }
-  const previousShards = new Set<number>(state.world.shards.map((shard) => shard.id));
-
-  const cellColor = (cell: (typeof state.world.cells)[number]): string => {
-    if (cell.material === 'floor') return PALETTE.holeRim;
-    if (isLowCover(cell.heightMetres)) return PALETTE.lowCoverEdge;
-    return cell.material === 'wall' ? PALETTE.wallEdge : PALETTE.pillarEdge;
+  /** Craters, rockfalls and landings: sparks in the wound colour and an audio cue. */
+  const presentTerrain = (event: Extract<NonNullable<MatchState['presentationEvents']>[number], { type: 'terrain' }>): void => {
+    if (event.kind === 'crater') {
+      if (event.samples > 0) {
+        effects.breakCell(event.x, event.y, event.z, TERRAIN_PALETTE.damage);
+        events.push({ type: 'wall-break', x: event.x, y: event.y, z: event.z });
+      }
+    } else if (event.kind === 'dust') {
+      effects.impact(event.x, event.y, event.z, TERRAIN_PALETTE.damage);
+    } else if (event.kind === 'break') {
+      effects.breakCell(event.x, event.y, event.z, TERRAIN_PALETTE.damage);
+      events.push({ type: 'rockfall', x: event.x, y: event.y, z: event.z, samples: event.samples });
+    } else {
+      // A landing or a chunk shattering on a tank.
+      effects.breakCell(event.x, event.y, event.z, TERRAIN_PALETTE.damage);
+      effects.impact(event.x, event.y, event.z, TERRAIN_PALETTE.crystal);
+      events.push({ type: 'wall-break', x: event.x, y: event.y, z: event.z });
+    }
   };
 
   return {
     group,
-    worldMesh,
-    debris,
+    terrain,
     shells,
     effects,
     wreck,
@@ -177,91 +177,13 @@ export function createPlayableScene(
     tanks,
     focusTank,
     syncWorld(): boolean {
-      if (state.world.revision === lastRevision) {
+      // Falling chunks move every tick without a revision bump; follow them too.
+      if (state.world.revision === lastRevision && state.world.chunks.length === 0 && chunksShown === 0) {
         return false;
       }
       lastRevision = state.world.revision;
-      const floorY = state.world.floorSurfaceHeightMetres;
-      state.world.cells.forEach((cell, index) => {
-        const before = previousCellHp[index] ?? 0;
-        if (before > 0 && cell.hp === 0) {
-          const breakX = (cell.x + 0.5) * CELL_SIZE_METRES;
-          const breakY = floorY + Math.max(0.2, cell.heightMetres * 0.7);
-          const breakZ = (cell.z + 0.5) * CELL_SIZE_METRES;
-          effects.breakCell(breakX, breakY, breakZ, cellColor(cell));
-          events.push({ type: 'wall-break', x: breakX, y: breakY, z: breakZ });
-        } else if (before === 0 && cell.hp > 0) {
-          effects.regen(cell.x, cell.z, cell.heightMetres, cellColor(cell));
-          events.push({
-            type: 'regen',
-            x: (cell.x + 0.5) * CELL_SIZE_METRES,
-            y: floorY + 0.2,
-            z: (cell.z + 0.5) * CELL_SIZE_METRES,
-          });
-        } else if (cell.hp < before) {
-          effects.hit(
-            (cell.x + 0.5) * CELL_SIZE_METRES,
-            floorY + Math.max(0.2, cell.heightMetres * 0.5),
-            (cell.z + 0.5) * CELL_SIZE_METRES,
-            cellColor(cell),
-          );
-        }
-        previousCellHp[index] = cell.hp;
-      });
-
-      for (const [key, block] of state.world.blocks) {
-        if (!previousBlocks.has(key)) {
-          effects.breakCell(
-            (block.x + 0.5) * CELL_SIZE_METRES,
-            floorY + block.heightMetres,
-            (block.z + 0.5) * CELL_SIZE_METRES,
-            PALETTE.holeRim,
-          );
-          events.push({
-            type: 'wall-break',
-            x: (block.x + 0.5) * CELL_SIZE_METRES,
-            y: floorY + block.heightMetres,
-            z: (block.z + 0.5) * CELL_SIZE_METRES,
-          });
-        }
-      }
-      for (const [key] of previousBlocks) {
-        if (!state.world.blocks.has(key)) {
-          const block = previousBlocks.get(key);
-          if (block !== undefined) {
-            effects.impact(
-              (key % state.world.columns + 0.5) * CELL_SIZE_METRES,
-              floorY + 0.4,
-              (Math.floor(key / state.world.columns) + 0.5) * CELL_SIZE_METRES,
-              PALETTE.holeRim,
-            );
-            events.push({
-              type: 'wall-break',
-              x: (key % state.world.columns + 0.5) * CELL_SIZE_METRES,
-              y: floorY + 0.4,
-              z: (Math.floor(key / state.world.columns) + 0.5) * CELL_SIZE_METRES,
-            });
-          }
-        }
-      }
-      previousBlocks.clear();
-      for (const [key, block] of state.world.blocks) previousBlocks.set(key, block.hp);
-
-      for (const shard of state.world.shards) {
-        if (!previousShards.has(shard.id)) {
-          effects.shard(
-            (shard.x + 0.5) * CELL_SIZE_METRES,
-            floorY + 0.1,
-            (shard.z + 0.5) * CELL_SIZE_METRES,
-          );
-        }
-      }
-      previousShards.clear();
-      for (const shard of state.world.shards) previousShards.add(shard.id);
-
-      worldMesh.rebuild();
-      debris.rebuild();
-      return true;
+      chunksShown = state.world.chunks.length;
+      return terrain.sync() > 0;
     },
     setTanks(frames: readonly TankRenderFrame[]): void {
       for (const frame of frames) {
@@ -271,18 +193,20 @@ export function createPlayableScene(
         }
         view.setSimPose(
           frame.x,
-          state.world.floorSurfaceHeightMetres,
+          frame.y,
           frame.z,
           frame.hullYawDegrees,
           frame.turretYawDegrees,
           frame.aimPitchDegrees,
+          frame.hullPitchDegrees,
+          frame.hullRollDegrees,
         );
         const previousHpForTank = previousHp.get(frame.id);
         if (!state.capturePresentationEvents && previousHpForTank !== undefined && frame.hp < previousHpForTank) {
           if (previousAlive.get(frame.id) === true && !frame.alive) {
             effects.death(
               frame.x,
-              state.world.floorSurfaceHeightMetres + 0.8,
+              frame.y + 0.8,
               frame.z,
               teamColor(frame.teamId),
             );
@@ -295,13 +219,13 @@ export function createPlayableScene(
               teamId: frame.teamId,
               tick: state.tick,
               x: frame.x,
-              y: state.world.floorSurfaceHeightMetres + 0.8,
+              y: frame.y + 0.8,
               z: frame.z,
             });
           } else {
             effects.hit(
               frame.x,
-              state.world.floorSurfaceHeightMetres + 1.1,
+              frame.y + 1.1,
               frame.z,
               teamColor(frame.teamId),
             );
@@ -310,7 +234,7 @@ export function createPlayableScene(
               tankId: frame.id,
               teamId: frame.teamId,
               x: frame.x,
-              y: state.world.floorSurfaceHeightMetres + 1.1,
+              y: frame.y + 1.1,
               z: frame.z,
             });
           }
@@ -336,6 +260,8 @@ export function createPlayableScene(
         } else if (event.type === 'hit') {
           effects.hit(event.x, event.y, event.z, teamColor(event.teamId));
           events.push(event);
+        } else if (event.type === 'terrain') {
+          presentTerrain(event);
         } else if (event.type === 'death') {
           effects.death(event.x, event.y, event.z, teamColor(event.teamId));
           const deadTank = state.tanks.find((tank) => tank.id === event.tankId);
@@ -397,9 +323,6 @@ export function createPlayableScene(
       wreck.setVisible(!hidden);
       glow.trails.visible = !hidden;
     },
-    updateCamera(cameraPosition: Vector3): void {
-      worldMesh.update(cameraPosition);
-    },
     dispose(): void {
       if (disposed) return;
       disposed = true;
@@ -409,8 +332,7 @@ export function createPlayableScene(
       wreck.dispose();
       glow.dispose();
       shells.dispose();
-      debris.dispose();
-      worldMesh.dispose();
+      terrain.dispose();
       for (const tank of tanks.values()) {
         tank.dispose();
       }

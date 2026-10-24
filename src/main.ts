@@ -41,6 +41,7 @@ import {
   type TankCommand,
 } from './core/sim.ts';
 import { ARENA, ARENA_BOUNDS } from './game/levels/arena.ts';
+import { raycastTerrain } from './core/world.ts';
 import { PlayableSession, type TankRenderFrame } from './game/session.ts';
 import { SpectatorSession } from './game/spectator.ts';
 import { KillFeedTracker, describeKill, type KillFeedRow } from './game/killFeed.ts';
@@ -333,7 +334,6 @@ function bootSpectate(launch: LaunchOptions, audio: AudioEngine): (nowMillisecon
     camera.up.set(pose.up.x, pose.up.y, pose.up.z);
     camera.lookAt(pose.target.x, pose.target.y, pose.target.z);
     camera.updateMatrixWorld();
-    scene.updateCamera(camera.position);
   }
 
   function resize(): void {
@@ -375,7 +375,7 @@ function bootSpectate(launch: LaunchOptions, audio: AudioEngine): (nowMillisecon
       scene.syncWorld();
       for (const event of scene.takeEvents()) {
         if (event.type === 'wall-break') audio.playSfx('wall-break', 0.22);
-        else if (event.type === 'regen') audio.playSfx('regen', 0.18);
+        else if (event.type === 'rockfall') audio.playSfx('wall-break', 0.14);
         else if (event.type === 'death') audio.playSfx('death', 0.3);
       }
       scene.updateEffects(paused || spectator.frozenFrame ? 0 : frameSeconds);
@@ -760,7 +760,7 @@ function bootMatch(
   let lastPlayerHp = session.state.tanks[session.playerTankId]?.hp ?? 0;
   let endAnnounced = false;
   let lastBreakTick = -999;
-  let lastRegenTick = -999;
+  let lastRockfallTick = -999;
   let lastAim: AimSolution | null = null;
   let pauseOnNextWreck = false;
   const endWatch = createEndWatch(session.frozen);
@@ -784,19 +784,21 @@ function bootMatch(
     arena: ARENA_BOUNDS,
     floorY: session.floorY,
     focus: {
-      position: { x: initialPlayer.x, y: session.floorY, z: initialPlayer.z },
+      position: { x: initialPlayer.x, y: initialPlayer.y, z: initialPlayer.z },
       yawDegrees: aimFollowYawDegrees(
         initialPlayer.hullYawDegrees,
         initialPlayer.turretYawDegrees,
       ),
     },
     pose: isTop ? null : rigPose,
+    occluder: (from, to) => raycastTerrain(session.state.world, from, to)?.t ?? null,
   });
 
   const topCamera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
   const topCenterX = (ARENA_BOUNDS.minX + ARENA_BOUNDS.maxX) / 2;
   const topCenterZ = (ARENA_BOUNDS.minZ + ARENA_BOUNDS.maxZ) / 2;
-  const TOP_HALF_HEIGHT_METRES = 26;
+  // Half the arena plus a margin, so all four corner pads are in frame.
+  const TOP_HALF_HEIGHT_METRES = (ARENA_BOUNDS.maxZ - ARENA_BOUNDS.minZ) / 2 + 2;
   topCamera.position.set(topCenterX, 60, topCenterZ);
   topCamera.up.set(0, 0, -1);
   topCamera.lookAt(topCenterX, session.floorY, topCenterZ);
@@ -823,9 +825,9 @@ function bootMatch(
   const topTitle = requireElement('top-title', HTMLElement, 'top title');
   const topIntent = requireElement('top-intent', HTMLElement, 'top intent');
   const topSwatches = requireElement('top-swatches', HTMLElement, 'top spawn swatches');
-  const legendWall = requireElement('legend-wall', HTMLElement, 'wall legend swatch');
-  const legendLow = requireElement('legend-low', HTMLElement, 'low-cover legend swatch');
-  const legendObjective = requireElement('legend-objective', HTMLElement, 'objective legend swatch');
+  const legendGround = requireElement('legend-ground', HTMLElement, 'ground legend swatch');
+  const legendHeights = requireElement('legend-heights', HTMLElement, 'heights legend swatch');
+  const legendCrystal = requireElement('legend-crystal', HTMLElement, 'crystal legend swatch');
   const legendExit = requireElement('legend-exit', HTMLElement, 'exit legend swatch');
   topLegend.style.display = 'none';
   if (isTop) {
@@ -834,9 +836,9 @@ function bootMatch(
     topLegend.style.color = PALETTE.debugText;
     topTitle.textContent = ARENA.name;
     topIntent.textContent = ARENA.intent;
-    legendWall.style.background = TOP_LEGEND_COLORS.wall;
-    legendLow.style.background = TOP_LEGEND_COLORS.lowCover;
-    legendObjective.style.background = TOP_LEGEND_COLORS.objective;
+    legendGround.style.background = TOP_LEGEND_COLORS.ground;
+    legendHeights.style.background = TOP_LEGEND_COLORS.heights;
+    legendCrystal.style.background = TOP_LEGEND_COLORS.crystal;
     legendExit.style.background = TOP_LEGEND_COLORS.exit;
     for (const spawn of ARENA.spawns) {
       const swatch = document.createElement('span');
@@ -915,10 +917,10 @@ function bootMatch(
           audio.playSfx('wall-break', 0.5);
         }
         break;
-      case 'regen':
-        if (session.state.tick - lastRegenTick >= 30) {
-          lastRegenTick = session.state.tick;
-          audio.playSfx('regen', 0.3);
+      case 'rockfall':
+        if (session.state.tick - lastRockfallTick >= 20 && near(event.x, event.z) < 30) {
+          lastRockfallTick = session.state.tick;
+          audio.playSfx('wall-break', 0.35);
         }
         break;
       case 'impact':
@@ -989,11 +991,10 @@ function bootMatch(
         scene.setTanksHidden(true);
         scene.setShells(session.state.shells);
         scene.syncWorld();
-        scene.updateCamera(topCamera.position);
         aimHud.update(null, window.innerWidth, window.innerHeight, PALETTE.debugText);
       } else {
         rig.setFocus({
-          position: { x: playerFrame.x, y: session.floorY, z: playerFrame.z },
+          position: { x: playerFrame.x, y: playerFrame.y, z: playerFrame.z },
           yawDegrees: aimFollowYawDegrees(
             playerFrame.hullYawDegrees,
             playerFrame.turretYawDegrees,
@@ -1011,7 +1012,6 @@ function bootMatch(
           paused = true;
         }
         scene.syncWorld();
-        scene.updateCamera(rig.camera.position);
 
         // The reticle is the WORLD point under the pointer, projected from the
         // current camera. It is deliberately solved from the live tank state and the
@@ -1056,7 +1056,6 @@ function bootMatch(
         // Recoil is applied AFTER the aim snapshot and HUD projection: the jolt is a
         // presentation shake, not a change to the world point under the pointer.
         if (!currentSettings.reducedMotion) rig.applyRecoil();
-        scene.updateCamera(rig.camera.position);
       }
 
       for (const event of scene.takeEvents()) {
@@ -1233,7 +1232,7 @@ function bootMatch(
           id: tank.id,
           teamId: tank.teamId,
           x: tank.x,
-          y: session.floorY + 1.1,
+          y: tank.y + 1.1,
           z: tank.z,
         }));
     },

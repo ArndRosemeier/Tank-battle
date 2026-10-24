@@ -1,165 +1,130 @@
 import { describe, expect, it } from 'vitest';
-import { ARENA, spawnCentreMetres } from './arena.ts';
-import { createWorld, type CellPlacement, type WorldSpec } from '../../core/world.ts';
+import { ARENA, ARENA_BASE_HEIGHT_METRES, ARENA_BOUNDS } from './arena.ts';
+import { DENSITY_MAX, createWorld, hasClearLine, type WorldSpec } from '../../core/world.ts';
 import { findPath } from '../../core/ai/navigation.ts';
-import { isTankPositionFree } from '../../core/sim/match.ts';
-import { validateLevel, type LevelSpawn } from './format.ts';
+import { standingPoseAt } from '../../core/sim/terrainBody.ts';
+import { validateLevel, type LevelDefinition, type LevelSpawn, type SpawnSlot } from './format.ts';
 
-type MutableSpawn = { -readonly [K in keyof LevelSpawn]: LevelSpawn[K] };
-type MutableLevel = {
-  name: string;
-  intent: string;
-  cells: WorldSpec & { readonly columns: number; readonly rows: number; readonly floorSurfaceHeightMetres: number; placements: CellPlacement[] };
-  spawns: MutableSpawn[];
-};
+type MutableSpawn = Omit<{ -readonly [K in keyof LevelSpawn]: LevelSpawn[K] }, 'slots'> & { slots: SpawnSlot[] };
 
-function cloneArena(): MutableLevel {
-  return {
-    name: ARENA.name,
-    intent: ARENA.intent,
-    cells: {
-      columns: ARENA.cells.columns,
-      rows: ARENA.cells.rows,
-      floorSurfaceHeightMetres: ARENA.cells.floorSurfaceHeightMetres,
-      placements: (ARENA.cells.placements ?? []).map((placement) => ({ ...placement })),
-    },
-    spawns: ARENA.spawns.map((spawn) => ({ ...spawn })),
+/** A deep copy of the arena that a test may break. */
+function cloneArena(): { level: LevelDefinition; terrain: WorldSpec; spawns: MutableSpawn[] } {
+  const terrain: WorldSpec = {
+    ...ARENA.terrain,
+    density: ARENA.terrain.density.slice(),
+    material: ARENA.terrain.material.slice(),
   };
+  const spawns: MutableSpawn[] = ARENA.spawns.map((spawn) => ({ ...spawn, slots: spawn.slots.map((slot) => ({ ...slot })) }));
+  return { level: { name: ARENA.name, intent: ARENA.intent, terrain, spawns }, terrain, spawns };
+}
+
+/** Makes every sample whose horizontal distance from (cx, cz) is within [inner, outer] solid. */
+function solidRing(terrain: WorldSpec, cx: number, cz: number, inner: number, outer: number): void {
+  const { samplesX: nx, samplesY: ny, samplesZ: nz, spacingMetres: s } = terrain;
+  for (let k = 0; k < nz; k += 1) {
+    for (let i = 0; i < nx; i += 1) {
+      const d = Math.hypot(i * s - cx, k * s - cz);
+      if (d < inner || d > outer) continue;
+      for (let j = 0; j < ny; j += 1) terrain.density[j + ny * (i + nx * k)] = DENSITY_MAX;
+    }
+  }
 }
 
 describe('the authored arena', () => {
-  it('the authored arena passes every load-time check', () => {
+  it('passes every load-time check', () => {
     expect(() => validateLevel(ARENA)).not.toThrow();
     expect(ARENA.spawns).toHaveLength(4);
+    const world = createWorld(ARENA.terrain);
+    expect(world.widthMetres).toBe(ARENA_BOUNDS.maxX);
     for (const spawn of ARENA.spawns) {
-      expect(spawn.zoneWidth).toBe(2);
-      expect(spawn.zoneHeight).toBe(2);
-      const centre = spawnCentreMetres(spawn);
-      expect(Number.isFinite(centre.xMetres)).toBe(true);
-      expect(Number.isFinite(centre.zMetres)).toBe(true);
-    }
-  });
-
-  it('a level with an overlapping spawn is rejected', () => {
-    const level = cloneArena();
-    level.spawns[1]!.zoneX = 3; // overlaps team 0's 2×2 zone at (2,2)
-    expect(() => validateLevel(level)).toThrow(/overlaps another spawn at \(3, 2\)/);
-  });
-
-  it('a level whose spawns are not all connected on foot is rejected', () => {
-    const level = cloneArena();
-    // Seal the NW spawn: the room is walled north/south and its screened corridor
-    // is east; close the corridor mouth AND the camera recess west of the zone, and
-    // the 2×2 zone is an island. These four cells are deliberately free in the arena.
-    for (const x of [1, 4]) {
-      level.cells.placements!.push({ x, z: 2, material: 'wall', heightMetres: 3 });
-      level.cells.placements!.push({ x, z: 3, material: 'wall', heightMetres: 3 });
-    }
-    expect(() => validateLevel(level)).toThrow(/spawn \d+ is not connected on foot/);
-  });
-
-  it('rejects a level whose centre objective is sealed off', () => {
-    const level = cloneArena();
-    const occupied = new Set(level.cells.placements!.map((placement) => `${placement.x},${placement.z}`));
-    // The connected arena is deliberately open at the ring corners; to seal the
-    // objective this pin closes the WHOLE ring, not only the authored gate cells.
-    const closeRing = (start: number, end: number, heightMetres: number): void => {
-      for (let x = start; x <= end; x += 1) {
-        for (const z of [start, end]) {
-          if (!occupied.has(`${x},${z}`)) {
-            level.cells.placements!.push({ x, z, material: 'wall', heightMetres });
-            occupied.add(`${x},${z}`);
-          }
-        }
-      }
-      for (let z = start + 1; z < end; z += 1) {
-        for (const x of [start, end]) {
-          if (!occupied.has(`${x},${z}`)) {
-            level.cells.placements!.push({ x, z, material: 'wall', heightMetres });
-            occupied.add(`${x},${z}`);
-          }
-        }
-      }
-    };
-    closeRing(5, 18, 4.8);
-    closeRing(8, 15, 4.2);
-    expect(() => validateLevel(level)).toThrow(/arena centre cell .* is not reachable/);
-  });
-
-  it('the arena grid is invariant under 90° rotation', () => {
-    // The validator's symmetry branch is the direct check; a single asymmetric cell
-    // must be named by cell.
-    expect(() => validateLevel(ARENA)).not.toThrow();
-    const broken = cloneArena();
-    broken.cells.placements!.push({ x: 1, z: 10, material: 'pillar', heightMetres: 2.2 });
-    expect(() => validateLevel(broken)).toThrow(/symmetry break at \(1, 10\)/);
-  });
-
-  it('no spawn has a clear straight line to another spawn', () => {
-    // The brief's spawn rule: the protected exit must not face an enemy spawn
-    // directly. A conservative sample of the centre line checks both cells on a
-    // boundary, so a screen wall that merely touches the line still blocks it.
-    const solid = new Set((ARENA.cells.placements ?? []).map((placement) => `${placement.x},${placement.z}`));
-    const centres = ARENA.spawns.map((spawn) => ({
-      x: spawn.zoneX + spawn.zoneWidth / 2,
-      z: spawn.zoneZ + spawn.zoneHeight / 2,
-    }));
-    const blocked = (a: { x: number; z: number }, b: { x: number; z: number }): boolean => {
-      const steps = 600;
-      for (let step = 0; step <= steps; step += 1) {
-        const t = step / steps;
-        const x = a.x + (b.x - a.x) * t;
-        const z = a.z + (b.z - a.z) * t;
-        for (const cx of [Math.floor(x), Math.ceil(x)]) {
-          for (const cz of [Math.floor(z), Math.ceil(z)]) {
-            if (solid.has(`${cx},${cz}`)) return true;
-          }
-        }
-      }
-      return false;
-    };
-    for (let a = 0; a < centres.length; a += 1) {
-      for (let b = a + 1; b < centres.length; b += 1) {
-        expect(blocked(centres[a]!, centres[b]!)).toBe(true);
+      expect(spawn.slots).toHaveLength(4);
+      for (const slot of spawn.slots) {
+        const pose = standingPoseAt(world, slot.xMetres, slot.zMetres, spawn.yawDegrees, world.heightMetres);
+        expect(pose).not.toBeNull();
+        expect(pose!.y).toBeCloseTo(ARENA_BASE_HEIGHT_METRES, 0);
       }
     }
   });
 
-  it('all four corner spawns and the centre objective are body-reachable', () => {
-    const world = createWorld(ARENA.cells);
-    const centres = ARENA.spawns.map((spawn) => spawnCentreMetres(spawn));
-    // A body-free cell on the central objective ring; the exact 2×2 pillar centre is
-    // solid, so the objective is the open gap way beside it.
-    const objective = { xMetres: 10 * 2 + 1, zMetres: 11 * 2 + 1 };
-    for (const point of [...centres, objective]) {
-      expect(isTankPositionFree(world, point.xMetres, point.zMetres)).toBe(true);
+  it('has hills, caves and crystal: real relief, not a flat floor', () => {
+    const world = createWorld(ARENA.terrain);
+    const centre = world.widthMetres / 2;
+    // The summit stands well above the pads, and the cavern under it is open air.
+    const summit = standingPoseAt(world, centre, centre, 0, world.heightMetres);
+    expect(summit).not.toBeNull();
+    expect(summit!.y).toBeGreaterThan(ARENA_BASE_HEIGHT_METRES + 5);
+    const cavern = standingPoseAt(world, centre, centre, 0, ARENA_BASE_HEIGHT_METRES + 2);
+    expect(cavern).not.toBeNull();
+    expect(cavern!.y).toBeLessThan(ARENA_BASE_HEIGHT_METRES + 1);
+    expect(Array.from(ARENA.terrain.material).some((material) => material === 1)).toBe(true);
+  });
+
+  it('rejects overlapping spawn slots', () => {
+    const { level, spawns } = cloneArena();
+    spawns[1]!.slots[0] = { ...spawns[0]!.slots[0]! };
+    expect(() => validateLevel(level)).toThrow(/overlaps a slot of spawn 0/);
+  });
+
+  it('rejects a slot with no room for a tank', () => {
+    const { level, spawns } = cloneArena();
+    spawns[0]!.slots[0] = { xMetres: -5, zMetres: 10 };
+    expect(() => validateLevel(level)).toThrow(/spawn 0 slot 0 .* has no room for a tank/);
+  });
+
+  it('rejects a slot on a slope', () => {
+    const { level, spawns } = cloneArena();
+    spawns[0]!.slots[0] = { xMetres: 25, zMetres: 25 };
+    expect(() => validateLevel(level)).toThrow(/spawn 0 slot 0/);
+  });
+
+  it('names a single asymmetric sample', () => {
+    const { level, terrain } = cloneArena();
+    const index = 5 + terrain.samplesY * (3 + terrain.samplesX * 10);
+    terrain.density[index] = terrain.density[index] === 0 ? 255 : 0;
+    expect(() => validateLevel(level)).toThrow(/symmetry break at sample/);
+  });
+
+  it('rejects pads that do not rotate onto each other', () => {
+    const { level, spawns } = cloneArena();
+    spawns[1] = { ...spawns[1]!, xMetres: spawns[1]!.xMetres + 1 };
+    expect(() => validateLevel(level)).toThrow(/spawn symmetry break/);
+  });
+
+  it('rejects spawns that are walled off from each other', () => {
+    const { level, terrain } = cloneArena();
+    for (const spawn of ARENA.spawns) solidRing(terrain, spawn.xMetres, spawn.zMetres, 7, 9);
+    expect(() => validateLevel(level)).toThrow(/is not connected on foot/);
+  });
+
+  it('rejects a sealed-off centre', () => {
+    const { level, terrain } = cloneArena();
+    const centre = (terrain.samplesX - 1) * terrain.spacingMetres / 2;
+    solidRing(terrain, centre, centre, 20, 22);
+    expect(() => validateLevel(level)).toThrow(/arena centre is not reachable/);
+  });
+
+  it('no pad has a clear straight line to another pad', () => {
+    const world = createWorld(ARENA.terrain);
+    const eye = ARENA_BASE_HEIGHT_METRES + 1.6;
+    for (const a of ARENA.spawns) {
+      for (const b of ARENA.spawns) {
+        if (a === b) continue;
+        expect(hasClearLine(world, { x: a.xMetres, y: eye, z: a.zMetres }, { x: b.xMetres, y: eye, z: b.zMetres })).toBe(false);
+      }
     }
-    for (let from = 0; from < centres.length; from += 1) {
-      const start = centres[from]!;
-      for (let to = 0; to < centres.length; to += 1) {
+  });
+
+  it('every pad reaches every other pad and the summit on foot', () => {
+    const world = createWorld(ARENA.terrain);
+    const point = (spawn: LevelSpawn) => ({ x: spawn.slots[0]!.xMetres, y: ARENA_BASE_HEIGHT_METRES, z: spawn.slots[0]!.zMetres });
+    const centre = world.widthMetres / 2;
+    const summit = { x: centre, y: world.heightMetres, z: centre };
+    for (const from of ARENA.spawns) {
+      for (const to of ARENA.spawns) {
         if (from === to) continue;
-        const target = centres[to]!;
-        expect(findPath(world, start.xMetres, start.zMetres, target.xMetres, target.zMetres)).not.toBeNull();
+        expect(findPath(world, 0, point(from), point(to))).not.toBeNull();
       }
-      expect(
-        findPath(world, start.xMetres, start.zMetres, objective.xMetres, objective.zMetres),
-      ).not.toBeNull();
+      expect(findPath(world, 0, point(from), summit)).not.toBeNull();
     }
-  });
-
-  it('every spawn zone is free of solid cells', () => {
-    const broken = cloneArena();
-    broken.cells.placements!.push({ x: 2, z: 2, material: 'wall', heightMetres: 2 });
-    expect(() => validateLevel(broken)).toThrow(/spawn 0 zone cell \(2, 2\) is not free floor/);
-  });
-
-  it('rejects an off-grid or illegal material before a world is built', () => {
-    const offGrid = cloneArena();
-    offGrid.cells.placements!.push({ x: 24, z: 2, material: 'wall', heightMetres: 2 });
-    expect(() => validateLevel(offGrid)).toThrow(/outside the 24×24 grid/);
-
-    const low = cloneArena();
-    low.cells.placements!.push({ x: 1, z: 10, material: 'wall', heightMetres: 0.1 });
-    expect(() => validateLevel(low)).toThrow(/must be above the floor/);
   });
 });

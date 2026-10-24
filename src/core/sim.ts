@@ -19,6 +19,7 @@ export * from './sim/geometry.ts';
 export * from './sim/commands.ts';
 export * from './sim/stats.ts';
 export * from './sim/match.ts';
+export * from './sim/terrainBody.ts';
 export * from './sim/step.ts';
 export * from './sim/turnOrder.ts';
 export * from './sim/hash.ts';

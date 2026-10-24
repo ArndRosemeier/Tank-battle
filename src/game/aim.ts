@@ -3,17 +3,16 @@
  *
  * The pointer is not an angular offset any more. Each simulation tick the player's
  * controller casts a ray from the RENDER CAMERA (a plain camera snapshot supplied by the
- * shell) through the pointer NDC, takes the first enemy tank / world cell / big block /
- * floor-plane hit, and solves the turret yaw and pitch from the muzzle to that point.
+ * shell) through the pointer NDC, takes the first enemy tank or terrain hit, and solves the turret yaw and pitch from the muzzle to that point.
  * Because the camera follows the HULL only, that mapping does not feed back into itself.
  *
  * The solver is pure: it has no `three`, DOM or clock. `castAimRay` lives in
- * `src/core/sim/step.ts` and uses the simulation's own segment/world maths, so the aim
- * and shell collision agree about walls and tanks instead of growing a second scene
+ * `src/core/sim/step.ts` and uses the simulation's own terrain march and tank bodies, so
+ * the aim and shell collision agree about rock and tanks instead of growing a second scene
  * raycaster.
  *
  * Clamps stay as a safety: the command yaw is the hull plus at most ±60°, and pitch is
- * within −30…+25°. The reported impact is the CLAMPED shell's first hit, which is what
+ * within the sim's pitch clamp. The reported impact is the CLAMPED shell's first hit, which is what
  * the reticle projects; a clamped shot is visible, not a lie. Empty sky is marked
  * `outOfRange` and still yields a valid command aimed at the range endpoint.
  */
@@ -21,11 +20,9 @@
 import {
   AIM_PITCH_MAX_DEGREES,
   AIM_PITCH_MIN_DEGREES,
-  MUZZLE_FORWARD_METRES,
-  MUZZLE_HEIGHT_METRES,
   castAimRay,
   directionFromAim,
-  forwardFromYaw,
+  muzzlePosition,
   normaliseDegrees,
   shortestAngleDelta,
   type Controller,
@@ -73,7 +70,7 @@ export interface AimSolution {
   readonly targetTankId: number | null;
   readonly targetTeamId: number | null;
   /** The surface the CLAMPED shot hits, or null when it reaches the range endpoint. */
-  readonly impactKind: 'tank' | 'world' | 'ground' | null;
+  readonly impactKind: 'tank' | 'terrain' | null;
 }
 
 function finite(value: number, label: string): void {
@@ -175,13 +172,8 @@ export function cameraRayFromPointer(
   );
 }
 
-function muzzleAt(tank: Tank, floorY: number, yawDegrees: number): Vec3 {
-  const forward = forwardFromYaw(yawDegrees);
-  return {
-    x: tank.x + forward.x * MUZZLE_FORWARD_METRES,
-    y: floorY + MUZZLE_HEIGHT_METRES,
-    z: tank.z + forward.z * MUZZLE_FORWARD_METRES,
-  };
+function muzzleAt(tank: Tank, yawDegrees: number): Vec3 {
+  return muzzlePosition({ ...tank, turretYawDegrees: yawDegrees });
 }
 
 /** The two turret angles from a muzzle point to a world point, in degrees. */
@@ -239,7 +231,7 @@ export function solveAim(
   let aimPitch = tank.aimPitchDegrees;
   let clamped = false;
   for (let pass = 0; pass < 4; pass += 1) {
-    const muzzle = muzzleAt(tank, state.world.floorSurfaceHeightMetres, aimYaw);
+    const muzzle = muzzleAt(tank, aimYaw);
     const requested = anglesFromMuzzle(muzzle, desiredPoint);
     const offset = shortestAngleDelta(tank.hullYawDegrees, requested.yaw);
     const clampedOffset = clamp(offset, -AIM_YAW_OFFSET_MAX_DEGREES, AIM_YAW_OFFSET_MAX_DEGREES);
@@ -251,7 +243,7 @@ export function solveAim(
     }
   }
 
-  const muzzle = muzzleAt(tank, state.world.floorSurfaceHeightMetres, aimYaw);
+  const muzzle = muzzleAt(tank, aimYaw);
   const direction = directionFromAim(aimYaw, aimPitch);
   const actualHit = castAimRay(state, muzzle, direction, AIM_RANGE_METRES, tank.teamId);
   const impactPoint: Vec3 = actualHit

@@ -2,13 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { createMatch } from '../core/sim.ts';
 import { createPlayableScene } from './playableScene.ts';
 import { snapshotTanks } from '../game/tankFrames.ts';
-import { ARENA } from '../game/levels/arena.ts';
+import { flatTerrain } from '../core/world.ts';
 import { measureScene } from './sceneStats.ts';
 
 describe('the wreck in the playable scene', () => {
   it('hides the dead tank in the same frame it spawns the wreck', () => {
     const state = createMatch({
-      level: ARENA.cells,
+      level: flatTerrain(40, 40, 1.5),
       teams: [
         { id: 0, tanks: [{ xMetres: 18, zMetres: 6, hullYawDegrees: -90 }] },
         { id: 1, tanks: [{ xMetres: 30, zMetres: 6, hullYawDegrees: 90 }] },
@@ -31,7 +31,7 @@ describe('the wreck in the playable scene', () => {
         teamId: target.teamId,
         tick: state.tick,
         x: target.x,
-        y: state.world.floorSurfaceHeightMetres + 0.8,
+        y: target.y + 0.8,
         z: target.z,
         dx: 1,
         dy: 0,

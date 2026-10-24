@@ -1,400 +1,217 @@
 import { describe, expect, it } from 'vitest';
-import { createRng } from './rng.ts';
 import {
-  BLOCK_HEIGHT_METRES,
-  MATERIAL_PROFILES,
-  MIRROR_ANGLE_STEP_DEGREES,
-  SHARD_CAP,
-  blockAt,
-  cellAt,
-  cellState,
+  DENSITY_ISO,
+  DENSITY_MAX,
+  MATERIAL_CRYSTAL,
+  RUBBLE_DENSITY_FACTOR,
+  blastTerrain,
+  boxTerrain,
+  buildTerrain,
+  collapseTerrain,
   createWorld,
-  damageBlock,
-  damageCell,
-  floorSurfaceHeightAt,
+  crushDamage,
+  densityAt,
+  flatTerrain,
+  groundBelow,
   hashState,
-  isCellPassable,
   isSolidAt,
-  listBlocks,
-  listShards,
-  secondsToTicks,
-  shardAt,
-  shardDeflection,
-  shatterShard,
-  shoveShard,
+  raycastTerrain,
+  sampleDensity,
   stepWorld,
   type Occupant,
-  type Shard,
   type World,
+  type WorldSpec,
 } from './world.ts';
 
-/** The floor plane every test world shares, unless it is testing a wall's height. */
-const FLOOR = 0.25;
+const GROUND = 3;
 
-/** The tick count of one regeneration interval: 20 s at the 60 Hz tick. */
-const REGEN_TICKS = 1200;
-
-function flatWorld(columns = 4, rows = 4): World {
-  return createWorld({ columns, rows, floorSurfaceHeightMetres: FLOOR });
+function flat(): World {
+  return createWorld(flatTerrain(16, 16, GROUND));
 }
 
-function requireShard(world: World, index = 0): Shard {
-  const shard = listShards(world)[index];
-  if (!shard) {
-    throw new Error(`expected at least ${index + 1} shards, found ${listShards(world).length}`);
-  }
-  return shard;
+/** Flat ground plus a free-floating block of rock `size` metres on a side, 6 m up. */
+function floating(size: number, at = { x: 12, z: 12 }): World {
+  return createWorld(
+    buildTerrain({
+      cellsX: 16,
+      cellsY: 10,
+      cellsZ: 16,
+      sample: (x, y, z) => {
+        const half = size / 2;
+        const block = Math.min(half - Math.abs(x - at.x), half - Math.abs(z - at.z), half - Math.abs(y - (9 + half)));
+        return { solidity: Math.max(GROUND - y, block) };
+      },
+    }),
+  );
 }
 
-describe('the world model', () => {
-  it("a shell's damage destroys a wall cell and yields exactly one big block", () => {
-    const world = createWorld({
-      columns: 4,
-      rows: 4,
-      floorSurfaceHeightMetres: FLOOR,
-      placements: [{ x: 1, z: 1, material: 'wall', heightMetres: 3 }],
-    });
+/** Runs the world until no chunk is falling (or the guard trips). */
+function settle(world: World, occupants: readonly Occupant[] = []): ReturnType<typeof stepWorld>[] {
+  const results: ReturnType<typeof stepWorld>[] = [];
+  for (let tick = 0; tick < 600 && world.chunks.length > 0; tick += 1) results.push(stepWorld(world, occupants));
+  expect(world.chunks).toHaveLength(0);
+  return results;
+}
 
-    const result = damageCell(world, 1, 1, 2, createRng(7));
-
-    expect(result).toMatchObject({ damageApplied: 2, destroyedNow: true, blocksSpawned: 1, shardsSpawned: 0 });
-    expect(cellState(cellAt(world, 1, 1))).toBe('hole');
-    expect(listBlocks(world)).toHaveLength(1);
-    expect(blockAt(world, 1, 1)).toMatchObject({ x: 1, z: 1, material: 'wall', hp: 2 });
-    expect(listShards(world)).toHaveLength(0);
-    // Rubble blocks both a ground unit and a shell, but only up to its own top.
-    expect(isCellPassable(world, 1, 1)).toBe(false);
-    expect(isSolidAt(world, 1, 1, 1)).toBe(true);
-    expect(isSolidAt(world, 1, 1, BLOCK_HEIGHT_METRES)).toBe(false);
+describe('the terrain lattice', () => {
+  it('rejects malformed specs loudly', () => {
+    const spec = flatTerrain(4, 4, GROUND);
+    expect(() => createWorld({ ...spec, density: spec.density.slice(1) })).toThrow(/density must be a Uint8Array/);
+    const noBedrock: WorldSpec = { ...spec, density: spec.density.slice() };
+    noBedrock.density[0] = 0;
+    expect(() => createWorld(noBedrock)).toThrow(/must be full-density bedrock/);
+    expect(() => createWorld({ ...spec, spacingMetres: 0 })).toThrow(/spacingMetres/);
   });
 
-  it('a destroyed floor cell becomes a drivable hole, not an obstacle', () => {
-    const world = flatWorld();
-    // Before: the slab is material at 0.1 m, and the floor is drivable anyway — solid
-    // and passable are two different questions, and this pin holds both.
-    expect(isSolidAt(world, 1, 2, 0.1)).toBe(true);
-    expect(isCellPassable(world, 1, 2)).toBe(true);
-    const surface = floorSurfaceHeightAt(world, 1, 2);
-
-    damageCell(world, 1, 2, 1, createRng(3));
-
-    expect(cellState(cellAt(world, 1, 2))).toBe('hole');
-    expect(isSolidAt(world, 1, 2, 0.1)).toBe(false); // a hole is not an obstacle
-    expect(isCellPassable(world, 1, 2)).toBe(true); // and a tank still drives over it
-    expect(floorSurfaceHeightAt(world, 1, 2)).toBe(surface); // the surface contract survives the hole
+  it('answers solid, ground and density queries on a flat field', () => {
+    const world = flat();
+    expect(isSolidAt(world, 10, GROUND - 0.2, 10)).toBe(true);
+    expect(isSolidAt(world, 10, GROUND + 0.2, 10)).toBe(false);
+    expect(groundBelow(world, 10, 10, 10)).toBeCloseTo(GROUND, 1);
+    // Below the lattice is solid, beyond its sides and top is air.
+    expect(isSolidAt(world, 10, -1, 10)).toBe(true);
+    expect(isSolidAt(world, -1, GROUND - 1, 10)).toBe(false);
+    expect(densityAt(world, 10, GROUND, 10)).toBeCloseTo(DENSITY_ISO, -1);
   });
 
-  it('a wall stops a shell at its own height and never above it', () => {
-    const world = createWorld({
-      columns: 4,
-      rows: 4,
-      floorSurfaceHeightMetres: FLOOR,
-      placements: [{ x: 2, z: 2, material: 'wall', heightMetres: 3 }],
-    });
+  it('a raycast stops at the surface', () => {
+    const world = flat();
+    const hit = raycastTerrain(world, { x: 5, y: 10, z: 5 }, { x: 15, y: 0, z: 15 });
+    expect(hit).not.toBeNull();
+    expect(hit!.y).toBeCloseTo(GROUND, 1);
+    expect(hit!.x).toBeCloseTo(5 + (10 - GROUND), 1);
+    expect(raycastTerrain(world, { x: 5, y: 10, z: 5 }, { x: 15, y: 8, z: 15 })).toBeNull();
+  });
+});
 
-    expect(isSolidAt(world, 2, 2, 0)).toBe(true);
-    expect(isSolidAt(world, 2, 2, 2.9)).toBe(true);
-    expect(isSolidAt(world, 2, 2, 3)).toBe(false); // the top is a surface, not material
-    expect(isSolidAt(world, 2, 2, 5)).toBe(false); // a high shot flies over
-    expect(isCellPassable(world, 2, 2)).toBe(false); // but nothing drives through it
+describe('craters', () => {
+  it('a blast carves a crater around its centre and reports what it broke', () => {
+    const world = flat();
+    const revision = world.revision;
+    const blast = blastTerrain(world, 12, GROUND, 12);
+    expect(blast.samplesDestroyed).toBeGreaterThan(0);
+    expect(blast.samplesDamaged).toBeGreaterThanOrEqual(blast.samplesDestroyed);
+    expect(world.revision).toBeGreaterThan(revision);
+    expect(isSolidAt(world, 12, GROUND - 0.5, 12)).toBe(false);
+    expect(isSolidAt(world, 18, GROUND - 0.5, 18)).toBe(true);
+    expect(groundBelow(world, 12, 12, 10)).toBeLessThan(GROUND - 0.8);
   });
 
-  it("a large block occupying a cell blocks that cell's regeneration until the block is destroyed", () => {
-    const world = createWorld({
-      columns: 4,
-      rows: 4,
-      floorSurfaceHeightMetres: FLOOR,
-      placements: [{ x: 1, z: 1, material: 'wall', heightMetres: 3 }],
-    });
-    damageCell(world, 1, 1, 2, createRng(11));
-    expect(listBlocks(world)).toHaveLength(1);
-
-    stepWorld(world, REGEN_TICKS * 3, []);
-
-    expect(cellState(cellAt(world, 1, 1))).toBe('hole'); // three delays passed, nothing healed
-    expect(listBlocks(world)).toHaveLength(1);
-
-    const cleared = damageBlock(world, 1, 1, 2);
-    expect(cleared.destroyedNow).toBe(true);
-    expect(listBlocks(world)).toHaveLength(0);
-
-    stepWorld(world, REGEN_TICKS - 1, []);
-    expect(cellState(cellAt(world, 1, 1))).toBe('hole'); // still never before the delay
-    stepWorld(world, 1, []);
-    expect(cellState(cellAt(world, 1, 1))).toBe('intact');
-    expect(cellAt(world, 1, 1).hp).toBe(1);
-  });
-
-  it('a cell regenerates only after its delay has elapsed, never before', () => {
-    const world = flatWorld();
-    expect(secondsToTicks(MATERIAL_PROFILES.floor.regenDelaySeconds)).toBe(REGEN_TICKS);
-
-    damageCell(world, 1, 1, 1, createRng(5));
-    stepWorld(world, REGEN_TICKS - 1, []);
-    expect(cellState(cellAt(world, 1, 1))).toBe('hole');
-
-    stepWorld(world, 1, []);
-    expect(cellState(cellAt(world, 1, 1))).toBe('intact');
-  });
-
-  it('a healing cell absorbs the shards lying in it', () => {
-    const world = flatWorld();
-    damageCell(world, 1, 1, 1, createRng(9));
-    expect(listShards(world)).toHaveLength(3);
-
-    // One shard leaves the healing cell, so the pin can tell absorption from a blanket clear.
-    const leaving = requireShard(world);
-    expect(shoveShard(world, leaving.id, { x: 1, z: 0 })).toEqual({ x: 2, z: 1, moved: true });
-
-    stepWorld(world, REGEN_TICKS, []);
-
-    expect(cellState(cellAt(world, 1, 1))).toBe('intact');
-    expect(listShards(world)).toHaveLength(1);
-    expect(listShards(world)[0]).toMatchObject({ x: 2, z: 1 });
-    expect(shardAt(world, 2, 1)).toMatchObject({ id: leaving.id });
-  });
-
-  it('a tank standing in a cell that regenerates is displaced to the nearest free cell and takes no damage', () => {
-    const world = flatWorld(5, 5);
-    damageCell(world, 2, 2, 1, createRng(13));
-    const tank: Occupant = { id: 7, x: 2, z: 2 };
-    const bystander: Occupant = { id: 9, x: 4, z: 4 };
-
-    stepWorld(world, REGEN_TICKS - 1, [tank, bystander]);
-    expect(cellState(cellAt(world, 2, 2))).toBe('hole');
-
-    const result = stepWorld(world, 1, [tank, bystander]);
-
-    expect(cellState(cellAt(world, 2, 2))).toBe('intact');
-    expect(result.displacements).toEqual([{ id: 7, fromX: 2, fromZ: 2, toX: 3, toZ: 2 }]);
-    // The world has no damage channel for occupants at all: the caller's object is
-    // untouched, and the listed move is the only effect on it.
-    expect(tank).toEqual({ id: 7, x: 2, z: 2 });
-    expect(isCellPassable(world, 3, 2)).toBe(true);
-    expect(result.displacements.some((displacement) => displacement.id === 9)).toBe(false);
-  });
-
-  it('displacement is deterministic: the same world state and the same occupants produce the same result', () => {
-    // Two tanks share the healing cell, so the id order and the occupied-cell set both
-    // matter: id 2 takes the nearest cell and id 5 must take the next one.
-    const run = (): { displacements: unknown; hash: string } => {
-      const world = flatWorld(5, 5);
-      damageCell(world, 1, 1, 1, createRng(1979));
-      const occupants: Occupant[] = [
-        { id: 5, x: 1, z: 1 },
-        { id: 2, x: 1, z: 1 },
-      ];
-      const result = stepWorld(world, REGEN_TICKS, occupants);
-      return { displacements: result.displacements, hash: hashState(world) };
-    };
-
-    const first = run();
-    const second = run();
-
-    expect(first.displacements).toEqual(second.displacements);
-    expect(first.hash).toBe(second.hash);
-    expect(first.displacements).toEqual([
-      { id: 2, fromX: 1, fromZ: 1, toX: 2, toZ: 1 },
-      { id: 5, fromX: 1, fromZ: 1, toX: 0, toZ: 1 },
-    ]);
-  });
-
-  it('shards are capped; when the cap is exceeded the oldest despawns first', () => {
-    const world = flatWorld(6, 4);
-    const rng = createRng(17);
-    for (let index = 0; index < 22; index += 1) {
-      damageCell(world, index % 6, Math.floor(index / 6), 1, rng); // 22 x 3 = 66 shards
+  it('never breaks the bedrock layer', () => {
+    const world = flat();
+    for (let n = 0; n < 6; n += 1) blastTerrain(world, 12, 0, 12, 4, 2000);
+    for (let i = 0; i < world.nx; i += 1) {
+      for (let k = 0; k < world.nz; k += 1) expect(sampleDensity(world, i, 0, k)).toBe(DENSITY_MAX);
     }
-
-    const shards = listShards(world);
-    expect(shards).toHaveLength(SHARD_CAP);
-    expect(shards[0]?.id).toBe(2); // ids 0 and 1 were the oldest and are gone
-    expect(shards.map((shard) => shard.id)).not.toContain(0);
-    expect(shards.map((shard) => shard.id)).not.toContain(1);
-
-    // Big blocks are NOT part of that budget: they persist until they are destroyed.
-    const placements = [];
-    for (let x = 0; x < 10; x += 1) {
-      for (let z = 0; z < 7; z += 1) {
-        placements.push({ x, z, material: 'wall' as const, heightMetres: 3 });
-      }
-    }
-    const walled = createWorld({ columns: 10, rows: 7, floorSurfaceHeightMetres: FLOOR, placements });
-    const wallRng = createRng(19);
-    for (const placement of placements) {
-      damageCell(walled, placement.x, placement.z, 2, wallRng);
-    }
-    expect(listBlocks(walled)).toHaveLength(70);
-    expect(listShards(walled)).toHaveLength(0);
   });
 
-  it('a shard deflects a shell at its stored mirror angle', () => {
-    const world = flatWorld();
-    damageCell(world, 1, 1, 1, createRng(23));
-    const shard = requireShard(world);
+  it('crystal resists a blast that breaks plain rock', () => {
+    const rock = createWorld(boxTerrain(16, 16, GROUND, [{ minX: 9, maxX: 15, minZ: 9, maxZ: 15, topMetres: GROUND + 4 }]));
+    const crystal = createWorld(
+      boxTerrain(16, 16, GROUND, [{ minX: 9, maxX: 15, minZ: 9, maxZ: 15, topMetres: GROUND + 4, material: MATERIAL_CRYSTAL }]),
+    );
+    const inRock = blastTerrain(rock, 9, GROUND + 2, 12);
+    const inCrystal = blastTerrain(crystal, 9, GROUND + 2, 12);
+    expect(inCrystal.samplesDestroyed).toBeLessThan(inRock.samplesDestroyed);
+  });
+});
 
-    // The angle is data from the seeded RNG, and it is always a table step.
-    expect(Number.isInteger(shard.mirrorAngleDegrees / MIRROR_ANGLE_STEP_DEGREES)).toBe(true);
-
-    // Independent route: rebuild the mirror from the stored ANGLE with trigonometry and
-    // reflect d - 2(d.n)n. The implementation uses literal normals instead, so the two
-    // routes disagree if the stored angle and the applied mirror ever drift apart.
-    const radians = (shard.mirrorAngleDegrees * Math.PI) / 180;
-    const normal = { x: Math.cos(radians), z: Math.sin(radians) };
-    const incoming = { x: 1, z: 0 };
-    const projection = incoming.x * normal.x + incoming.z * normal.z;
-    const expected = {
-      x: incoming.x - 2 * projection * normal.x,
-      z: incoming.z - 2 * projection * normal.z,
-    };
-
-    const actual = shardDeflection(shard, incoming);
-    expect(actual.x).toBeCloseTo(expected.x, 12);
-    expect(actual.z).toBeCloseTo(expected.z, 12);
-
-    // A mirror reflects twice back to where it started — a property independent of the
-    // table values, so a sign error cannot pass both assertions.
-    const twice = shardDeflection(shard, actual);
-    expect(twice.x).toBeCloseTo(incoming.x, 12);
-    expect(twice.z).toBeCloseTo(incoming.z, 12);
+describe('collapse and falling rock', () => {
+  it('a small unsupported piece crumbles to dust', () => {
+    const world = floating(1.6);
+    const debris = collapseTerrain(world);
+    expect(debris.map((event) => event.kind)).toEqual(['dust']);
+    expect(world.chunks).toHaveLength(0);
+    expect(isSolidAt(world, 12, 9.8, 12)).toBe(false);
   });
 
-  it('the revision counter increments on visible changes and never on a timer-only tick', () => {
-    const world = createWorld({
-      columns: 4,
-      rows: 4,
-      floorSurfaceHeightMetres: FLOOR,
-      placements: [{ x: 1, z: 1, material: 'wall', heightMetres: 3 }],
-    });
-    expect(world.revision).toBe(0);
+  it('a big unsupported piece falls under gravity and lands as rubble', () => {
+    const world = floating(4.5);
+    const debris = collapseTerrain(world);
+    expect(debris.map((event) => event.kind)).toEqual(['break']);
+    expect(world.chunks).toHaveLength(1);
+    const chunk = world.chunks[0]!;
+    // Lifted out of the lattice: the air where it hung is air already.
+    expect(isSolidAt(world, 12, 11, 12)).toBe(false);
 
-    // No wound yet: a bare tick must not bump the renderer's version.
-    stepWorld(world, 1, []);
-    expect(world.revision).toBe(0);
-
-    damageCell(world, 1, 1, 1, createRng(101));
-    expect(world.revision).toBe(1);
-    damageCell(world, 1, 1, 1, createRng(101));
-    expect(world.revision).toBe(2); // destroyed: hole + big block
-    const afterDestroy = world.revision;
-    damageCell(world, 1, 1, 1, createRng(101));
-    expect(world.revision).toBe(afterDestroy); // a hole is a reported no-op
-
-    damageBlock(world, 1, 1, 1);
-    expect(world.revision).toBe(3);
-    damageBlock(world, 1, 1, 1);
-    expect(world.revision).toBe(4);
-
-    // The regeneration timer ticks down every step; only the actual heal is visible.
-    stepWorld(world, 1, []);
-    expect(world.revision).toBe(4);
-    stepWorld(world, REGEN_TICKS - 1, []);
-    expect(world.revision).toBe(5);
-
-    const floor = flatWorld();
-    damageCell(floor, 1, 1, 1, createRng(102));
-    const shard = requireShard(floor);
-    const beforeShove = floor.revision;
-    shoveShard(floor, shard.id, { x: 1, z: 0 });
-    expect(floor.revision).toBe(beforeShove + 1);
-    const beforeShatter = floor.revision;
-    shatterShard(floor, shard.id);
-    expect(floor.revision).toBe(beforeShatter + 1);
-
-    // A displacement is a visible change even when the displacement itself is the
-    // only thing the tick did.
-    const displaced = flatWorld(5, 5);
-    damageCell(displaced, 2, 2, 1, createRng(103));
-    const beforeDisplacement = displaced.revision;
-    const result = stepWorld(displaced, REGEN_TICKS, [{ id: 7, x: 2, z: 2 }]);
-    expect(result.displacements).toHaveLength(1);
-    expect(displaced.revision).toBeGreaterThan(beforeDisplacement);
+    stepWorld(world, []);
+    expect(chunk.speed).toBeGreaterThan(0);
+    const results = settle(world);
+    expect(results.some((result) => result.debris.some((event) => event.kind === 'land'))).toBe(true);
+    // Rubble now sits on the ground, a little looser than the rock it came from.
+    expect(isSolidAt(world, 12, GROUND + 0.75, 12)).toBe(true);
+    const rubble = sampleDensity(world, 8, 3, 8);
+    expect(rubble).toBeLessThanOrEqual(Math.round(DENSITY_MAX * RUBBLE_DENSITY_FACTOR));
   });
 
-  it('a shell hit shatters the shard, so it is gone and a stale id fails loudly', () => {
-    const world = flatWorld();
-    damageCell(world, 1, 1, 1, createRng(37));
-    const [first, second] = listShards(world);
-    if (!first || !second) {
-      throw new Error(`expected two shards, found ${listShards(world).length}`);
-    }
-
-    const shattered = shatterShard(world, first.id);
-
-    expect(shattered).toMatchObject({ id: first.id });
-    expect(listShards(world)).toHaveLength(2);
-    expect(listShards(world).map((shard) => shard.id)).not.toContain(first.id);
-    expect(shardAt(world, 1, 1)).toMatchObject({ id: second.id });
-    // A second hit on the same id is a caller bug, not a silent no-op.
-    expect(() => shatterShard(world, first.id)).toThrow(/does not exist/);
+  it('a chunk that falls onto an occupant crushes it instead of landing', () => {
+    const world = floating(4.5);
+    collapseTerrain(world);
+    const samples = world.chunks[0]!.samples.length;
+    const tank: Occupant = { id: 7, x: 12, z: 12, radius: 1, bottomY: GROUND, topY: GROUND + 1.5 };
+    const results = settle(world, [tank]);
+    const crushes = results.flatMap((result) => result.crushes);
+    expect(crushes).toEqual([{ occupantId: 7, damage: crushDamage(samples), chunkId: 0 }]);
+    expect(crushDamage(samples)).toBeGreaterThan(0);
   });
 
-  it('shoving a shard moves it one cell, and slides it to a free side when the way is blocked', () => {
-    const world = createWorld({
-      columns: 4,
-      rows: 4,
-      floorSurfaceHeightMetres: FLOOR,
-      placements: [{ x: 2, z: 1, material: 'wall', heightMetres: 3 }],
-    });
-    damageCell(world, 1, 1, 1, createRng(29));
-    const shard = requireShard(world);
-
-    // +x is a wall, so the shove may not pass through it; the fixed side order picks +z.
-    expect(shoveShard(world, shard.id, { x: 1, z: 0 })).toEqual({ x: 1, z: 2, moved: true });
-    expect(shoveShard(world, shard.id, { x: 0, z: -1 })).toEqual({ x: 1, z: 1, moved: true });
-
-    // Trapped in a corner by two walls: the shard stays, and the result says so.
-    const trapped = createWorld({
-      columns: 2,
-      rows: 2,
-      floorSurfaceHeightMetres: FLOOR,
-      placements: [
-        { x: 1, z: 0, material: 'wall', heightMetres: 3 },
-        { x: 0, z: 1, material: 'wall', heightMetres: 3 },
-      ],
-    });
-    damageCell(trapped, 0, 0, 1, createRng(31));
-    const stuck = requireShard(trapped);
-    expect(shoveShard(trapped, stuck.id, { x: 1, z: 0 })).toEqual({ x: 0, z: 0, moved: false });
-    expect(stuck).toMatchObject({ x: 0, z: 0 });
+  it('shooting through a pillar drops what it held', () => {
+    // A 2 m pillar under a 6 × 6 m slab.
+    const world = createWorld(
+      buildTerrain({
+        cellsX: 16,
+        cellsY: 10,
+        cellsZ: 16,
+        sample: (x, y, z) => {
+          const pillar = Math.min(1 - Math.abs(x - 12), 1 - Math.abs(z - 12));
+          const slab = Math.min(3 - Math.abs(x - 12), 3 - Math.abs(z - 12), y - 9, 11 - y);
+          return { solidity: Math.max(GROUND - y, Math.min(pillar, 11 - y), slab) };
+        },
+      }),
+    );
+    expect(collapseTerrain(world)).toEqual([]);
+    const blast = blastTerrain(world, 12, 6, 12, 2.6, 900);
+    expect(blast.debris.some((event) => event.kind === 'break')).toBe(true);
   });
 
-  it('the same seed and the same operations produce an identical state hash', () => {
-    const hashedRun = (seed: number, extraTick: boolean): string => {
-      const world = createWorld({
-        columns: 4,
-        rows: 4,
-        floorSurfaceHeightMetres: FLOOR,
-        placements: [{ x: 2, z: 2, material: 'pillar', heightMetres: 4 }],
-      });
-      const rng = createRng(seed);
-      damageCell(world, 1, 1, 1, rng);
-      damageCell(world, 0, 3, 1, rng);
-      damageCell(world, 2, 2, 3, rng);
-      shoveShard(world, requireShard(world).id, { x: 1, z: 1 });
-      stepWorld(world, 30, [{ id: 1, x: 3, z: 0 }]);
-      if (extraTick) {
-        stepWorld(world, 1, [{ id: 1, x: 3, z: 0 }]);
-      }
+  it('crush damage grows with the size of the rock', () => {
+    expect(crushDamage(3)).toBe(0);
+    expect(crushDamage(6)).toBe(1);
+    expect(crushDamage(30)).toBe(2);
+    expect(crushDamage(500)).toBe(3);
+  });
+});
+
+describe('regeneration', () => {
+  it('a crater regrows to the authored landscape over time', () => {
+    const world = flat();
+    const authored = hashState(world);
+    blastTerrain(world, 12, GROUND, 12);
+    expect(hashState(world)).not.toBe(authored);
+    for (let tick = 0; tick < 2400; tick += 1) stepWorld(world, []);
+    expect(Array.from(world.density)).toEqual(Array.from(world.target));
+  });
+
+  it('never regrows rock into a tank parked in the crater', () => {
+    const world = flat();
+    blastTerrain(world, 12, GROUND, 12);
+    const tank: Occupant = { id: 1, x: 12, z: 12, radius: 1, bottomY: GROUND - 1.5, topY: GROUND };
+    for (let tick = 0; tick < 2400; tick += 1) stepWorld(world, [tank]);
+    expect(isSolidAt(world, 12, GROUND - 0.75, 12)).toBe(false);
+    expect(isSolidAt(world, 18, GROUND - 0.5, 18)).toBe(true);
+  });
+});
+
+describe('determinism', () => {
+  it('the same blasts and steps give the same hash; a different blast does not', () => {
+    const run = (x: number): string => {
+      const world = floating(4.5);
+      collapseTerrain(world);
+      blastTerrain(world, x, GROUND, 6);
+      for (let tick = 0; tick < 200; tick += 1) stepWorld(world, []);
       return hashState(world);
     };
-
-    expect(hashedRun(2026, false)).toBe(hashedRun(2026, false));
-    // The hash tracks the state, so it is not a constant that would pass the pin above.
-    expect(hashedRun(2026, true)).not.toBe(hashedRun(2026, false));
-    // ... including the shard mirror angles the seed chose: a different seed is a
-    // different world, and the hash says so.
-    expect(hashedRun(1, false)).not.toBe(hashedRun(2026, false));
-  });
-
-  it('an out-of-bounds cell or an occupant outside the grid is rejected loudly', () => {
-    const world = flatWorld(4, 4);
-
-    expect(() => cellAt(world, 4, 0)).toThrow(/outside the 4x4 grid/);
-    expect(() => cellAt(world, -1, 0)).toThrow(/outside the 4x4 grid/);
-    expect(() => cellAt(world, 1.5, 0)).toThrow(/integers/);
-    expect(() => damageCell(world, 9, 9, 1, createRng(1))).toThrow(/outside the 4x4 grid/);
-    expect(() => stepWorld(world, 1, [{ id: 1, x: 9, z: 0 }])).toThrow(/outside the 4x4 grid/);
-    expect(() => stepWorld(world, -1, [])).toThrow(/non-negative integer/);
+    expect(run(6)).toBe(run(6));
+    expect(run(6)).not.toBe(run(7.5));
   });
 });

@@ -1,213 +1,220 @@
 /**
- * The authored A4 arena: 48 × 48 m (24 × 24 cells), four-fold rotationally symmetric,
- * four corner spawns, concentric square rings with four corner gateways per ring, a
- * breakable central pillar cluster, low shoot-over barriers and ambush pockets.
+ * The authored arena, "Fourfold Crucible": a 72 × 72 m landscape of glowing triangles,
+ * four-fold rotationally symmetric, with four corner spawn pads.
  *
- * This is DATA. `validateLevel` is called by the playable session before `createMatch`;
- * the top-down `?pose=top` plan is the review surface.
+ *  - Rolling ground rising into a steep rim at the arena edge.
+ *  - A central hill you can drive over, hollowed by two crossing tunnels that meet in a
+ *    cavern under the summit. Shoot the summit and the cavern roof caves in.
+ *  - On each diagonal, a curved ridge between the pad and the hill, pierced by an arch:
+ *    cover from the centre, a chokepoint through it, open ends around it. Its crown is
+ *    hard crystal.
+ *  - On each cardinal lane, a mushroom spire with a crystal cap in front of a tunnel
+ *    mouth. Cut the stem and the cap comes down on whoever sheltered beneath.
+ *
+ * The landscape is a signed solidity function sampled by `buildTerrain`; the shape is
+ * evaluated once per rotation orbit, so the four quarters are identical byte for byte.
  */
 
-import { CELL_SIZE_METRES, type CellMaterial, type CellPlacement } from '../../core/world.ts';
-import type { LevelDefinition, LevelSpawn } from './format.ts';
+import { MATERIAL_CRYSTAL, MATERIAL_ROCK, buildTerrain, type TerrainSample } from '../../core/world.ts';
+import type { LevelDefinition, LevelSpawn, SpawnSlot } from './format.ts';
 
-const N = 24;
-const ARENA_NAME = 'Fourfold Crucible';
-const FLOOR = 0.2;
-const OUTER_START = 5;
-const OUTER_END = 18;
-const INNER_START = 8;
-const INNER_END = 15;
-const RING_HEIGHT = 4.8;
-const INNER_HEIGHT = 4.2;
-const CENTRAL_HEIGHT = 4.8;
-const POCKET_HEIGHT = 3.2;
-const LOW_COVER_HEIGHT = 1.2;
+const CELLS = 48;
+const CELLS_Y = 16;
+const SPACING = 1.5;
+const SIZE = CELLS * SPACING; // 72 m
+const CENTRE = SIZE / 2;
+const BASE = 4.5;
 
-function rotate(x: number, z: number): { x: number; z: number } {
-  return { x: N - 1 - z, z: x };
+const RIM_WIDTH = 7;
+const RIM_HEIGHT = 7;
+
+const HILL_RADIUS = 19;
+const HILL_HEIGHT = 8;
+const TUNNEL_RADIUS = 3;
+const CAVERN_RADIUS = 5.5;
+
+const RIDGE_RADIUS = 26;
+const RIDGE_HALF_THICKNESS = 1.6;
+const RIDGE_HEIGHT = 6;
+const RIDGE_HALF_ANGLE = (28 * Math.PI) / 180;
+const RIDGE_CRYSTAL_FROM = 4.6;
+const ARCH_RADIUS = 2.8;
+
+const SPIRE_DISTANCE = 27;
+const SPIRE_STEM_RADIUS = 1.7;
+const SPIRE_STEM_TOP = 7.5;
+const SPIRE_CAP_CENTRE = 8.3;
+const SPIRE_CAP_RADIUS = 4.2;
+const SPIRE_CAP_HALF_HEIGHT = 1.6;
+
+const PAD = 11;
+const PAD_FLAT_RADIUS = 6;
+const PAD_BLEND = 4;
+const SLOT_OFFSET = 2.4;
+
+function smoothstep(edge0: number, edge1: number, value: number): number {
+  const t = Math.max(0, Math.min(1, (value - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
 }
 
-const placements: CellPlacement[] = [];
-const placed = new Map<string, { material: CellMaterial; heightMetres: number }>();
-
-function add(x: number, z: number, material: Exclude<CellMaterial, 'floor'>, heightMetres: number): void {
-  if (x < 0 || x >= N || z < 0 || z >= N) {
-    throw new Error(`arena: placement (${x}, ${z}) is outside the ${N}×${N} grid`);
-  }
-  const key = `${x},${z}`;
-  const existing = placed.get(key);
-  if (existing) {
-    if (existing.material !== material || existing.heightMetres !== heightMetres) {
-      throw new Error(`arena: conflicting placements at (${x}, ${z})`);
-    }
-    return;
-  }
-  placed.set(key, { material, heightMetres });
-  placements.push({ x, z, material, heightMetres });
-}
-
-/** Adds a feature and its three 90° rotations. */
-function addSymmetric(x: number, z: number, material: Exclude<CellMaterial, 'floor'>, heightMetres: number): void {
-  let current = { x, z };
-  for (let quarter = 0; quarter < 4; quarter += 1) {
-    add(current.x, current.z, material, heightMetres);
-    current = rotate(current.x, current.z);
-  }
-}
-
-/** A square ring with a 2×2 gateway cut out at each corner. */
-function addRing(start: number, end: number, heightMetres: number): void {
-  const gate = (x: number, z: number): boolean => {
-    const nearX = x <= start + 1 || x >= end - 1;
-    const nearZ = z <= start + 1 || z >= end - 1;
-    return nearX && nearZ;
-  };
-  for (let x = start; x <= end; x += 1) {
-    for (const z of [start, end]) {
-      if (!gate(x, z)) add(x, z, 'wall', heightMetres);
-    }
-  }
-  for (let z = start + 1; z < end; z += 1) {
-    for (const x of [start, end]) {
-      if (!gate(x, z)) add(x, z, 'wall', heightMetres);
-    }
-  }
-}
-
-// Four corner spawns, zone top-left cells and the initial hull yaw. The hull faces
-// the first (eastbound) leg of a screened pinwheel dogleg; the turn takes it into
-// the nearest outer gateway, not down the margin at the neighbouring spawn.
-const spawns: readonly LevelSpawn[] = [
-  { teamId: 0, zoneX: 2, zoneZ: 2, zoneWidth: 2, zoneHeight: 2, yawDegrees: -90 },
-  { teamId: 1, zoneX: 20, zoneZ: 2, zoneWidth: 2, zoneHeight: 2, yawDegrees: 180 },
-  { teamId: 2, zoneX: 20, zoneZ: 20, zoneWidth: 2, zoneHeight: 2, yawDegrees: 90 },
-  { teamId: 3, zoneX: 2, zoneZ: 20, zoneWidth: 2, zoneHeight: 2, yawDegrees: 0 },
+const PAD_CENTRES: readonly (readonly [number, number])[] = [
+  [PAD, PAD],
+  [SIZE - PAD, PAD],
+  [SIZE - PAD, SIZE - PAD],
+  [PAD, SIZE - PAD],
 ];
 
-// Each 2×2 spawn room is walled above and below its exit and opens east into a short
-// protected corridor. A screen wall closes the corridor's east end, so the exit is a
-// dogleg: it turns south through the outer gateway instead of pointing down the open
-// margin at the neighbouring spawn. The side opposite the exit stays open as a camera
-// recess, so the follow arm does not start behind a wall. Rotated to all four corners.
-const SPAWN_WALL_HEIGHT = 2.4;
-const spawnRoomWalls = [
-  // North and south sides of the room, the corridor's north wall and its screen.
-  [2, 1],
-  [3, 1],
-  [2, 4],
-  [3, 4],
-  [4, 1],
-  [5, 1],
-  [6, 1],
-  [7, 1],
-  [7, 2],
-  [7, 3],
-  [7, 4],
-] as const;
-for (const [x, z] of spawnRoomWalls) {
-  addSymmetric(x, z, 'wall', SPAWN_WALL_HEIGHT);
-}
-
-// Concentric rings. Both have four corner gateways; the second is rotated only by the
-// same square geometry, so the gateways line up into the two diagonal sightlines.
-addRing(OUTER_START, OUTER_END, RING_HEIGHT);
-addRing(INNER_START, INNER_END, INNER_HEIGHT);
-
-// The central objective: a breakable 2×2 pillar block with four corner pillars and
-// open gap ways around it inside the inner ring.
-for (let x = 11; x <= 12; x += 1) {
-  for (let z = 11; z <= 12; z += 1) {
-    add(x, z, 'pillar', CENTRAL_HEIGHT);
+/** Ground height of the open landscape (without hill, ridges or spires). */
+function groundHeight(x: number, z: number): number {
+  const u = x - CENTRE;
+  const v = z - CENTRE;
+  const r = Math.hypot(u, v);
+  let padDistance = Infinity;
+  for (const [px, pz] of PAD_CENTRES) {
+    padDistance = Math.min(padDistance, Math.hypot(x - px, z - pz));
   }
-}
-for (const [x, z] of [
-  [10, 10],
-  [13, 10],
-  [13, 13],
-  [10, 13],
-] as const) {
-  add(x, z, 'pillar', 3.6);
-}
-
-// Ambush pockets beside each outer gate: a pillar just inside the gate, with a second
-// shadowing the approach but leaving a gap behind it.
-addSymmetric(7, 7, 'pillar', POCKET_HEIGHT);
-addSymmetric(7, 9, 'pillar', 2.6);
-addSymmetric(9, 7, 'pillar', 2.6);
-
-// Low ~1.2 m shoot-over barriers along the cardinal lanes. They block a ground route
-// but a high shot (the A1 height model) clears them.
-for (const [x, z] of [
-  [6, 8],
-  [7, 8],
-  [9, 10],
-  [9, 11],
-] as const) {
-  addSymmetric(x, z, 'wall', LOW_COVER_HEIGHT);
+  const rolling = 1 - smoothstep(PAD_FLAT_RADIUS, PAD_FLAT_RADIUS + PAD_BLEND, padDistance);
+  const underHill = smoothstep(HILL_RADIUS - 6, HILL_RADIUS + 2, r);
+  const bumps =
+    (0.45 * (Math.cos(u * 0.42) + Math.cos(v * 0.42)) + 0.3 * Math.cos(r * 0.55)) * (1 - rolling) * underHill;
+  const edge = Math.min(x, z, SIZE - x, SIZE - z);
+  const rim = RIM_HEIGHT * (1 - smoothstep(0, RIM_WIDTH, edge));
+  return BASE + bumps + rim;
 }
 
-// A few longer low lane segments, kept off the central gap ways so all four spawns
-// remain connected at start.
-for (const [x, z] of [
-  [6, 10],
-  [7, 10],
-  [10, 6],
-  [10, 7],
-] as const) {
-  addSymmetric(x, z, 'wall', LOW_COVER_HEIGHT);
+/** The hill, with its tunnels and cavern carved out (positive inside rock). */
+function hillSolidity(x: number, y: number, z: number): number {
+  const u = x - CENTRE;
+  const v = z - CENTRE;
+  const r = Math.hypot(u, v);
+  if (r >= HILL_RADIUS) return -Infinity;
+  const top = BASE + HILL_HEIGHT * 0.5 * (1 + Math.cos((Math.PI * r) / HILL_RADIUS));
+  const above = Math.max(0, y - BASE);
+  const tunnelX = TUNNEL_RADIUS - Math.hypot(v, above);
+  const tunnelZ = TUNNEL_RADIUS - Math.hypot(u, above);
+  const cavern = CAVERN_RADIUS - Math.hypot(r, above * 0.9);
+  return Math.min(top - y, -tunnelX, -tunnelZ, -cavern);
 }
 
-// The one arena's ring corners are opened from the authored 2×2 gate to a 5×5 window.
-// With a 2 m tank body the authored gate graph split into four disconnected navigation
-// components, so no two corner teams could reach each other. These openings stay
-// four-fold symmetric; the playable session, the team batch and the spectator all use
-// this same `ARENA`.
-const CONNECTED_GATE_CENTRES = [
-  { x: 6, z: 6, radius: 2 },
-  { x: 6, z: 17, radius: 2 },
-  { x: 17, z: 6, radius: 2 },
-  { x: 17, z: 17, radius: 2 },
-  { x: 9, z: 9, radius: 2 },
-  { x: 9, z: 14, radius: 2 },
-  { x: 14, z: 9, radius: 2 },
-  { x: 14, z: 14, radius: 2 },
-] as const;
-const connectedPlacements = placements.filter(
-  (placement) =>
-    !CONNECTED_GATE_CENTRES.some(
-      ({ x: centreX, z: centreZ, radius }) =>
-        Math.abs(placement.x - centreX) <= radius &&
-        Math.abs(placement.z - centreZ) <= radius,
-    ),
-);
+/** The four arched ridges on the diagonals. Returns solidity and whether it is the crown. */
+function ridgeSolidity(x: number, y: number, z: number): number {
+  const u = x - CENTRE;
+  const v = z - CENTRE;
+  const r = Math.hypot(u, v);
+  if (Math.abs(r - RIDGE_RADIUS) > RIDGE_HALF_THICKNESS + 3) return -Infinity;
+  const angle = Math.atan2(v, u);
+  let best = -Infinity;
+  for (const diagonal of [Math.PI / 4, (3 * Math.PI) / 4, (-3 * Math.PI) / 4, -Math.PI / 4]) {
+    let delta = angle - diagonal;
+    while (delta > Math.PI) delta -= 2 * Math.PI;
+    while (delta < -Math.PI) delta += 2 * Math.PI;
+    const along = (RIDGE_HALF_ANGLE - Math.abs(delta)) * r;
+    const wall = Math.min(RIDGE_HALF_THICKNESS - Math.abs(r - RIDGE_RADIUS), BASE + RIDGE_HEIGHT - y, along);
+    // The arch: a round tunnel along the diagonal through the ridge.
+    const lateral = Math.abs(u * Math.sin(diagonal) - v * Math.cos(diagonal));
+    const arch = ARCH_RADIUS - Math.hypot(lateral, Math.max(0, y - BASE));
+    best = Math.max(best, Math.min(wall, -arch));
+  }
+  return best;
+}
 
-const cells = {
-  columns: N,
-  rows: N,
-  floorSurfaceHeightMetres: FLOOR,
-  placements: connectedPlacements,
-} as const;
+const SPIRES: readonly (readonly [number, number])[] = [
+  [CENTRE, CENTRE - SPIRE_DISTANCE],
+  [CENTRE + SPIRE_DISTANCE, CENTRE],
+  [CENTRE, CENTRE + SPIRE_DISTANCE],
+  [CENTRE - SPIRE_DISTANCE, CENTRE],
+];
 
-/** The authored arena. `intent` is the sentence the next level author reads first. */
+function spireSolidity(x: number, y: number, z: number): { stem: number; cap: number } {
+  let stem = -Infinity;
+  let cap = -Infinity;
+  for (const [sx, sz] of SPIRES) {
+    const d = Math.hypot(x - sx, z - sz);
+    if (d > SPIRE_CAP_RADIUS + 3) continue;
+    const flare = 1.5 * (1 - smoothstep(BASE, BASE + 2.5, y));
+    stem = Math.max(stem, Math.min(SPIRE_STEM_RADIUS + flare - d, BASE + SPIRE_STEM_TOP - y));
+    const e = Math.hypot(d / SPIRE_CAP_RADIUS, (y - BASE - SPIRE_CAP_CENTRE) / SPIRE_CAP_HALF_HEIGHT);
+    cap = Math.max(cap, (1 - e) * SPIRE_CAP_HALF_HEIGHT);
+  }
+  return { stem, cap };
+}
+
+function arenaSample(x: number, y: number, z: number): TerrainSample {
+  const ground = groundHeight(x, z) - y;
+  const hill = hillSolidity(x, y, z);
+  const ridge = ridgeSolidity(x, y, z);
+  const spire = spireSolidity(x, y, z);
+  const solidity = Math.max(ground, hill, ridge, spire.stem, spire.cap);
+  const crystal =
+    (spire.cap > 0 && spire.cap >= spire.stem - 0.4) || (ridge > 0 && y >= BASE + RIDGE_CRYSTAL_FROM && ridge >= ground);
+  return { solidity, material: crystal ? MATERIAL_CRYSTAL : MATERIAL_ROCK };
+}
+
+const terrain = buildTerrain({
+  cellsX: CELLS,
+  cellsY: CELLS_Y,
+  cellsZ: CELLS,
+  spacingMetres: SPACING,
+  fourFold: true,
+  sample: arenaSample,
+});
+
+/** One 90° turn in the arena's rotation (the same turn `buildTerrain` uses). */
+function rotatePoint(x: number, z: number): { x: number; z: number } {
+  return { x: SIZE - z, z: x };
+}
+
+/** Team 0's pad slots, front first; the other teams' are its rotations. */
+const TEAM_ZERO_SLOTS: readonly SpawnSlot[] = [
+  { xMetres: PAD + SLOT_OFFSET, zMetres: PAD + SLOT_OFFSET },
+  { xMetres: PAD + SLOT_OFFSET, zMetres: PAD - SLOT_OFFSET },
+  { xMetres: PAD - SLOT_OFFSET, zMetres: PAD + SLOT_OFFSET },
+  { xMetres: PAD - SLOT_OFFSET, zMetres: PAD - SLOT_OFFSET },
+];
+
+/** Team 0 faces the centre: forward (+1, +1) is yaw −135° in the sim convention. */
+const TEAM_ZERO_YAW = -135;
+
+function buildSpawns(): readonly LevelSpawn[] {
+  const spawns: LevelSpawn[] = [];
+  let centre = { x: PAD, z: PAD };
+  let slots = TEAM_ZERO_SLOTS.map((slot) => ({ x: slot.xMetres, z: slot.zMetres }));
+  for (let teamId = 0; teamId < 4; teamId += 1) {
+    let yaw = TEAM_ZERO_YAW - 90 * teamId;
+    while (yaw < -180) yaw += 360;
+    spawns.push({
+      teamId,
+      xMetres: centre.x,
+      zMetres: centre.z,
+      yawDegrees: yaw,
+      slots: slots.map((slot) => ({ xMetres: slot.x, zMetres: slot.z })),
+    });
+    centre = rotatePoint(centre.x, centre.z);
+    slots = slots.map((slot) => rotatePoint(slot.x, slot.z));
+  }
+  return spawns;
+}
+
+/** The arena's horizontal extent in metres. */
 export const ARENA_BOUNDS = {
   minX: 0,
-  maxX: N * CELL_SIZE_METRES,
+  maxX: SIZE,
   minZ: 0,
-  maxZ: N * CELL_SIZE_METRES,
+  maxZ: SIZE,
 } as const;
 
+/** The open ground level (spawn pads, tunnel floors). Cameras and demos frame on it. */
+export const ARENA_BASE_HEIGHT_METRES = BASE;
+
 export const ARENA: LevelDefinition = {
-  name: ARENA_NAME,
+  name: 'Fourfold Crucible',
   intent:
-    'Four corner spawns in a pinwheel, each behind a short screened dogleg exit that turns into its nearest outer gateway, so no spawn looks straight at another; concentric rings whose corner gateways make the diagonals the two long lanes; an open centre objective after the connected gate rework; low cover along the cardinal lanes; ambush pockets beside each gate. Every spawn is connected on foot at start.',
-  cells,
-  spawns,
+    'Four corner pads facing a central hill you can drive over or through: two crossing tunnels meet in a cavern under the summit, and the summit can be shot in. A curved crystal-crowned ridge on each diagonal screens the pad from the hill and is pierced by an arch; a mushroom spire stands in front of each tunnel mouth, its crystal cap ready to fall. A steep rim closes the arena.',
+  terrain,
+  spawns: buildSpawns(),
 };
 
-/** The centre of a 2×2 spawn zone, in metres. */
+/** A pad's centre, in metres. */
 export function spawnCentreMetres(spawn: LevelSpawn): { xMetres: number; zMetres: number } {
-  return {
-    xMetres: (spawn.zoneX + spawn.zoneWidth / 2) * CELL_SIZE_METRES,
-    zMetres: (spawn.zoneZ + spawn.zoneHeight / 2) * CELL_SIZE_METRES,
-  };
+  return { xMetres: spawn.xMetres, zMetres: spawn.zMetres };
 }

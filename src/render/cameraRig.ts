@@ -35,7 +35,17 @@ export interface CameraRigOptions {
   readonly focus: CameraFocus;
   /** A frozen screenshot pose, or `null` for the interactive follow arm. */
   readonly pose: CameraPoseName | null;
+  /**
+   * The first blocking hit on the segment `from → to` as a fraction 0…1, or `null`
+   * when the segment is clear. The follow arm shortens to stay out of hills and caves.
+   */
+  readonly occluder?: (from: Vec3, to: Vec3) => number | null;
 }
+
+/** The arm never shortens below this, so the hull stays readable in a tight tunnel. */
+const MIN_ARM_FRACTION = 0.18;
+/** How fast a shortened arm grows back once the line is clear again. */
+const ARM_RELEASE_HALF_LIFE_SECONDS = 0.35;
 
 /** 1 - 0.5^(dt/halfLife): the fraction of the remaining gap closed this frame. */
 function springBlend(dtSeconds: number, halfLifeSeconds: number): number {
@@ -52,6 +62,8 @@ export class CameraRig {
 
   private readonly arena: ArenaBounds;
   private readonly floorY: number;
+  private readonly occluder: ((from: Vec3, to: Vec3) => number | null) | null;
+  private armFraction = 1;
 
   private readonly targetFocus = new Vector3();
   private readonly currentFocus = new Vector3();
@@ -69,6 +81,7 @@ export class CameraRig {
   constructor(options: CameraRigOptions) {
     this.arena = options.arena;
     this.floorY = options.floorY;
+    this.occluder = options.occluder ?? null;
     this.camera = new PerspectiveCamera(
       CAMERA.fovDegrees,
       1,
@@ -101,7 +114,11 @@ export class CameraRig {
 
   /** Moves the follow target. The spring carries the camera there over a few frames. */
   setFocus(focus: CameraFocus): void {
-    this.targetFocus.set(focus.position.x, this.floorY + CAMERA.focusHeightMetres, focus.position.z);
+    this.targetFocus.set(
+      focus.position.x,
+      focus.position.y + CAMERA.focusHeightMetres,
+      focus.position.z,
+    );
     this.targetYawDegrees = focus.yawDegrees;
   }
 
@@ -161,7 +178,11 @@ export class CameraRig {
       name,
       arena: this.arena,
       floorY: this.floorY,
-      focus: { x: this.targetFocus.x, y: this.targetFocus.y, z: this.targetFocus.z },
+      focus: {
+        x: this.targetFocus.x,
+        y: this.targetFocus.y - CAMERA.focusHeightMetres,
+        z: this.targetFocus.z,
+      },
       focusYawDegrees: this.targetYawDegrees,
     });
     this.applyPose(this.frozenPose);
@@ -186,10 +207,29 @@ export class CameraRig {
     const zoomBlend = springBlend(dtSeconds, CAMERA.zoomHalfLifeSeconds);
     this.currentDistance += (this.targetDistance - this.currentDistance) * zoomBlend;
 
+    const focus = { x: this.currentFocus.x, y: this.currentFocus.y, z: this.currentFocus.z };
+    const forward = forwardFromYawDegrees(this.currentYawDegrees);
+    let armTarget = 1;
+    if (this.occluder) {
+      const full = orbitPose({
+        focus,
+        forward,
+        distance: this.currentDistance,
+        pitchDegrees: CAMERA.defaultPitchDegrees,
+      });
+      const hit = this.occluder(focus, full.position);
+      if (hit !== null) armTarget = Math.max(MIN_ARM_FRACTION, hit * 0.85);
+    }
+    // Snap in at once (never show the inside of a hill); ease back out.
+    this.armFraction =
+      armTarget < this.armFraction
+        ? armTarget
+        : this.armFraction +
+          (armTarget - this.armFraction) * springBlend(dtSeconds, ARM_RELEASE_HALF_LIFE_SECONDS);
     const pose = orbitPose({
-      focus: { x: this.currentFocus.x, y: this.currentFocus.y, z: this.currentFocus.z },
-      forward: forwardFromYawDegrees(this.currentYawDegrees),
-      distance: this.currentDistance,
+      focus,
+      forward,
+      distance: this.currentDistance * this.armFraction,
       pitchDegrees: CAMERA.defaultPitchDegrees,
     });
     this.applyPose(pose);

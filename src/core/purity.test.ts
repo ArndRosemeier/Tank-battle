@@ -103,21 +103,18 @@ describe('core purity', () => {
     expect(findMatches(modules, UNSEEDED_RANDOM)).toEqual([]);
   });
 
-  it('the 2 m cell size is defined once and the renderer imports it', () => {
+  it('the terrain lattice spacing is defined once and the renderer imports it', () => {
     const modules = allSourceModules();
     expect(modules.length).toBeGreaterThanOrEqual(20);
 
-    const definitions = findMatches(modules, /\bCELL_SIZE_METRES\s*=\s*2\b/);
+    const definitions = findMatches(modules, /\bTERRAIN_SPACING_METRES\s*=\s*[\d.]+/);
     expect(definitions).toHaveLength(1);
     expect(definitions[0]).toContain('core/world/constants.ts');
 
-    const renderConfig = modules.find((module) => module.path === 'render/config.ts');
-    expect(renderConfig).toBeDefined();
-    const source = renderConfig?.source ?? '';
-    expect(source).toMatch(
-      /import\s*\{[^}]*CELL_SIZE_METRES[^}]*\}\s*from\s*['"]\.\.\/core\/world\.ts['"]/,
+    const effects = modules.find((module) => module.path === 'render/effectsView.ts');
+    expect(effects).toBeDefined();
+    expect(effects?.source ?? '').toMatch(
+      /import\s*\{[^}]*TERRAIN_SPACING_METRES[^}]*\}\s*from\s*['"]\.\.\/core\/world\.ts['"]/,
     );
-    expect(source).toMatch(/cellMetres:\s*CELL_SIZE_METRES/);
-    expect(source).not.toMatch(/cellMetres:\s*2\b/);
   });
 });

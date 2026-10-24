@@ -2,9 +2,8 @@
  * The ONE render tuning module.
  *
  * Every colour, bloom number, camera distance, grid presentation value and post
- * number lives here; the shared 2 m cell SIZE is imported from `src/core/world.ts`.
- * NOTHING under `src/render/` (or anywhere else) hardcodes a colour, a bloom number or
- * the cell size. A source-scanning pin in `src/render/purity.test.ts` fails the suite on
+ * number lives here. NOTHING under `src/render/` (or anywhere else) hardcodes a
+ * colour or a bloom number. A source-scanning pin in `src/render/purity.test.ts` fails the suite on
  * a hex colour outside this file, so the palette cannot fork the way an unowned render
  * config does.
  *
@@ -17,8 +16,6 @@
  *
  * `docs/DESIGN.md` §7 makes these vetoable defaults. Tuning happens HERE, once.
  */
-
-import { CELL_SIZE_METRES } from '../core/world.ts';
 
 /** The arena palette: black field, emissive hues, nothing in between. */
 export const PALETTE = {
@@ -292,28 +289,39 @@ export const GLOW_PALETTE = {
   mountainAlt: '#2ae4ff',
 } as const;
 
+/**
+ * The triangle landscape (step 2). Every lattice triangle is a dark facet with a
+ * glowing edge: cyan in the valleys shading to magenta on the heights, crystal in hot
+ * ice-pink, and freshly broken or regrowing rock in amber so a crater reads at a glance.
+ * The floor pulse and the breathing come from the shared glow clock.
+ */
+export const TERRAIN = {
+  /** Heights (metres) the colour ramp runs between. */
+  lowHeightMetres: 4.5,
+  highHeightMetres: 14,
+  /** Edge line half-width in pixels (anti-aliased with screen-space derivatives). */
+  edgeWidthPixels: 1.1,
+  edgeGain: 1.35,
+  crystalEdgeGain: 1.45,
+  damageEdgeGain: 2.6,
+  /** The dark facet fill, as a fraction of the edge hue added to the fill colour. */
+  fillTint: 0.035,
+  /** Falling rock glows hot while it is in the air. */
+  chunkDamage: 1,
+  /** Edges fade into the fog with the same distances as everything else. */
+  rimStrength: 0.18,
+} as const;
+
+export const TERRAIN_PALETTE = {
+  fill: '#020608',
+  edgeLow: '#00d8ff',
+  edgeHigh: '#ff2fd6',
+  crystal: '#ff9cec',
+  damage: '#ffb347',
+} as const;
+
 /** Device-pixel-ratio cap. A 2× retina display renders 4× the pixels; 2 is the cap. */
 export const DPR_CAP = 2;
-
-/** The floor grid's cell size and the interval of its brighter major lines. */
-export const GRID = {
-  /** One cell is `CELL_SIZE_METRES` square — imported from the world module. */
-  cellMetres: CELL_SIZE_METRES,
-  /** Every fifth cell line is a major line. */
-  majorEvery: 5,
-  /**
-   * Distance falloff is TWO ranges: the fine cell lines fade early (they are detail
-   * for the near floor), while the major lanes carry the arena's shape to the far
-   * edge. A single range made the wide shot a wash of fine lines.
-   */
-  minorFadeStartMetres: 10,
-  minorFadeEndMetres: 58,
-  majorFadeStartMetres: 30,
-  majorFadeEndMetres: 140,
-  /** P7: wider screen-space line cores; bloom supplies the soft outer glow. */
-  minorWidthPixels: 1.5,
-  majorWidthPixels: 1.8,
-} as const;
 
 /**
  * Camera numbers. The default follow is the documented third-person arm: ~8 m back
@@ -430,11 +438,12 @@ export const TANK = {
  * gate on a host without a GPU. Draw calls also have the DoD's absolute ceiling of 200.
  */
 export const SCENE_BUDGET = {
-  // Measured A2b showcase: 103 draw objects, 13,344 triangles, 39,232 vertices.
+  // Measured triangle-landscape duel scene: 51 draw objects, 44,476 triangles,
+  // 131,746 vertices (the terrain is non-indexed and flat-shaded on purpose).
   // These are ceil(measured × 1.2): ~20 % headroom, not a resting target.
-  maxDrawObjects: 124,
-  maxTriangles: 16100,
-  maxVertices: 47100,
+  maxDrawObjects: 62,
+  maxTriangles: 53400,
+  maxVertices: 158100,
   absoluteMaxDrawObjects: 200,
 } as const;
 

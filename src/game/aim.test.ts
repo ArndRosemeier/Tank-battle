@@ -9,16 +9,16 @@ import {
   type MatchState,
   type Vec3,
 } from '../core/sim.ts';
-import type { CellPlacement } from '../core/world.ts';
+import { boxTerrain, type TerrainBox } from '../core/world.ts';
 import { projectAimPoint } from '../render/aimProjection.ts';
 import { cameraRayFromPointer, solveAim, type AimCamera } from './aim.ts';
 import { commandFromAim, idlePlayerInput } from './input.ts';
 
-const FLOOR = 0.2;
+const FLOOR = 1.5;
 
-function flatMatch(placements: readonly CellPlacement[] = [], playerZ = 12): MatchState {
+function flatMatch(boxes: readonly TerrainBox[] = [], playerZ = 12): MatchState {
   return createMatch({
-    level: { columns: 32, rows: 32, floorSurfaceHeightMetres: FLOOR, placements },
+    level: boxTerrain(43, 43, FLOOR, boxes),
     teams: [
       {
         id: 0,
@@ -38,7 +38,7 @@ function flatMatch(placements: readonly CellPlacement[] = [], playerZ = 12): Mat
 
 function cameraLookingAt(target: Vec3): AimCamera {
   return {
-    position: { x: 12, y: 4, z: 20 },
+    position: { x: 12, y: FLOOR + 4, z: 20 },
     target,
     up: { x: 0, y: 1, z: 0 },
     fovDegrees: 50,
@@ -93,19 +93,19 @@ describe('world-point aiming', () => {
   });
 
   it('aims at a wall, not through it, when the camera ray is blocked', () => {
-    // Player at z=20, muzzle at z=17; the wall cell covers z=12..14, well in front.
-    const state = flatMatch([{ x: 6, z: 6, material: 'wall', heightMetres: 3.2 }], 20);
+    // Player at z=20, muzzle at z=17; the wall block covers z=12..15, well in front.
+    const state = flatMatch([{ minX: 9, maxX: 15, minZ: 12, maxZ: 15, topMetres: FLOOR + 3.2 }], 20);
     const player = state.tanks[0]!;
     const solution = solveAim(
       state,
       player,
-      { ...cameraLookingAt({ x: 12, y: FLOOR, z: 6 }), position: { x: 12, y: 4, z: 28 } },
+      { ...cameraLookingAt({ x: 12, y: FLOOR, z: 6 }), position: { x: 12, y: FLOOR + 4, z: 28 } },
       0,
       0,
     );
 
     expect(solution.desiredPoint.z).toBeGreaterThan(12);
-    expect(solution.desiredPoint.z).toBeLessThanOrEqual(14);
+    expect(solution.desiredPoint.z).toBeLessThanOrEqual(15.2);
     expect(solution.impactPoint.z).toBeCloseTo(solution.desiredPoint.z, 1);
     expect(solution.desiredPoint.z).toBeLessThan(20);
     expect(solution.targetTankId).toBeNull();
@@ -126,8 +126,8 @@ describe('world-point aiming', () => {
     expect(solution.outOfRange).toBe(true);
     expect(Number.isFinite(solution.aimYaw)).toBe(true);
     expect(Number.isFinite(solution.aimPitch)).toBe(true);
-    expect(solution.aimPitch).toBeLessThanOrEqual(25);
-    expect(solution.aimPitch).toBeGreaterThanOrEqual(-30);
+    expect(solution.aimPitch).toBeLessThanOrEqual(35);
+    expect(solution.aimPitch).toBeGreaterThanOrEqual(-35);
     const command = commandFromAim(idlePlayerInput(), solution.aimYaw, solution.aimPitch);
     expect(Number.isFinite(command.aimYaw)).toBe(true);
     expect(Number.isFinite(command.aimPitch)).toBe(true);
@@ -173,7 +173,7 @@ describe('world-point aiming', () => {
     // A camera looking due EAST from a hull whose forward is -z asks for a 90° turret turn.
     // The owner's intent is "fire at whatever the mouse points at", so this must NOT clamp.
     const camera: AimCamera = {
-      position: { x: 12, y: 4, z: 20 },
+      position: { x: 12, y: FLOOR + 4, z: 20 },
       target: { x: 40, y: FLOOR, z: 20 },
       up: { x: 0, y: 1, z: 0 },
       fovDegrees: 50,
@@ -189,10 +189,10 @@ describe('world-point aiming', () => {
     const state = flatMatch();
     const player = state.tanks[0]!;
     // Ground 1 m in front of the muzzle (the muzzle sits 3 m ahead of the hull): the
-    // required depression is ~58 degrees, beyond the gun's -30 limit.
+    // required depression is ~58 degrees, beyond the gun's -35 limit.
     const camera: AimCamera = {
       // Offset a little in x: a camera looking exactly straight down has no valid right vector.
-      position: { x: player.x + 0.5, y: 10, z: player.z - 4 },
+      position: { x: player.x + 0.5, y: FLOOR + 10, z: player.z - 4 },
       target: { x: player.x, y: FLOOR, z: player.z - 4 },
       up: { x: 0, y: 1, z: 0 },
       fovDegrees: 50,
@@ -200,6 +200,6 @@ describe('world-point aiming', () => {
     };
     const solution = solveAim(state, player, camera, 0, 0);
     expect(solution.clamped).toBe(true);
-    expect(solution.aimPitch).toBeLessThanOrEqual(-29.9);
+    expect(solution.aimPitch).toBeLessThanOrEqual(-34.9);
   });
 });

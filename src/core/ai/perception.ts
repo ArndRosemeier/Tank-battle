@@ -1,85 +1,56 @@
 /**
- * The AI's eyes: a height-aware 3D sightline through the A1 cells and big blocks,
- * plus a short per-enemy memory of the last seen position.
+ * The AI's eyes: a sightline through the terrain (the same density march a shell
+ * uses), plus a short per-enemy memory of the last seen position.
  *
  * This is deliberately NOT the shell resolver. A shell is a moving collision query
- * with shards, tanks and a swept muzzle; perception only asks whether a straight
- * sightline reaches the target centre and is allowed to use the same height rules.
+ * with tanks and a swept muzzle; perception only asks whether a straight sightline
+ * reaches the target centre.
  */
 
-import { CELL_SIZE_METRES, MUZZLE_HEIGHT_METRES, type MatchState, type Tank, type Vec3 } from '../sim.ts';
-import { isSolidAt, type World } from '../world.ts';
+import { MUZZLE_HEIGHT_METRES, type MatchState, type Tank, type Vec3 } from '../sim.ts';
+import { hasClearLine, type World } from '../world.ts';
 import {
   AI_EYE_HEIGHT_METRES,
   AI_MEMORY_TICKS,
-  AI_PATH_SAMPLE_METRES,
   AI_TARGET_CENTRE_HEIGHT_METRES,
 } from './constants.ts';
 
 /** The centre of a tank's body, the point the AI tries to see and hit. */
-export function targetCentre(world: World, tank: Tank): Vec3 {
-  return {
-    x: tank.x,
-    y: world.floorSurfaceHeightMetres + AI_TARGET_CENTRE_HEIGHT_METRES,
-    z: tank.z,
-  };
+export function targetCentre(tank: Tank): Vec3 {
+  return { x: tank.x, y: tank.y + AI_TARGET_CENTRE_HEIGHT_METRES, z: tank.z };
 }
 
 /** The eye, just above the turret roof. */
-export function eyePosition(world: World, tank: Tank): Vec3 {
-  return {
-    x: tank.x,
-    y: world.floorSurfaceHeightMetres + AI_EYE_HEIGHT_METRES,
-    z: tank.z,
-  };
+export function eyePosition(tank: Tank): Vec3 {
+  return { x: tank.x, y: tank.y + AI_EYE_HEIGHT_METRES, z: tank.z };
 }
 
-/**
- * True when the straight segment from `from` to `to` touches no solid cell or big
- * block at the height it is at. Sampling at 10 cm catches cell faces without inventing
- * a second collision model; a low wall only blocks the parts of the line below its top.
- */
+/** The muzzle height point above the hull origin (where a shot starts its climb). */
+export function gunPosition(tank: Tank): Vec3 {
+  return { x: tank.x, y: tank.y + MUZZLE_HEIGHT_METRES, z: tank.z };
+}
+
+/** True when the straight segment from `from` to `to` stays out of the terrain. */
 export function hasLineOfSight(world: World, from: Vec3, to: Vec3): boolean {
   requirePoint(from, 'from');
   requirePoint(to, 'to');
-  const horizontal = Math.hypot(to.x - from.x, to.z - from.z);
-  const steps = Math.max(1, Math.ceil(horizontal / AI_PATH_SAMPLE_METRES));
-  for (let step = 0; step <= steps; step += 1) {
-    const t = step / steps;
-    const x = from.x + (to.x - from.x) * t;
-    const y = from.y + (to.y - from.y) * t;
-    const z = from.z + (to.z - from.z) * t;
-    if (x < 0 || z < 0 || x >= world.columns * CELL_SIZE_METRES || z >= world.rows * CELL_SIZE_METRES) {
-      return false;
-    }
-    const cellX = Math.floor(x / CELL_SIZE_METRES);
-    const cellZ = Math.floor(z / CELL_SIZE_METRES);
-    if (isSolidAt(world, cellX, cellZ, y)) {
-      return false;
-    }
-  }
-  return true;
+  return hasClearLine(world, from, to);
 }
 
-/** True when a shell from the muzzle to the target centre would clear the world. */
+/** True when a shell from the gun to the target centre would clear the terrain. */
 export function hasShotLine(world: World, tank: Tank, target: Tank): boolean {
-  const from: Vec3 = {
-    x: tank.x,
-    y: world.floorSurfaceHeightMetres + MUZZLE_HEIGHT_METRES,
-    z: tank.z,
-  };
-  return hasLineOfSight(world, from, targetCentre(world, target));
+  return hasLineOfSight(world, gunPosition(tank), targetCentre(target));
 }
 
 /** Every live enemy of `tank` with a clear eye-to-centre sightline, nearest first. */
 export function visibleEnemies(state: MatchState, tank: Tank): readonly Tank[] {
-  const eye = eyePosition(state.world, tank);
+  const eye = eyePosition(tank);
   const visible: Tank[] = [];
   for (const candidate of state.tanks) {
     if (!candidate.alive || candidate.teamId === tank.teamId || candidate.id === tank.id) {
       continue;
     }
-    if (hasLineOfSight(state.world, eye, targetCentre(state.world, candidate))) {
+    if (hasLineOfSight(state.world, eye, targetCentre(candidate))) {
       visible.push(candidate);
     }
   }
@@ -95,6 +66,7 @@ export function visibleEnemies(state: MatchState, tank: Tank): readonly Tank[] {
 export interface EnemyMemoryEntry {
   readonly tankId: number;
   readonly x: number;
+  readonly y: number;
   readonly z: number;
   readonly seenAtTick: number;
 }
@@ -121,6 +93,7 @@ export class PerceptionMemory {
       this.entries.set(candidate.id, {
         tankId: candidate.id,
         x: candidate.x,
+        y: candidate.y,
         z: candidate.z,
         seenAtTick: state.tick,
       });

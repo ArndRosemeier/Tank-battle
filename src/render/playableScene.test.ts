@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { PlayableSession } from '../game/session.ts';
-import { createRng } from '../core/rng.ts';
-import { damageCell } from '../core/world.ts';
+import { blastTerrain } from '../core/world.ts';
 import { createPlayableScene } from './playableScene.ts';
 
-/** The rebuild gate: a no-op revision must not touch the merged world/debris buffers. */
+/** The rebuild gate: a no-op revision must not re-mesh the terrain. */
 describe('playable scene revisions', () => {
   it('rebuilds only when the world revision changes', () => {
     const session = new PlayableSession();
@@ -17,7 +16,8 @@ describe('playable scene revisions', () => {
       expect(scene.syncWorld()).toBe(false);
       expect(scene.syncWorld()).toBe(false);
 
-      damageCell(session.state.world, 1, 1, 1, createRng(404));
+      // A crater in open ground: no overhang, so nothing is left falling afterwards.
+      blastTerrain(session.state.world, 30, 4.5, 14);
       expect(scene.syncWorld()).toBe(true);
       expect(scene.syncWorld()).toBe(false);
     } finally {
