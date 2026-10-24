@@ -78,17 +78,19 @@ export const PALETTE = {
 export const NEON = {
   // P7 glow-up: every line family is brighter, but the grid is held back so the
   // whole-frame surface median and tile p90 still pass the live look gate.
-  structureEdgeGain: 1.4,
-  teamEdgeGain: 2.5,
-  coreGain: 2.1,
+  // G1 (cheesy TRON): every family is pushed again. The owner asked for "a completely
+  // cheesy TRON look", so the lines run hot and bloom carries the halo.
+  structureEdgeGain: 1.7,
+  teamEdgeGain: 2.9,
+  coreGain: 2.4,
   /** Hole rims are deliberately the hottest structural line: a mechanic must read. */
-  holeRimGain: 2.5,
-  holeRimInnerGain: 1.15,
-  verticalEdgeGain: 1.45,
-  panelSeamGain: 0.55,
-  gatewayEdgeGain: 1.0,
-  gridMinorGain: 0.78,
-  gridMajorGain: 1.55,
+  holeRimGain: 2.8,
+  holeRimInnerGain: 1.3,
+  verticalEdgeGain: 1.75,
+  panelSeamGain: 0.6,
+  gatewayEdgeGain: 1.25,
+  gridMinorGain: 0.8,
+  gridMajorGain: 1.8,
 } as const;
 
 /**
@@ -167,9 +169,10 @@ export function teamEdgeGainFor(index: number): number {
  * quality knob the performance budget is allowed to move — never correctness.
  */
 export const BLOOM = {
-  threshold: 0.58,
-  strength: 0.65,
-  radius: 0.42,
+  // G1: a lower threshold and a much wider, stronger halo — the cheesy TRON bar.
+  threshold: 0.55,
+  strength: 0.9,
+  radius: 0.6,
   resolutionScale: 1,
 } as const;
 
@@ -239,6 +242,54 @@ export const HOLE_RIM = {
 export const FOG = {
   nearMetres: 30,
   farMetres: 100,
+} as const;
+
+/**
+ * G1 — the cheesy TRON extras: light-cycle trails behind every tank, a glowing
+ * horizon band with a ring of wireframe triangle mountains, and a pulse wave that
+ * sweeps across the floor grid. Everything is additive light; nothing here is a
+ * gameplay object and none of it is read by the simulation.
+ */
+export const GLOW = {
+  /** How long a trail point lives before it has fully faded, in seconds. */
+  trailSeconds: 3,
+  /** A new trail point is laid after the tank has moved this far. */
+  trailSpacingMetres: 0.45,
+  /** Points per tank (ring buffer); enough for `trailSeconds` at full speed. */
+  trailMaxPoints: 40,
+  /** Height of the light wall, and the brightness of its base and top edge. */
+  trailHeightMetres: 0.7,
+  trailBaseGain: 2.6,
+  trailTopGain: 0.7,
+  /** The horizon cylinder: radius, height and the hue's brightness. */
+  horizonRadiusMetres: 190,
+  horizonHeightMetres: 70,
+  horizonGain: 0.55,
+  /** How sharply the horizon band falls off upwards (metres for 1/e). */
+  horizonFalloffMetres: 9,
+  /** Distant triangle mountains: count, distance band, height band, line gain. */
+  mountainCount: 26,
+  mountainRadiusMinMetres: 150,
+  mountainRadiusMaxMetres: 178,
+  mountainHeightMinMetres: 9,
+  mountainHeightMaxMetres: 34,
+  mountainGain: 0.9,
+  /** Floor pulse: a ring that sweeps outward from the arena centre. */
+  pulseSpeedMetresPerSecond: 16,
+  pulsePeriodSeconds: 5,
+  pulseWidthMetres: 2.2,
+  pulseGain: 1.4,
+  /** Every grid line breathes gently with this period and depth. */
+  breathePeriodSeconds: 3.2,
+  breatheDepth: 0.22,
+} as const;
+
+/** Synthwave accents for the horizon and mountains. Never a team identity. */
+export const GLOW_PALETTE = {
+  horizon: '#00e5ff',
+  horizonHot: '#ff2fd6',
+  mountain: '#ff4fe0',
+  mountainAlt: '#2ae4ff',
 } as const;
 
 /** Device-pixel-ratio cap. A 2× retina display renders 4× the pixels; 2 is the cap. */

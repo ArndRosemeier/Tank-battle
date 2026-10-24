@@ -25,7 +25,8 @@ import {
   type Vector3,
 } from 'three';
 import { isSolidAt, type World } from '../core/world.ts';
-import { FOG, GRID, NEON, PALETTE } from './config.ts';
+import { FOG, GLOW, GRID, NEON, PALETTE } from './config.ts';
+import { GLOW_UNIFORMS } from './glowClock.ts';
 
 export interface GridFloor {
   readonly group: Group;
@@ -65,6 +66,15 @@ const GRID_FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 uFogColor;
   uniform float uFogNear;
   uniform float uFogFar;
+  uniform float uGlowTime;
+  uniform float uGlowPulse;
+  uniform vec2 uCentreXZ;
+  uniform float uPulseSpeed;
+  uniform float uPulsePeriod;
+  uniform float uPulseWidth;
+  uniform float uPulseGain;
+  uniform float uBreathePeriod;
+  uniform float uBreatheDepth;
 
   varying vec2 vWorldXZ;
   varying float vVoid;
@@ -94,9 +104,16 @@ const GRID_FRAGMENT_SHADER = /* glsl */ `
     float minor = gridLine(vWorldXZ, uCell, uMinorWidth);
     float major = gridLine(vWorldXZ, uCell * uMajorEvery, uMajorWidth);
 
+    // G1: the lines breathe, and a pulse ring sweeps out from the arena centre.
+    float breathe = 1.0 + uGlowPulse * uBreatheDepth * sin(6.2831853 * uGlowTime / uBreathePeriod);
+    float ringRadius = mod(uGlowTime, uPulsePeriod) * uPulseSpeed;
+    float ringOffset = (distance(vWorldXZ, uCentreXZ) - ringRadius) / uPulseWidth;
+    float ring = uGlowPulse * exp(-ringOffset * ringOffset);
+
     vec3 color = uSurface;
-    color += uMinor * (minor * minorFade);
-    color += uMajor * (major * majorFade);
+    color += uMinor * (minor * minorFade) * breathe * (1.0 + ring * uPulseGain * 1.5);
+    color += uMajor * (major * majorFade) * breathe * (1.0 + ring * uPulseGain);
+    color += uMajor * ring * 0.05;
 
     // Horizon falloff (D4): the grid dissolves into the same fog as the architecture.
     color = mix(color, uFogColor, smoothstep(uFogNear, uFogFar, distanceToCamera));
@@ -166,6 +183,17 @@ export function createGridFloor(world: World): GridFloor {
       uFogColor: { value: new Color(PALETTE.background) },
       uFogNear: { value: FOG.nearMetres },
       uFogFar: { value: FOG.farMetres },
+      uGlowTime: GLOW_UNIFORMS.uGlowTime,
+      uGlowPulse: GLOW_UNIFORMS.uGlowPulse,
+      uCentreXZ: {
+        value: new Vector2((world.columns * cell) / 2, (world.rows * cell) / 2),
+      },
+      uPulseSpeed: { value: GLOW.pulseSpeedMetresPerSecond },
+      uPulsePeriod: { value: GLOW.pulsePeriodSeconds },
+      uPulseWidth: { value: GLOW.pulseWidthMetres },
+      uPulseGain: { value: GLOW.pulseGain },
+      uBreathePeriod: { value: GLOW.breathePeriodSeconds },
+      uBreatheDepth: { value: GLOW.breatheDepth },
     },
     vertexShader: GRID_VERTEX_SHADER,
     fragmentShader: GRID_FRAGMENT_SHADER,

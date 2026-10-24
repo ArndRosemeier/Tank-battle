@@ -411,6 +411,7 @@ function bootSpectate(launch: LaunchOptions, audio: AudioEngine): (nowMillisecon
     shot: () => spectator.directorShot(),
     sceneStats: () => sceneStats,
     wreck: () => scene.wreck.debug(),
+    trailPoints: () => scene.glow.trailPointCount(),
     pauseOnNextWreck: () => {
       pauseOnNextWreck = true;
     },
@@ -1053,6 +1054,7 @@ function bootMatch(
     outcome: () => session.state.outcome,
     sceneStats: () => sceneStats,
     wreck: () => scene.wreck.debug(),
+    trailPoints: () => scene.glow.trailPointCount(),
     pauseOnNextWreck: () => {
       pauseOnNextWreck = true;
     },
