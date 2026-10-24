@@ -150,6 +150,7 @@ running headless in `node`.
 | the shared cell size | `CELL_SIZE_METRES` | `src/core/world/constants.ts:18` | The ONE 2 m definition, exported by `src/core/world.ts:51` and re-exported by `src/core/sim/constants.ts:22`. `src/render/config.ts` imports it from the world entrance; the source-scan pin fails if a second `CELL_SIZE_METRES = 2` definition appears. |
 | the world's numbers | `MATERIAL_PROFILES` · `SHARD_CAP` · `CELL_SIZE_METRES` · `secondsToTicks` | `src/core/world/constants.ts:46` | The ONE world tuning module. `secondsToTicks` (`src/core/world/constants.ts:79`) is the only seconds→ticks conversion, and a tick IS `STEP_SECONDS`. |
 | the world's public surface | `src/core/world.ts` | `src/core/world.ts:1` | The ONE entrance: the model's doc, its types and its seams, re-exported. Callers outside the world package import from here, never from `world/*.ts`. |
+| the cued player identity (game launched from cued.de) | `decodeCuedPass(token)` · `loadCuedSession()` | `src/cued/identity.ts` · `src/entry/cued.ts` | The ONE reader of the `#cued=<JWT>` pass cued appends to the game URL (contract: `CUED.md`). The pure reader schema-checks every claim and throws `CuedPassError`; the browser glue removes the fragment from the address bar and keeps the pass in sessionStorage because the game's own `location.assign('?mode=…')` drops fragments. The client never verifies the signature (the key must not ship); servers verify with the per-game key. |
 
 ### The cast and its signatures (B1c)
 

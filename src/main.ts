@@ -16,6 +16,7 @@ import type { Intent, RoomState, TickBatch } from './net/protocol.ts';
 import { AI_PROFILES } from './core/ai.ts';
 import type { TankSlot } from './game/teamSession.ts';
 import type { BrowserInput } from './game/browserInput.ts';
+import { loadCuedSession, showCuedBadge } from './entry/cued.ts';
 import { createTitleBackground, type TitleBackground } from './entry/titleBackground.ts';
 import { loadSettings, saveSettings, type GameSettings } from './entry/settings.ts';
 import { CameraRig } from './render/cameraRig.ts';
@@ -1644,6 +1645,14 @@ try {
     },
   });
   applySettings(currentSettings);
+
+  // Launched from cued.de? Read the pass once per page (and keep it for later in-game navigations).
+  try {
+    const cued = loadCuedSession();
+    if (cued) showCuedBadge(cued);
+  } catch (error) {
+    reportError(error);
+  }
 
   if (launch.mode === 'title') {
     gameStarted = false;
