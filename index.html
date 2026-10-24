@@ -513,6 +513,60 @@
         background: rgba(2, 10, 14, 0.6);
         text-shadow: 0 0 16px currentColor;
       }
+      #online-screen {
+        background:
+          radial-gradient(ellipse at 50% 42%, rgba(0, 229, 255, 0.08), transparent 62%),
+          rgba(1, 6, 9, 0.9);
+      }
+      .online-panel { max-height: calc(100vh - 48px); overflow-y: auto; }
+      #online-body { display: grid; gap: 16px; }
+      #online-notice { min-height: 14px; font-size: 11px; letter-spacing: 0.16em; color: #8ff4ff; }
+      #online-notice.error { color: #ff5a6e; text-shadow: 0 0 10px rgba(255, 90, 110, 0.7); }
+      .online-input {
+        appearance: none;
+        border: 1px solid rgba(0, 229, 255, 0.5);
+        background: rgba(0, 0, 0, 0.45);
+        color: #eaffff;
+        font: inherit;
+        font-size: 16px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        padding: 8px 12px;
+        min-width: 0;
+        outline: none;
+      }
+      .online-input:focus { border-color: #8ff4ff; box-shadow: 0 0 12px rgba(0, 229, 255, 0.6); }
+      .online-rooms { display: grid; gap: 8px; max-height: 260px; overflow-y: auto; }
+      .online-empty { font-size: 12px; letter-spacing: 0.2em; color: #8ff4ff; opacity: 0.6; padding: 10px 0; }
+      .online-teams { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+      .online-team {
+        display: grid;
+        gap: 6px;
+        align-content: start;
+        padding: 10px 12px;
+        border: 1px solid currentColor;
+        border-left-width: 3px;
+        background: rgba(0, 0, 0, 0.4);
+        box-shadow: 0 0 14px rgba(0, 0, 0, 0.6), inset 0 0 18px rgba(0, 0, 0, 0.6);
+      }
+      .online-team-name { font-size: 12px; letter-spacing: 0.24em; text-shadow: 0 0 12px currentColor; }
+      .online-member { font-size: 13px; letter-spacing: 0.14em; color: #eaffff; }
+      .online-member.you { text-shadow: 0 0 10px currentColor; }
+      .online-member.you::after { content: ' · YOU'; opacity: 0.6; }
+      .online-member.ai { opacity: 0.35; }
+      .online-invite { font-size: 11px; letter-spacing: 0.12em; color: #8ff4ff; opacity: 0.8; overflow-wrap: anywhere; }
+      .online-link { user-select: all; color: #eaffff; }
+      .tron-button:disabled, .settings-toggle:disabled { opacity: 0.4; cursor: default; }
+      #hud-net {
+        position: absolute;
+        right: 24px;
+        top: 64px;
+        font-size: 11px;
+        letter-spacing: 0.16em;
+        color: #8ff4ff;
+        text-shadow: 0 0 10px rgba(0, 229, 255, 0.7);
+      }
+      #hud-net.error { color: #ff5a6e; text-shadow: 0 0 10px rgba(255, 90, 110, 0.7); }
       body.reduced-motion #title-grid { animation: none; }
       @media (max-width: 640px) {
         .title-menu { grid-template-columns: 1fr; }
@@ -524,6 +578,7 @@
     <canvas id="app" aria-label="Tank Battle game field"></canvas>
     <canvas id="title-canvas" aria-hidden="true"></canvas>
     <div id="hud" aria-live="off">
+      <div id="hud-net" hidden></div>
       <div id="hud-player" class="hud-panel">
         <div class="hud-row">
           <span class="hud-label">HULL</span>
@@ -598,6 +653,7 @@
         <div class="title-menu">
           <button id="title-play" class="tron-button" type="button">PLAY <span>1 V 1</span></button>
           <button id="title-setup" class="tron-button" type="button">BATTLE <span>CUSTOM SETUP</span></button>
+          <button id="title-online" class="tron-button" type="button">ONLINE <span>PLAY WITH FRIENDS</span></button>
           <button id="title-spectate" class="tron-button" type="button">SPECTATE <span>ALL AI</span></button>
           <button id="title-settings" class="tron-button" type="button">SETTINGS <span>SYSTEM</span></button>
         </div>
@@ -676,6 +732,14 @@
           <button id="setup-start" class="tron-button" type="button">START <span>DEPLOY</span></button>
           <button id="setup-back" class="tron-button" type="button">BACK</button>
         </div>
+      </div>
+    </div>
+    <div id="online-screen" class="screen" hidden>
+      <div class="screen-panel online-panel">
+        <div id="online-eyebrow" class="screen-eyebrow">NETWORK // GAMEHUB</div>
+        <h2 id="online-heading">ONLINE</h2>
+        <div id="online-body"></div>
+        <div id="online-notice" role="status" aria-live="polite"></div>
       </div>
     </div>
     <div id="end-screen" class="screen" hidden>

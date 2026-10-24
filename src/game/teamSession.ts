@@ -65,6 +65,25 @@ export interface TeamSessionOptions {
    */
   readonly playerController?: Controller;
   readonly rules?: MatchRules;
+  /**
+   * Online play: the tank slots humans drive, each with its own controller. When given,
+   * tank 0 is no longer special: every slot not listed here is AI, and `playerController`
+   * and `readInput` are not used.
+   */
+  readonly seats?: readonly SeatController[];
+  /** The slot the local view follows (online: this browser's seat). Defaults to team 0 slot 0. */
+  readonly viewSeat?: TankSlot;
+}
+
+/** A tank slot: a team and the tank's position in it. */
+export interface TankSlot {
+  readonly teamId: number;
+  readonly teamIndex: number;
+}
+
+/** A human-driven tank slot and the controller that drives it. */
+export interface SeatController extends TankSlot {
+  readonly controller: Controller;
 }
 
 /**
@@ -87,9 +106,11 @@ export function createVanguardStandIn(
 export class TeamSession {
   readonly state: MatchState;
   readonly fixed: FixedStep;
-  readonly playerTankId = PLAYER_TANK_ID;
-  readonly playerTeamId = PLAYER_TEAM_ID;
+  readonly playerTankId: number;
+  readonly playerTeamId: number;
   readonly characters: readonly string[];
+  private readonly seed: number;
+  private readonly profiles: readonly AIProfile[];
 
   private previous: Map<number, TankRenderFrame>;
   private current: Map<number, TankRenderFrame>;
@@ -116,39 +137,53 @@ export class TeamSession {
     this.characters.forEach((name) => getAIProfile(name));
     const profiles: readonly AIProfile[] = this.characters.map((name) => getAIProfile(name));
 
+    this.seed = seed;
+    this.profiles = profiles;
     this.state = createTeamMatch(arenaTeamSetup(teamCount, teamSize), seed, options.rules ?? DEFAULT_MATCH_RULES).state;
     const playerSpawn = this.state.tanks[PLAYER_TANK_ID];
     if (playerSpawn?.teamId !== PLAYER_TEAM_ID) {
       throw new Error('teamSession: tank id 0 is not on team 0');
     }
+
+    // Which slots are human: the local player's tank 0, or the online seats.
+    const humanControllers = new Map<number, Controller>();
+    if (options.seats) {
+      for (const seat of options.seats) {
+        const tank = this.requireSlot(seat);
+        if (humanControllers.has(tank.id)) {
+          throw new Error(`teamSession: two seats drive team ${seat.teamId} slot ${seat.teamIndex}`);
+        }
+        humanControllers.set(tank.id, seat.controller);
+      }
+    } else {
+      const readInput = options.readInput ?? idlePlayerInput;
+      humanControllers.set(
+        PLAYER_TANK_ID,
+        options.playerController ??
+          new PlayerAimController(readInput, options.readAimCamera ?? (() => null)),
+      );
+    }
+    const view = this.requireSlot(options.viewSeat ?? { teamId: PLAYER_TEAM_ID, teamIndex: 0 });
+    this.playerTankId = view.id;
+    this.playerTeamId = view.teamId;
+
     // P2: a human should look at the fight, not at the corner wall. The spawn corner
     // still rotates by seed; only the facing is aimed at the arena centre.
     const centreX = (ARENA_BOUNDS.minX + ARENA_BOUNDS.maxX) / 2;
     const centreZ = (ARENA_BOUNDS.minZ + ARENA_BOUNDS.maxZ) / 2;
-    const facing = normaliseDegrees(
-      (Math.atan2(-(centreX - playerSpawn.x), -(centreZ - playerSpawn.z)) * 180) / Math.PI,
-    );
-    playerSpawn.hullYawDegrees = facing;
-    playerSpawn.turretYawDegrees = facing;
-    playerSpawn.aimPitchDegrees = 0;
-
-    const readInput = options.readInput ?? idlePlayerInput;
-    const playerController =
-      options.playerController ??
-      new PlayerAimController(readInput, options.readAimCamera ?? (() => null));
-    for (const tank of this.state.tanks) {
-      if (tank.id === PLAYER_TANK_ID) {
-        this.controllers.set(tank.id, playerController);
-        continue;
-      }
-      const profile = profiles[tank.teamIndex];
-      if (!profile) {
-        throw new Error(`teamSession: no profile for team ${tank.teamId} slot ${tank.teamIndex}`);
-      }
-      this.controllers.set(
-        tank.id,
-        createTeamAIController(tank, profile, seed, TEAM_MODE_AIM_ERROR_SCALE),
+    for (const tankId of humanControllers.keys()) {
+      const spawn = this.state.tanks[tankId]!;
+      const facing = normaliseDegrees(
+        (Math.atan2(-(centreX - spawn.x), -(centreZ - spawn.z)) * 180) / Math.PI,
       );
+      spawn.hullYawDegrees = facing;
+      spawn.turretYawDegrees = facing;
+      spawn.aimPitchDegrees = 0;
+    }
+
+    for (const tank of this.state.tanks) {
+      const human = humanControllers.get(tank.id);
+      this.controllers.set(tank.id, human ?? this.createAI(tank));
     }
 
     this.previous = snapshotTanks(this.state);
@@ -179,13 +214,13 @@ export class TeamSession {
   }
 
   get squad(): readonly Tank[] {
-    const team = this.state.teams.find((candidate) => candidate.id === PLAYER_TEAM_ID);
+    const team = this.state.teams.find((candidate) => candidate.id === this.playerTeamId);
     if (!team) throw new Error('teamSession: the player team is missing');
     return team.tanks;
   }
 
   get player(): TankRenderFrame {
-    return this.requireCurrent(PLAYER_TANK_ID);
+    return this.requireCurrent(this.playerTankId);
   }
 
   /** One frame delta → zero or more simulation ticks. Input is sampled per tick. */
@@ -216,6 +251,31 @@ export class TeamSession {
     this.previous = this.current;
   }
 
+  /** Exactly one simulation tick, outside the frame clock; online play paces ticks itself. */
+  stepTick(): void {
+    if (this.frozenState) {
+      throw new Error('teamSession: stepTick on a frozen session');
+    }
+    if (this.state.status === 'active') {
+      this.stepOnce();
+    }
+  }
+
+  /**
+   * Hands a human tank to the AI from the next tick on (an online player left). The AI
+   * is built exactly as a starting AI of that slot, so every peer builds the same one.
+   */
+  handToAI(tankId: number): void {
+    const tank = this.state.tanks[tankId];
+    if (!tank) throw new Error(`teamSession: handToAI for unknown tank ${tankId}`);
+    this.controllers.set(tankId, this.createAI(tank));
+  }
+
+  /** The tank in a slot; throws when the slot is not in this match. */
+  tankInSlot(slot: TankSlot): Tank {
+    return this.requireSlot(slot);
+  }
+
   /** The state hash a determinism pin compares. */
   hash(): string {
     return hashMatch(this.state);
@@ -229,6 +289,24 @@ export class TeamSession {
     this.previous = this.current;
     stepMatch(this.state, collectControllerOrders(this.state, this.controllers, 'teamSession'));
     this.current = snapshotTanks(this.state);
+  }
+
+  private createAI(tank: Tank): Controller {
+    const profile = this.profiles[tank.teamIndex];
+    if (!profile) {
+      throw new Error(`teamSession: no profile for team ${tank.teamId} slot ${tank.teamIndex}`);
+    }
+    return createTeamAIController(tank, profile, this.seed, TEAM_MODE_AIM_ERROR_SCALE);
+  }
+
+  private requireSlot(slot: TankSlot): Tank {
+    const tank = this.state.tanks.find(
+      (candidate) => candidate.teamId === slot.teamId && candidate.teamIndex === slot.teamIndex,
+    );
+    if (!tank) {
+      throw new Error(`teamSession: no tank in team ${slot.teamId} slot ${slot.teamIndex}`);
+    }
+    return tank;
   }
 
   private requireCurrent(tankId: number): TankRenderFrame {

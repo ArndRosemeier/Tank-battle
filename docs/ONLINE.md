@@ -1,0 +1,66 @@
+# Online play (GameHub)
+
+Online rooms run on Arnd's GameHub relay (`https://games.futuremagic.de`, client and docs in
+`github.com/ArndRosemeier/gameserver`). GameHub stores nothing and runs no game code: one
+browser per room is the **host**, everyone else talks to it through the relay.
+
+## The model: host-sequenced input lockstep
+
+The core is deterministic from a seed plus per-tick commands, so the host does **not** ship
+the world. It ships the human commands for every tick; every browser runs the same
+simulation (same seed, same AI controllers) and reaches the same world, terrain included.
+
+- **Room state** (`hub.setState`): roster, team choices, setup, and once started the match
+  spec (seed, seat → tank slot). Small, resent on every change.
+- **Tick batches** (`hub.sendDelta`): 20 per second, 3 ticks each, one command per human
+  seat per tick. Seat hand-overs to AI ride in the batch. Every 120 ticks the host adds its
+  `hashMatch`; a client that differs shows `OUT OF SYNC` in red on the HUD.
+- **Intents** (`hub.send` to the host): a player's latest command (on change, ≤30/s), team
+  choice, and the two migration messages.
+
+Clients run a few ticks behind the newest row they hold, never past it, and catch up when
+they fall behind. There is no client-side prediction yet: a guest's own tank responds after
+one round trip plus the buffer (roughly 100–200 ms).
+
+**Host migration:** when the host leaves, GameHub promotes the lowest player id. The new host
+asks every peer for the rows it holds beyond its own (`sync?` / `sync`), takes the longest
+stream, re-sends from the shortest peer's position, hands the departed seats to the AI, and
+continues. A player who leaves mid-match is handed to the AI at a tick every peer agrees on.
+
+## Where the code is
+
+| File | What |
+|---|---|
+| `src/net/gamehub.ts` | GameHub client, vendored verbatim from the gameserver repo |
+| `src/net/protocol.ts` | wire types and the ONE parser/validator of everything from the network |
+| `src/net/room.ts` | room rules (join, teams, setup, START seating), pure |
+| `src/net/netMatch.ts` | one match: produce (host) / consume (client), migration, hash check |
+| `src/net/onlineSession.ts` | hub events → room transitions and matches |
+| `src/net/fakeHub.ts` | in-memory GameHub for tests |
+| `src/net/config.ts` | server URL, app id `tank-battle`, app key |
+| `src/entry/onlineScreens.ts` | the ONLINE / LOBBY / HOST / ROOM screens |
+| `src/main.ts` (`openOnline` … `onlineStatus`) | boots and tears down online matches |
+
+`TeamSession` takes `seats` (human slots with their controllers) and `viewSeat`; offline
+modes do not pass them and behave as before.
+
+## Setup
+
+1. Register the app on the box: `npm run apps -- add tank-battle --name "Tank Battle"
+   --access key --max-players 16`, then `npm run apps -- mint-key tank-battle`.
+2. Put the key in `COMMITTED_KEY` in `src/net/config.ts` (app keys are not secrets), or build
+   with `VITE_GAMEHUB_KEY=…`. Without a key the ONLINE screen says so instead of connecting.
+3. For the futuremagic lobby, add a `gamehub` block to the game's `apps.json` entry with
+   `"app": "tank-battle"`, the key and `"join": "?room={code}"`. `?room=CODE` joins straight
+   into the room.
+
+## Known limits
+
+- **Cross-browser determinism.** `Math.sin/cos/atan2/tan/hypot` are not guaranteed
+  bit-identical across JS engines. Chrome-vs-Chrome is safe; a Chrome-vs-Firefox/Safari room
+  may drift, which the hash check reports. The fix is a deterministic math module for
+  `src/core` plus a purity pin; hot spots are `terrainBody.ts`, `step.ts`, `navigation.ts`,
+  `perception.ts` and `world/raycast.ts`.
+- A player who joins during a battle waits in the room and plays the next one (no
+  mid-match spectating yet).
+- The pause menu does not pause an online match.
