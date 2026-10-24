@@ -25,6 +25,8 @@ const NAME_KEY = 'tank-battle.online-name';
 export interface OnlineScreensCallbacks {
   /** Opens a GameHub connection under this pilot name. */
   readonly connect: (name: string) => OnlineSession;
+  /** A name the platform already knows (the cued.de player); it wins over the remembered pilot name. */
+  readonly suggestedName?: string | null;
   readonly onBack: () => void;
   readonly onGesture: () => void;
   /** A colour per team id, from the game palette. */
@@ -49,6 +51,11 @@ function loadName(): string {
     // Storage blocked (private mode): the name is a convenience, a fresh one is fine.
   }
   return `PILOT ${Math.floor(100 + Math.random() * 900)}`;
+}
+
+/** A pilot name as GameHub rooms show it: trimmed, upper case, at most 16 characters. */
+export function pilotName(raw: string): string {
+  return raw.trim().toUpperCase().slice(0, 16);
 }
 
 function saveName(name: string): void {
@@ -83,7 +90,7 @@ export function createOnlineScreens(callbacks: OnlineScreensCallbacks): OnlineSc
   let rooms: RoomSummary[] = [];
   let stopLobby: (() => void) | null = null;
   let pendingJoin: string | null = null;
-  let name = loadName();
+  let name = (callbacks.suggestedName ? pilotName(callbacks.suggestedName) : '') || loadName();
   /** The room name the host typed; null until edited, so it follows the pilot name. */
   let hostName: string | null = null;
   let hostPublic = true;
@@ -193,7 +200,7 @@ export function createOnlineScreens(callbacks: OnlineScreensCallbacks): OnlineSc
 
   const ensureSession = (): OnlineSession => {
     if (session && session.phase !== 'closed') return session;
-    const trimmed = name.trim().toUpperCase().slice(0, 16);
+    const trimmed = pilotName(name);
     if (trimmed.length === 0) throw new Error('Pick a pilot name first.');
     name = trimmed;
     saveName(name);

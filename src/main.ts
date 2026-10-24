@@ -16,6 +16,7 @@ import type { Intent, RoomState, TickBatch } from './net/protocol.ts';
 import { AI_PROFILES } from './core/ai.ts';
 import type { TankSlot } from './game/teamSession.ts';
 import type { BrowserInput } from './game/browserInput.ts';
+import { loadCuedSession, showCuedBadge, type CuedSession } from './entry/cued.ts';
 import { createTitleBackground, type TitleBackground } from './entry/titleBackground.ts';
 import { loadSettings, saveSettings, type GameSettings } from './entry/settings.ts';
 import { CameraRig } from './render/cameraRig.ts';
@@ -684,6 +685,8 @@ let activeLaunch: LaunchOptions | null = null;
 /** The running match's lifetime; aborting it tears the match down. */
 let activeMatchLifetime: AbortController | null = null;
 let onlineUi: OnlineScreens | null = null;
+/** The cued.de player of this tab (null when not launched from cued); its name seeds the online pilot name. */
+let cuedSession: CuedSession | null = null;
 
 function applySettings(settings: GameSettings): void {
   currentSettings = settings;
@@ -790,6 +793,7 @@ function openOnline(joinCode?: string): void {
   if (!onlineUi) {
     onlineUi = createOnlineScreens({
       connect: connectOnline,
+      suggestedName: cuedSession && !cuedSession.expired ? cuedSession.identity.name : null,
       onBack: () => {
         onlineUi?.hide();
         screensUi?.showTitle();
@@ -1644,6 +1648,14 @@ try {
     },
   });
   applySettings(currentSettings);
+
+  // Launched from cued.de? Read the pass once per page (and keep it for later in-game navigations).
+  try {
+    cuedSession = loadCuedSession();
+    if (cuedSession) showCuedBadge(cuedSession);
+  } catch (error) {
+    reportError(error);
+  }
 
   if (launch.mode === 'title') {
     gameStarted = false;
