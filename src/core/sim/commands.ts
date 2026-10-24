@@ -10,10 +10,10 @@
  * range and throws outside its documented clamp.
  */
 
-import { AIM_PITCH_MAX_DEGREES, AIM_PITCH_MIN_DEGREES } from './constants.ts';
+import { AIM_PITCH_MAX_DEGREES, AIM_PITCH_MIN_DEGREES, MAX_FIRE_LAG_TICKS } from './constants.ts';
 import { normaliseDegrees } from './geometry.ts';
 
-/** One tick's request for one tank. All fields are required. */
+/** One tick's request for one tank. All fields but `fireLagTicks` are required. */
 export interface TankCommand {
   /** -1…1; positive drives forward along the hull yaw. */
   readonly throttle: number;
@@ -25,6 +25,12 @@ export interface TankCommand {
   readonly aimPitch: number;
   /** Fire this tick if the reload has elapsed. Holding it does not bypass the reload. */
   readonly fire: boolean;
+  /**
+   * Online only: how many ticks behind the shared simulation this tank's player saw the
+   * world when they fired (0…MAX_FIRE_LAG_TICKS). The shell is resolved against that
+   * past view of the tanks. Absent means 0.
+   */
+  readonly fireLagTicks?: number;
 }
 
 /** A command paired with the tank it is for. */
@@ -56,6 +62,10 @@ export function validateTankCommand(command: TankCommand, label = 'tank command'
   if (typeof command.fire !== 'boolean') {
     throw new Error(`${label}.fire must be a boolean, got ${String(command.fire)}`);
   }
+  const lag = command.fireLagTicks;
+  if (lag !== undefined && (!Number.isInteger(lag) || lag < 0 || lag > MAX_FIRE_LAG_TICKS)) {
+    throw new Error(`${label}.fireLagTicks must be an integer within 0…${MAX_FIRE_LAG_TICKS}, got ${String(lag)}`);
+  }
 }
 
 /** Validates and returns a canonical command with its yaw wrapped. */
@@ -67,6 +77,7 @@ export function normaliseTankCommand(command: TankCommand, label = 'tank command
     aimYaw: normaliseDegrees(command.aimYaw),
     aimPitch: command.aimPitch,
     fire: command.fire,
+    ...(command.fireLagTicks ? { fireLagTicks: command.fireLagTicks } : {}),
   };
 }
 

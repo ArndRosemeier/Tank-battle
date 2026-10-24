@@ -282,7 +282,7 @@ export class OnlineSession {
         if (!this.isHost || !this.match || intent.matchNo !== this.match.spec.matchNo) return;
         const seat = seatIndexOf(this.match.spec, from);
         if (seat === null || this.match.isHandedOver(seat)) return;
-        this.match.setSeatCommand(seat, intent.c);
+        this.match.setSeatCommand(seat, intent.c, intent.t);
         return;
       }
       case 'team':
@@ -424,7 +424,7 @@ export class OnlineSession {
   private sendCommand(command: WireCommand): void {
     const match = this.match;
     if (!match) return;
-    this.sendToHost({ type: 'cmd', matchNo: match.spec.matchNo, c: command });
+    this.sendToHost({ type: 'cmd', matchNo: match.spec.matchNo, c: command, t: match.state.tick });
     this.lastSent = command;
     this.sinceSent = 0;
   }

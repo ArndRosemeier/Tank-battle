@@ -71,6 +71,14 @@ export const SHELL_SPEED_METRES_PER_SECOND = 90;
 export const SHELL_METRES_PER_TICK = SHELL_SPEED_METRES_PER_SECOND * STEP_SECONDS;
 /** Range is the total path length. */
 export const SHELL_RANGE_METRES = 120;
+/**
+ * Lag compensation for networked players: a shot may say it was aimed at the world as
+ * it stood up to this many ticks ago (333 ms). Its shell is then tested against the
+ * tanks' positions from that many ticks back for its whole flight, and it leaves from
+ * where the shooter stood then. Terrain is always current. Offline and AI shots use 0.
+ */
+export const MAX_FIRE_LAG_TICKS = 20;
+
 /** One shell removes one HP from a tank; on terrain it carves a crater. */
 export const SHELL_DAMAGE = 1;
 

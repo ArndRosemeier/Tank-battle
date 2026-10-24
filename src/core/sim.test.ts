@@ -14,6 +14,7 @@ import {
   AIM_PITCH_MIN_DEGREES,
   DEFAULT_MATCH_RULES,
   MATCH_TICK_CAP,
+  MAX_FIRE_LAG_TICKS,
   MUZZLE_FORWARD_METRES,
   MUZZLE_HEIGHT_METRES,
   RELOAD_TICKS,
@@ -412,6 +413,34 @@ describe('the combat core', () => {
     expect(state.winnerTeamId).toBe(0);
     expect(state.outcome).toBe('last-team');
     expect(state.shells).toHaveLength(0);
+  });
+
+  it('a lag-compensated shot hits the target where the shooter saw it, not where it is now', () => {
+    // The target crosses the line of fire at full speed for 20 ticks (2 m), then stops
+    // 2 m to the side of it, out of the 1 m body radius. A shot fired straight down the
+    // line misses the live target but hits the target as it stood 20 ticks earlier.
+    const shoot = (lagTicks: number): MatchState => {
+      const state = duel({
+        shooter: { xMetres: 5, zMetres: 5, hullYawDegrees: 180, turretYawDegrees: 180 },
+        target: { xMetres: 5, zMetres: 17, hullYawDegrees: 90 },
+      });
+      for (let i = 0; i < 20; i += 1) step(state, onlyOverrides([[1, { throttle: 1 }]]));
+      expect(tankAt(state, 1).x).toBeCloseTo(3, 6);
+      step(state, onlyOverrides([[0, { fire: true, fireLagTicks: lagTicks }]]));
+      for (let i = 0; i < 30; i += 1) step(state);
+      expect(state.stats.shotsFired).toBe(1);
+      return state;
+    };
+    expect(tankAt(shoot(0), 1).hp).toBe(TANK_MAX_HP);
+    const compensated = shoot(20);
+    expect(tankAt(compensated, 1).hp).toBe(TANK_MAX_HP - 1);
+    expect(compensated.stats.hits).toBe(1);
+  });
+
+  it('rejects a fire lag outside 0…MAX_FIRE_LAG_TICKS', () => {
+    const state = duel();
+    expect(() => step(state, onlyOverrides([[0, { fire: true, fireLagTicks: MAX_FIRE_LAG_TICKS + 1 }]]))).toThrow(/fireLagTicks/);
+    expect(() => step(state, onlyOverrides([[0, { fire: true, fireLagTicks: 1.5 }]]))).toThrow(/fireLagTicks/);
   });
 
   it('a shell cannot damage a teammate and stops at the teammate body', () => {

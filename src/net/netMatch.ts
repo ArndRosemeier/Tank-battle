@@ -14,7 +14,7 @@
 
 import { CRUCIBLE_CHOICE } from '../game/levels/catalog.ts';
 import { FixedStep } from '../core/timestep.ts';
-import type { Controller, MatchState, TankCommand } from '../core/sim.ts';
+import { MAX_FIRE_LAG_TICKS, type Controller, type MatchState, type TankCommand } from '../core/sim.ts';
 import { matchTickCap } from '../game/matchSetup.ts';
 import { TeamSession } from '../game/teamSession.ts';
 import { DEFAULT_MATCH_RULES } from '../core/sim.ts';
@@ -170,10 +170,17 @@ export class NetMatch {
 
   // ------------------------------------------------------------ host
 
-  /** Host: a seat's newest command, held until the next one arrives. */
-  setSeatCommand(seat: number, command: WireCommand): void {
+  /**
+   * Host: a seat's newest command, held until the next one arrives. `viewTick` is the
+   * tick that player's screen showed when they made it. A guest sees the world a little
+   * in the past, so its shots are lag-compensated: the sim resolves them against the
+   * tanks as they stood `fireLagTicks` ago (`MAX_FIRE_LAG_TICKS` at most). The next row
+   * steps to tick rows.length + 1, so that is how far back the player's view was.
+   */
+  setSeatCommand(seat: number, command: WireCommand, viewTick: number): void {
     if (seat < 0 || seat >= this.latest.length) throw new Error(`netMatch: no seat ${seat}`);
-    this.latest[seat] = command;
+    const lag = command[4] === 1 ? Math.max(0, Math.min(MAX_FIRE_LAG_TICKS, this.rows.length + 1 - viewTick)) : 0;
+    this.latest[seat] = [command[0], command[1], command[2], command[3], command[4], lag];
   }
 
   /** Host: from the next produced tick on, an AI drives this seat (its player left). */
