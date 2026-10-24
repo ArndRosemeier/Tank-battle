@@ -1,51 +1,44 @@
 # Handoff — Tank Battle
 
-- **by:** DSH chief-of-staff session, 2026-10-23
-- **branch / worktree:** `main` · `/home/administrator/projects/Tank battle`
-- **last verified:** `e5d70ec` · local full gate **156/156 exit 0** · published from a clean
-  tree and **VERIFIED-DEPLOYED**: live smoke PASS (boot, no console/HTTP errors, Play, a real
-  shot), deployed look 3/3 frames PASS, 1v1 opponent verified on the deployed frame
-- **live:** `https://apps.futuremagic.de/tank-battle/` · entry `index-BdFwNLI3.js`
+- **by:** Claude Code (cued side, working for Frank Zimmer in his fork `ArturoBandini20/Tank-battle`), 2026-10-24
+- **branch / worktree:** `feat/cued-identity` · Windows checkout `C:\Claude\Gastspiele\Tank-battle`
+- **last verified:** `62a3f46` · local full gate **GREEN** (`bash scripts/gate.sh` with
+  `GATE_CHEAP_CMD="corepack pnpm run build" GATE_FULL_CMD="corepack pnpm test"`: build OK, 185/185 tests) ·
+  **VERIFIED-LOCAL** only: run in a browser inside a local cued instance (iframe, real pass) — badge shown, fragment
+  stripped, pass survives `?mode=title`, a malformed pass reaches the error surface. **Not deployed**: the live site
+  still serves `main`.
+- **live:** `https://apps.futuremagic.de/tank-battle/` (unchanged by this branch)
 
 ## Done since the previous handoff
 
-- Merged the ChatGPT audit (`2b49f32`); verified it and let it correct my own batch data
-  (S1 keyed character stats by teamId; the 4x4 table was wrong).
-- Process: deployment tier in `publish.sh` (live browser smoke, fail-closed exit 3), deployed
-  player-camera look check, publish refuses a dirty tree, host rules + Toolbox updated.
-- P6 pointer aiming: aim is the world point under the cursor, full turret rotation, camera
-  decoupled from the aim, reticle is the cursor. Verified end to end.
-- P7 (unbriefed by the writer): rocket shells, blowback, rocket SFX, 600 ms fire latch, glow-up.
-  Live. The glow-up is a taste fork the owner has not judged yet.
-- P8 wreck: the tank's own slabs separate with spin/gravity, bounce once, then fade over 3 s;
-  one instanced draw call; deterministic; reduced motion respected. Verified on a real AI kill.
+- **cued identity slice** (see `CUED.md`, the integration contract). cued.de (Frank's friends' portal) lists Tank
+  Battle as a *guest game*: it runs on this server, inside a sandboxed iframe, and cued appends a signed pass
+  `#cued=<JWT HS256>` to the URL.
+  - `src/cued/identity.ts` — the ONE pure reader (schema-checked claims, `CuedPassError`, expiry, fragment helpers).
+    The browser never verifies the signature; the key must not ship.
+  - `src/entry/cued.ts` — reads the pass once, strips it from the address bar, keeps it in sessionStorage (the game's
+    own `location.assign('?mode=…')` navigations drop fragments); title badge "CUED · <NAME>" with the avatar circle.
+  - `src/main.ts` startup wiring; `index.html` badge element + styles; seam row in `docs/ARCHITECTURE.md`.
+  - COPIES: 1 — checked, no duplication (grepped: location.hash, sessionStorage, atob, JWT).
+- Note: `src/render/purity.test.ts` also scans tests — test data must not contain hex colour literals.
 
 ## In flight / next
 
-- No writer in flight, nothing dispatched. Worktrees `worktrees/a2-render`,
-  `worktrees/p7-rockets` remain (p7 merged).
-- Debts unchanged: 4x4 cap ~11 %, seed-148 parked duel, ambusher/brute naming, stale remote
-  `origin/feat/b1c-cast` (needs owner approval to delete).
+- Nothing in flight. The branch is meant to come back to `ArndRosemeier/Tank-battle` as a pull request.
+- Next slices (planned with Frank and Arnd, see `CUED.md` §4): a Node relay with `wss://` on this server that admits
+  clients only with a verified pass and groups them by `raum` (lockstep over the existing `Controller` seam), cued
+  invitations via a `postMessage` bridge, results to cued, then a reusable `cued-sdk`.
 
 ## Next action (one)
 
-**Awaiting the owner's eye on the death sequence** (live, `index-BdFwNLI3.js`): slab
-recognisability, fade timing, reduced motion, multi-wreck readability. Then the 1v1 AI
-difficulty, and the P7 glow verdict. Nothing is dispatched.
-
-## Superseded next action
-
-**Get the owner's verdict on the P7 look (glow-up + rocket) and on pointer aiming.** If the
-glow is too much, one `git revert 372dc70` then republish; if not, aim assist is the next
-targeting step. Nothing lands before his word.
+**Arnd decides whether to merge `feat/cued-identity`.** After a merge and `scripts/publish.sh`, open Tank Battle from
+cued.de (developer page → "Spiel in cued starten") and check the badge shows his own name.
 
 ## Open questions for the owner
 
-- Glow-up: keep or revert? Rocket sound: is it right by ear?
-- Delete the stale remote branch `origin/feat/b1c-cast`?
-- Ambusher/brute: retune or rename?
+- Does the relay run on `apps.futuremagic.de` (Node process behind the existing web server, `wss://`)?
+- Badge placement/wording on the title screen — fine as is?
 
 ## Read first
 
-`AGENTS.md` → `docs/DEVELOPMENT-QUALITY-PROCESS.md` → `docs/CROSS-TOOL.md` →
-`docs/BOARD.md` (state) · `docs/TESTING.md` (evidence) · `docs/DECISION-LEDGER.md` row 77.
+`CUED.md` → `AGENTS.md` → `docs/DEVELOPMENT-QUALITY-PROCESS.md` → `docs/CROSS-TOOL.md` → `docs/BOARD.md`.
