@@ -1,0 +1,21 @@
+{
+  "title": "Tank Battle",
+  "tagline": "A deterministic 3D tank battle with destructible terrain, AI opponents, four-team combat and spectator mode.",
+  "tags": [
+    "3D",
+    "tank",
+    "combat",
+    "destructible",
+    "AI",
+    "spectator"
+  ],
+  "screenshot": "/shots/tank-battle.png",
+  "description": "A deterministic 3D browser tank battle. Destructible terrain, AI opponents, four-team combat and a spectator mode for watching the machines fight it out.\n\nThe simulation is deterministic and renderer-independent, so the same seed and inputs replay the same battle.",
+  "links": [
+    {
+      "label": "Source",
+      "url": "https://github.com/ArndRosemeier/Tank-battle"
+    }
+  ],
+  "cta": "Play"
+}
