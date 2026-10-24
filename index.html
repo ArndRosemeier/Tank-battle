@@ -616,6 +616,24 @@
         color: #8ff4ff;
         text-shadow: 0 0 10px rgba(0, 229, 255, 0.7);
       }
+      #hud-mouse-hint {
+        position: absolute;
+        left: 50%;
+        top: 38%;
+        transform: translateX(-50%);
+        padding: 10px 18px;
+        font-size: 13px;
+        letter-spacing: 0.24em;
+        color: #eaffff;
+        background: rgba(0, 0, 0, 0.45);
+        border: 1px solid rgba(0, 229, 255, 0.6);
+        box-shadow: 0 0 14px rgba(0, 229, 255, 0.45);
+        text-shadow: 0 0 10px rgba(0, 229, 255, 0.8);
+        white-space: nowrap;
+      }
+      #hud-mouse-hint[hidden] { display: none; }
+      #settings-screen .choice-group { flex-wrap: wrap; }
+      #settings-screen .choice-group .settings-toggle { min-width: 0; }
       #hud-net.error { color: #ff5a6e; text-shadow: 0 0 10px rgba(255, 90, 110, 0.7); }
       body.reduced-motion #title-grid { animation: none; }
       @media (max-width: 640px) {
@@ -629,6 +647,7 @@
     <canvas id="title-canvas" aria-hidden="true"></canvas>
     <div id="hud" aria-live="off">
       <div id="hud-net" hidden></div>
+      <div id="hud-mouse-hint" hidden>CLICK TO TAKE THE MOUSE · ESC GIVES IT BACK</div>
       <div id="hud-player" class="hud-panel">
         <div class="hud-row">
           <span class="hud-label">HULL</span>
@@ -710,7 +729,7 @@
           <button id="title-whatsnew" class="tron-button" type="button">WHAT'S NEW <span id="title-version">V0.000</span></button>
         </div>
         <div class="title-meta">
-          <div>WASD DRIVE · MOUSE AIM · CLICK / SPACE FIRE · WHEEL ZOOM · ESC PAUSE · L DETAIL</div>
+          <div>WASD DRIVE · MOUSE LOOK + AIM · CLICK / SPACE FIRE · WHEEL ZOOM · C RECENTRE · ESC PAUSE · L DETAIL</div>
           <div>BUILT BY TANK BATTLE DEV · AUDIO: LYRIA 3 + SEED AUDIO 1.0 · 2026</div>
           <div id="title-audio-hint">CLICK TO ENABLE SOUND</div>
         </div>
@@ -739,6 +758,20 @@
           <span class="setting-label">QUALITY</span>
           <div class="slider" data-setting="quality" role="slider" tabindex="0" aria-label="Quality" aria-valuemin="0" aria-valuemax="100" aria-valuenow="30"><div class="slider-track"></div><div class="slider-fill"></div><div class="slider-knob"></div></div>
           <span class="setting-value" data-value="quality">30</span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">MOUSE</span>
+          <div class="choice-group" role="radiogroup" aria-label="Mouse control">
+            <button class="settings-toggle" type="button" role="radio" data-mouse-mode="edge-push" title="Mouse captured; push the cursor against a screen edge to turn">EDGE PUSH</button>
+            <button class="settings-toggle" type="button" role="radio" data-mouse-mode="centred" title="Mouse captured; crosshair in the centre, the mouse turns the view">CENTRE AIM</button>
+            <button class="settings-toggle" type="button" role="radio" data-mouse-mode="edge-free" title="Normal cursor; rest it near the left or right edge to turn">FREE EDGE</button>
+          </div>
+          <span></span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">MOUSE SPEED</span>
+          <div class="slider" data-setting="mouseSensitivity" role="slider" tabindex="0" aria-label="Mouse speed" aria-valuemin="0" aria-valuemax="100" aria-valuenow="44"><div class="slider-track"></div><div class="slider-fill"></div><div class="slider-knob"></div></div>
+          <span class="setting-value" data-value="mouseSensitivity">1.0</span>
         </div>
         <div class="setting-row">
           <span class="setting-label">REDUCED MOTION</span>

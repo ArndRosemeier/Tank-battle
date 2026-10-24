@@ -11,6 +11,7 @@
 import { CHANGELOG, VERSION } from 'virtual:build-info';
 import { requireElement } from './dom.ts';
 import { saveSettings, withSetting, type GameSettings } from './settings.ts';
+import { MOUSE_MODES, isMouseMode } from '../game/mouseLook.ts';
 import {
   DEFAULT_MATCH_SETUP,
   MATCH_MINUTE_CHOICES,
@@ -79,6 +80,7 @@ const SLIDERS: Readonly<Record<string, SliderSpec>> = {
   music: { min: 0, max: 1, step: 0.01, format: (v) => `${Math.round(v * 100)}` },
   sfx: { min: 0, max: 1, step: 0.01, format: (v) => `${Math.round(v * 100)}` },
   quality: { min: 0, max: 1, step: 0.01, format: (v) => `${Math.round(v * 100)}` },
+  mouseSensitivity: { min: 0.2, max: 2, step: 0.05, format: (v) => v.toFixed(1) },
 };
 
 export function createScreens(initial: GameSettings, callbacks: ScreensCallbacks): Screens {
@@ -139,8 +141,12 @@ export function createScreens(initial: GameSettings, callbacks: ScreensCallbacks
     }
     return { element, key, spec: SLIDERS[key]! };
   });
-  if (sliders.length !== 4) {
-    throw new Error(`screens: expected 4 drawn sliders, found ${sliders.length}`);
+  if (sliders.length !== Object.keys(SLIDERS).length) {
+    throw new Error(`screens: expected ${Object.keys(SLIDERS).length} drawn sliders, found ${sliders.length}`);
+  }
+  const mouseModeButtons = [...settingsScreen.querySelectorAll<HTMLButtonElement>('[data-mouse-mode]')];
+  if (mouseModeButtons.length !== MOUSE_MODES.length) {
+    throw new Error(`screens: expected ${MOUSE_MODES.length} mouse mode buttons, found ${mouseModeButtons.length}`);
   }
 
   const setScreen = (name: ScreenName): void => {
@@ -247,6 +253,11 @@ export function createScreens(initial: GameSettings, callbacks: ScreensCallbacks
       const valueLabel = settingsScreen.querySelector<HTMLElement>(`[data-value="${key}"]`);
       if (!valueLabel) throw new Error(`screens: no value label for ${key}`);
       valueLabel.textContent = spec.format(value);
+    }
+    for (const button of mouseModeButtons) {
+      const on = button.dataset.mouseMode === settings.mouseMode;
+      button.classList.toggle('on', on);
+      button.setAttribute('aria-checked', String(on));
     }
     motionToggle.classList.toggle('on', settings.reducedMotion);
     motionToggle.setAttribute('aria-checked', String(settings.reducedMotion));
@@ -413,6 +424,15 @@ export function createScreens(initial: GameSettings, callbacks: ScreensCallbacks
   bind(resume, callbacks.onResume);
   bind(pauseSettings, () => showSettings('pause'));
   bind(quit, callbacks.onQuit);
+  for (const button of mouseModeButtons) {
+    button.addEventListener('click', () => {
+      const mode = button.dataset.mouseMode;
+      if (!isMouseMode(mode)) throw new Error(`screens: unknown mouse mode "${String(mode)}"`);
+      callbacks.onGesture();
+      settings = withSetting(settings, 'mouseMode', mode);
+      notifyChange();
+    });
+  }
   motionToggle.addEventListener('click', () => {
     callbacks.onGesture();
     settings = withSetting(settings, 'reducedMotion', !settings.reducedMotion);

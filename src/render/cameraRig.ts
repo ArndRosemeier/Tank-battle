@@ -71,6 +71,9 @@ export class CameraRig {
   private currentYawDegrees = 0;
   private targetDistance: number = CAMERA.defaultDistanceMetres;
   private currentDistance: number = CAMERA.defaultDistanceMetres;
+  /** The orbit arm's downward angle; the mouse can tilt it (centred / edge-push modes). */
+  private targetPitchDegrees: number = CAMERA.defaultPitchDegrees;
+  private currentPitchDegrees: number = CAMERA.defaultPitchDegrees;
 
   private pose: CameraPoseName | null = null;
   private frozenPose: CameraPose | null = null;
@@ -120,6 +123,14 @@ export class CameraRig {
       focus.position.z,
     );
     this.targetYawDegrees = focus.yawDegrees;
+  }
+
+  /** Tilts the follow arm, in degrees down. The arm eases there with the yaw spring. */
+  setPitch(pitchDegrees: number): void {
+    if (!Number.isFinite(pitchDegrees) || pitchDegrees <= -80 || pitchDegrees >= 80) {
+      throw new Error(`cameraRig: pitch must be finite and within ±80°, got ${String(pitchDegrees)}`);
+    }
+    this.targetPitchDegrees = pitchDegrees;
   }
 
   /** One wheel event. The arm length is clamped; a snapshot pose is unaffected. */
@@ -204,6 +215,8 @@ export class CameraRig {
     const yawBlend = springBlend(dtSeconds, CAMERA.aimFollowHalfLifeSeconds);
     this.currentYawDegrees += shortestAngleDelta(this.currentYawDegrees, this.targetYawDegrees) * yawBlend;
 
+    this.currentPitchDegrees += (this.targetPitchDegrees - this.currentPitchDegrees) * yawBlend;
+
     const zoomBlend = springBlend(dtSeconds, CAMERA.zoomHalfLifeSeconds);
     this.currentDistance += (this.targetDistance - this.currentDistance) * zoomBlend;
 
@@ -215,7 +228,7 @@ export class CameraRig {
         focus,
         forward,
         distance: this.currentDistance,
-        pitchDegrees: CAMERA.defaultPitchDegrees,
+        pitchDegrees: this.currentPitchDegrees,
       });
       const hit = this.occluder(focus, full.position);
       if (hit !== null) armTarget = Math.max(MIN_ARM_FRACTION, hit * 0.85);
@@ -230,7 +243,7 @@ export class CameraRig {
       focus,
       forward,
       distance: this.currentDistance * this.armFraction,
-      pitchDegrees: CAMERA.defaultPitchDegrees,
+      pitchDegrees: this.currentPitchDegrees,
     });
     this.applyPose(pose);
     if (this.recoilAmount > 0) {

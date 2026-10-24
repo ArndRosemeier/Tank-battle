@@ -1,14 +1,16 @@
 /**
  * Per-browser settings: the ONLY place user preferences are read/written. Volumes feed
  * the audio buses, quality feeds `setSurfaceDetail` + the bloom pass, and reduced motion
- * disables the title animation and VFX. P6 retired the pointer-sensitivity UI and its
- * consumer (the aim is a world point, not a scaled offset); the stored key is retained
- * so an existing settings object still loads instead of being discarded.
+ * disables the title animation and VFX. The mouse mode picks how the camera turns
+ * (`src/game/mouseLook.ts`) and the mouse speed scales it. A stored object from before
+ * the mouse mode existed still loads: the missing mode falls back to the default.
  *
  * Stored values are data from the browser, so they are validated; a corrupt store is a
  * user-preference failure, not a simulation failure, and falls back to the documented
  * defaults with a console warning. The UI never invents a value outside these ranges.
  */
+
+import { DEFAULT_MOUSE_MODE, MOUSE_MODES, isMouseMode, type MouseMode } from '../game/mouseLook.ts';
 
 export interface GameSettings {
   /** 0…1 bus volumes. */
@@ -17,8 +19,10 @@ export interface GameSettings {
   readonly sfx: number;
   /** 0…1; also the SURFACE_DETAIL scalar. */
   readonly quality: number;
-  /** Legacy 0.2…2 key; accepted for stored-setting compatibility, no longer consumed. */
+  /** 0.2…2 mouse speed: locked-cursor movement and camera turning per mouse pixel. */
   readonly mouseSensitivity: number;
+  /** How the mouse turns the camera; see `mouseLook.ts`. */
+  readonly mouseMode: MouseMode;
   readonly reducedMotion: boolean;
 }
 
@@ -30,6 +34,7 @@ export const DEFAULT_SETTINGS: GameSettings = Object.freeze({
   sfx: 0.8,
   quality: 0.3,
   mouseSensitivity: 1,
+  mouseMode: DEFAULT_MOUSE_MODE,
   reducedMotion: false,
 });
 
@@ -55,8 +60,18 @@ export function parseSettings(raw: unknown): GameSettings {
     sfx: requireRange(value.sfx, 0, 1, 'sfx'),
     quality: requireRange(value.quality, 0, 1, 'quality'),
     mouseSensitivity: requireRange(value.mouseSensitivity, 0.2, 2, 'mouseSensitivity'),
+    mouseMode: parseMouseMode(value.mouseMode),
     reducedMotion: value.reducedMotion,
   };
+}
+
+function parseMouseMode(value: unknown): MouseMode {
+  // Settings saved before the mouse mode existed have no key: they get the default.
+  if (value === undefined) return DEFAULT_MOUSE_MODE;
+  if (!isMouseMode(value)) {
+    throw new Error(`settings: mouseMode must be one of ${MOUSE_MODES.join(', ')}, got ${String(value)}`);
+  }
+  return value;
 }
 
 type StorageLike = Pick<Storage, 'getItem' | 'setItem'>;
@@ -94,7 +109,7 @@ export function saveSettings(
 export function withSetting(
   settings: GameSettings,
   key: keyof GameSettings,
-  value: number | boolean,
+  value: number | boolean | MouseMode,
 ): GameSettings {
   const candidate = { ...settings, [key]: value };
   return parseSettings(candidate);
