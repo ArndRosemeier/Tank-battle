@@ -2,8 +2,9 @@
 
 - **by:** Claude Code (cued side, working for Frank Zimmer in his fork `ArturoBandini20/Tank-battle`), 2026-10-24
 - **branch / worktree:** `feat/cued-identity` · Windows checkout `C:\Claude\Gastspiele\Tank-battle`
-- **last verified:** `62a3f46` · local full gate **GREEN** (`bash scripts/gate.sh` with
-  `GATE_CHEAP_CMD="corepack pnpm run build" GATE_FULL_CMD="corepack pnpm test"`: build OK, 185/185 tests) ·
+- **last verified:** rebased onto `upstream/main` `1039fbc` (GameHub online play, detMath, arena generator) · local
+  full gate **GREEN** on the rebased tree (`bash scripts/gate.sh` with `GATE_CHEAP_CMD="corepack pnpm run build"`
+  `GATE_FULL_CMD="corepack pnpm test"`: build OK, 222/222 tests) ·
   **VERIFIED-LOCAL** only: run in a browser inside a local cued instance (iframe, real pass) — badge shown, fragment
   stripped, pass survives `?mode=title`, a malformed pass reaches the error surface. **Not deployed**: the live site
   still serves `main`.
@@ -25,9 +26,9 @@
 ## In flight / next
 
 - Nothing in flight. The branch is meant to come back to `ArndRosemeier/Tank-battle` as a pull request.
-- Next slices (planned with Frank and Arnd, see `CUED.md` §4): a Node relay with `wss://` on this server that admits
-  clients only with a verified pass and groups them by `raum` (lockstep over the existing `Controller` seam), cued
-  invitations via a `postMessage` bridge, results to cued, then a reusable `cued-sdk`.
+- Next slices (see `CUED.md` §4, updated after GameHub landed on main): online names from the pass, cued
+  invitations into GameHub rooms (`postMessage` `{type:'cued:room', code}` → cued invites → pass `raum` → join like
+  `?room=CODE`), optional results to cued, then a reusable `cued-sdk`. No extra relay: GameHub carries the traffic.
 
 ## Next action (one)
 
@@ -36,7 +37,8 @@ cued.de (developer page → "Spiel in cued starten") and check the badge shows h
 
 ## Open questions for the owner
 
-- Does the relay run on `apps.futuremagic.de` (Node process behind the existing web server, `wss://`)?
+- GameHub room codes: may cued pass a room code it received from the host's game to the invited friend (`raum`),
+  and should the game then auto-join it?
 - Badge placement/wording on the title screen — fine as is?
 
 ## Read first

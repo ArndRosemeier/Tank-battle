@@ -6,7 +6,8 @@
 it the identity of the player. This file is the contract — written so that another game (and another agent) can be
 connected the same way.
 
-Status: **slice 1 (identity) is in this branch.** Multiplayer rooms, invitations and results follow (see the end).
+Status: **slice 1 (identity) is in this branch.** Online play already exists through Arnd's GameHub
+(`docs/ONLINE.md`); connecting cued's invitations and names to it follows (see the end).
 
 ## 1. How a game appears in cued
 
@@ -77,12 +78,16 @@ cued.
 
 ## 4. Next slices (planned with Frank and Arnd)
 
-1. **Rooms on the developer's server.** A small Node relay (WebSocket, `wss://`) on the game's own server — cued's
-   server stays out of the game traffic. The relay admits a client only with a valid pass (verified with the key),
-   groups clients by `raum`, and forwards per-tick commands (Tank Battle's sim is deterministic: lockstep through the
-   existing `Controller` seam, `src/core/sim/controller.ts`).
-2. **Invitations through cued.** The game asks cued to invite a friend (a `postMessage` bridge to the cued page);
-   the friend's cued shows the invitation; accepting opens the game with the same `raum` in both passes.
-3. **Results and HiScores.** The relay (server-side, with the key) reports finished matches to cued, which feeds
-   cued's ranking and HiScore pages.
-4. **A reusable `cued-sdk`** extracted from this branch, so the next game is connected in minutes.
+Online rooms already run on Arnd's **GameHub** (`games.futuremagic.de`, `docs/ONLINE.md`) — so cued's server stays
+out of the game traffic, as intended, and no extra relay is needed. What is left is wiring cued's social side to it:
+
+1. **Online names from the pass.** In an online room, a player launched from cued appears under his cued name
+   (`CuedIdentity.name`) instead of a typed one.
+2. **Invitations through cued into a GameHub room.** When a cued player hosts a room, the game tells the cued page
+   the room code (`postMessage` to the parent: `{ type: 'cued:room', code }`). cued then offers "invite a friend" from
+   its friends-online list; the friend's cued opens the game with that code in the pass (`raum`), and the game joins
+   it straight away (the same path as `?room=CODE`). The cued page shows "playing Tank Battle" while in a room.
+3. **Results (optional).** GameHub stores nothing, so a finished online match could be reported to cued by the host
+   (for cued's ranking page). Client-reported, so only among friends — to be decided with Arnd.
+4. **A reusable `cued-sdk`** extracted from this branch (pass reader + the `postMessage` bridge), so the next game is
+   connected in minutes.
