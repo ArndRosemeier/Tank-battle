@@ -140,6 +140,15 @@ export class NetMatch {
     return this.localSeat === null ? null : this.seatTankIds[this.localSeat]!;
   }
 
+  /**
+   * True while this browser's tank can still be steered. A dead tank gets no command
+   * (the sim skips it), and asking the aim controller for one throws.
+   */
+  get localTankAlive(): boolean {
+    const id = this.localTankId;
+    return id !== null && this.state.tanks[id]?.alive === true;
+  }
+
   tankIdOfSeat(seat: number): number {
     const id = this.seatTankIds[seat];
     if (id === undefined) throw new Error(`netMatch: no seat ${seat}`);
@@ -185,7 +194,7 @@ export class NetMatch {
     const batches: TickBatch[] = [];
     this.fixed.advance(frameSeconds, () => {
       if (this.state.status !== 'active') return;
-      if (this.localSeat !== null && localCommand && !this.handovers.has(this.localSeat)) {
+      if (this.localSeat !== null && localCommand && !this.handovers.has(this.localSeat) && this.localTankAlive) {
         this.latest[this.localSeat] = encodeCommand(localCommand());
       }
       const tick = this.rows.length;

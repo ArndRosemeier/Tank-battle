@@ -62,6 +62,27 @@ describe('netMatch lockstep', () => {
     expect(client.desync).toMatch(/out of sync with the host at tick 120/);
   });
 
+  it('keeps running after the local tank dies: a dead tank is never asked to aim', () => {
+    const host = new NetMatch({ spec: SPEC, localSeat: 0, role: 'host' });
+    const client = new NetMatch({ spec: SPEC, localSeat: 1, role: 'client' });
+    // The real aim controller throws for a dead tank; this stand-in does the same.
+    const aimFor = (match: NetMatch, frame: number) => (): TankCommand => {
+      if (!match.localTankAlive) throw new Error('aim: a dead tank cannot aim');
+      return drive(frame);
+    };
+    for (let frame = 0; frame < 120; frame += 1) {
+      if (frame === 30) {
+        const dead = host.state.tanks[host.localTankId!]!;
+        dead.hp = 0;
+        dead.alive = false;
+      }
+      for (const batch of host.produce(FRAME, aimFor(host, frame))) client.receive(wire(batch));
+      client.consume(FRAME);
+    }
+    expect(host.localTankAlive).toBe(false);
+    expect(host.state.tick).toBeGreaterThan(100);
+  });
+
   it('a client never steps past the rows it holds', () => {
     const client = new NetMatch({ spec: SPEC, localSeat: 1, role: 'client' });
     expect(client.consume(0.2)).toBe(0);
