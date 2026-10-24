@@ -42,6 +42,7 @@ import { createPlayableScene, type SceneEvent } from './render/playableScene.ts'
 import { createTopPlan, spawnMarkerColor, TOP_LEGEND_COLORS } from './render/topPlan.ts';
 import { measureScene } from './render/sceneStats.ts';
 import { createBrowserInput } from './game/browserInput.ts';
+import { usesPointerLock } from './game/mouseLook.ts';
 import {
   DEFAULT_MATCH_RULES,
   RELOAD_TICKS,
@@ -646,6 +647,7 @@ function createEndWatch(frozen: boolean): {
       shown = true;
       const result = describeMatchResult(state, playerTeamId);
       document.body.classList.add('match-over');
+      playerInput?.releaseLock();
       screensUi?.showEnd(
         result.headline,
         result.detail,
@@ -685,6 +687,10 @@ let activeLaunch: LaunchOptions | null = null;
 /** The running match's lifetime; aborting it tears the match down. */
 let activeMatchLifetime: AbortController | null = null;
 let onlineUi: OnlineScreens | null = null;
+/** The running match's mouse/keyboard input; owns the pointer lock. */
+let playerInput: BrowserInput | null = null;
+/** When the browser last took the pointer lock away (its own Escape handling). */
+let lockLostAt = -Infinity;
 /** The cued.de player of this tab (null when not launched from cued); its name seeds the online pilot name. */
 let cuedSession: CuedSession | null = null;
 
@@ -712,9 +718,25 @@ function ensureAudio(track: 'menu' | 'combat'): void {
   audio.playMusic(track);
 }
 
+/** The match input with the player's live mouse settings. */
+function createPlayerInput(): BrowserInput {
+  playerInput?.dispose();
+  const input = createBrowserInput(canvas, {
+    mode: () => currentSettings.mouseMode,
+    sensitivity: () => currentSettings.mouseSensitivity,
+    onLockLost: () => {
+      lockLostAt = performance.now();
+      pauseMatch();
+    },
+  });
+  playerInput = input;
+  return input;
+}
+
 function pauseMatch(): void {
   if (!gameStarted || paused || screensUi?.isSettingsOpen() || screensUi?.isEndOpen()) return;
   paused = true;
+  playerInput?.releaseLock();
   audioEngine?.setDucked(true);
   screensUi?.showPause();
 }
@@ -724,6 +746,8 @@ function resumeMatch(): void {
   paused = false;
   screensUi?.hideAll();
   audioEngine?.setDucked(false);
+  // RESUME is a click, so the browser lets us take the mouse back straight away.
+  playerInput?.requestLock();
 }
 
 /** Stops the title's background battle and its audio gate; a match takes the screen. */
@@ -886,7 +910,7 @@ function startOnlineMatch(online: OnlineSession, match: NetMatch): void {
   setSurfaceDetail(currentSettings.quality);
   document.body.style.background = PALETTE.background;
 
-  const input = createBrowserInput(canvas);
+  const input = createPlayerInput();
   onlineInput = input;
   const readInput = (): PlayerInput => input.read();
   const aimCameraState: AimCameraState = { camera: null };
@@ -908,7 +932,7 @@ function startOnlineMatch(online: OnlineSession, match: NetMatch): void {
       return onlineHudState(match, view.feedNames, fps);
     },
     audio,
-    readInput,
+    input,
     aimCameraState,
   );
   requestAnimationFrame(frame);
@@ -1014,9 +1038,11 @@ function bootMatch(
   session: MatchView,
   hudState: (fps: number) => HudState,
   audio: AudioEngine,
-  readInput: () => PlayerInput,
+  input: BrowserInput,
   aimCameraState: AimCameraState,
 ): (nowMilliseconds: number) => void {
+  const readInput = (): PlayerInput => input.read();
+  const mouseHint = requireElement('hud-mouse-hint', HTMLElement, 'mouse capture hint');
   const scene = createPlayableScene(session.state, {
     playerTankId: session.playerTankId,
     dummyTankId: launch.mode === 'play' ? 1 : undefined,
@@ -1271,13 +1297,18 @@ function bootMatch(
         scene.syncWorld();
         aimHud.update(null, window.innerWidth, window.innerHeight, PALETTE.debugText);
       } else {
+        // The mouse looks, WASD drives: the camera yaw is a world heading, not the hull's.
+        const look = input.look(paused ? 0 : frameSeconds, playerFrame.hullYawDegrees);
         rig.setFocus({
           position: { x: playerFrame.x, y: playerFrame.y, z: playerFrame.z },
-          yawDegrees: aimFollowYawDegrees(
-            playerFrame.hullYawDegrees,
-            playerFrame.turretYawDegrees,
-          ),
+          yawDegrees: look.yawDegrees,
         });
+        rig.setPitch(look.pitchDegrees);
+        mouseHint.hidden =
+          paused ||
+          !usesPointerLock(currentSettings.mouseMode) ||
+          input.locked ||
+          document.body.classList.contains('match-over');
         rig.update(frameSeconds);
         aimCameraState.camera = aimCameraView(rig.camera, cameraDirection);
         scene.setPlayerHidden(rig.firstPerson);
@@ -1549,7 +1580,7 @@ function bootGame(launch: LaunchOptions, audio: AudioEngine): (nowMilliseconds: 
   setSurfaceDetail(launch.detail ?? currentSettings.quality);
   document.body.style.background = PALETTE.background;
 
-  const input = createBrowserInput(canvas);
+  const input = createPlayerInput();
   const readInput = (): PlayerInput => input.read();
   const aimCameraState: AimCameraState = { camera: null };
   const aimController = new PlayerAimController(readInput, () => aimCameraState.camera);
@@ -1579,7 +1610,7 @@ function bootGame(launch: LaunchOptions, audio: AudioEngine): (nowMilliseconds: 
       session,
       (fps) => teamHudState(session, fps),
       audio,
-      readInput,
+      input,
       aimCameraState,
     );
   }
@@ -1593,7 +1624,7 @@ function bootGame(launch: LaunchOptions, audio: AudioEngine): (nowMilliseconds: 
     playableMatchView(session, (state, player) => aimController.commandFor(state, player.id)),
     (fps) => playHudState(session, fps),
     audio,
-    readInput,
+    input,
     aimCameraState,
   );
 }
@@ -1712,6 +1743,8 @@ try {
   window.addEventListener('keydown', (event) => {
     if (event.code !== 'Escape' || !gameStarted) return;
     if (screensUi?.isSettingsOpen() || screensUi?.isEndOpen()) return;
+    // The browser's own Escape already released the lock and paused; do not resume.
+    if (performance.now() - lockLostAt < 400) return;
     if (paused) resumeMatch();
     else pauseMatch();
   });

@@ -78,7 +78,7 @@ running headless in `node`.
 | the world's visible version | `World.revision` · `markWorldChanged(world)` | `src/core/world/state.ts:75` · `src/core/world/state.ts:103` | ONE monotonic counter bumped once per changed public mutation (damage, block/rubble, shard spawn/remove/shove, regeneration HP, displacement). A regen-timer tickdown alone does NOT bump it. The renderer rebuilds only on a changed integer. |
 | the frame→ticks bridge | `PlayableSession.advance(frameSeconds, commandFor)` · `.step(command)` | `src/game/session.ts:164` · `src/game/session.ts:182` | The ONLY place a frame delta becomes `FixedStep` ticks for the app; one `stepMatch` per tick, with the dummy idling. No simulation call exists in a render module. |
 | a player's command | `commandFromAim(input, aimYaw, aimPitch)` | `src/game/input.ts:76` | P6's button half: WASD→throttle/steer, fire boolean, and the WORLD-aim solver's absolute yaw/pitch. It deliberately does NOT read pointerX/pointerY; `solveAim` owns the pointer→world mapping. Unit-tested in node; malformed aim numbers throw. |
-| browser events | `createBrowserInput(canvas)` | `src/game/browserInput.ts:26` | The only DOM reader: key set, canvas-normalised pointer, click/Space fire. No pointer lock: the OS cursor is hidden over the canvas and the projected impact reticle is the cursor. The normalised pointer is a camera-ray coordinate, not a turret offset. |
+| browser events | `createBrowserInput(canvas)` | `src/game/browserInput.ts:26` | The only DOM reader: key set, canvas-normalised pointer, click/Space fire. Owns the pointer lock for the `edge-push` and `centred` mouse modes; the pure mapping (cursor, camera yaw/pitch, edge turning) is `src/game/mouseLook.ts`. The OS cursor is hidden over the canvas and the projected impact reticle is the cursor. The normalised pointer is a camera-ray coordinate, not a turret offset. |
 | an AI sightline | `hasLineOfSight(world, from, to)` · `visibleEnemies(state, tank)` | `src/core/ai/perception.ts:49` · `src/core/ai/perception.ts:77` | Samples a 3D segment through `isSolidAt` at eye height (`floor + 1.6 m`) to the target's turret point (`floor + 1.0 m`); a 1.2 m barrier is below the line, a 4.8 m wall blocks it. Team-aware, no shell resolver. |
 | short enemy memory | `PerceptionMemory.update(state, tank)` · `.latest()` | `src/core/ai/perception.ts:99` | Remembers the last seen position/tick per enemy for the profile's `memoryTicks`; memory is for navigation, never for firing. |
 | AI navigation | `NavigationCache.findPath(...)` · `reachablePointNear(...)` | `src/core/ai/navigation.ts:120` · `src/core/ai/navigation.ts:209` | A* over four-neighbour body-free cell centres; the cache recomputes only on `world.revision` or a new goal CELL. Smoothing uses a sampled body-clear line. Boundary rows with zero clearance are rejected so a tank cannot wedge on an arena edge. |
@@ -757,7 +757,9 @@ They are not used by gameplay.
 - **Input is a button mapping; the pointer is a world ray (P6/P7).** WASD becomes
   throttle/steer and click/Space fires; `commandFromAim` takes the absolute turret angles
   from `solveAim`, which casts the camera ray through the pointer. The OS cursor is hidden
-  and the reticle is the impact point. There is deliberately NO pointer lock. The P6
+  and the reticle is the impact point. The camera yaw is a WORLD heading moved by the
+  mouse (`src/game/mouseLook.ts`, ledger row 83), not the hull: two of the three mouse
+  modes take the pointer lock and draw their own cursor (the reticle). The P6
   correction removed the yaw clamp (the turret turns the full 180°); only the physical
   pitch clamp remains. Lower-screen ground can sit between the camera and the muzzle, so
   the true impact can still differ from the pointed ground; the reticle shows that impact.
