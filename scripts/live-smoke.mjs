@@ -68,6 +68,15 @@ try {
   });
 
   console.log(`live-smoke: loading ${URL_TO_CHECK}`);
+  // The aim check below drives a free OS cursor, so pick the unlocked mouse mode.
+  await page.addInitScript(() => {
+    try {
+      localStorage.setItem('tank-battle.settings.v1', JSON.stringify({
+        master: 0.8, music: 0.65, sfx: 0.8, quality: 0.3,
+        mouseSensitivity: 1, mouseMode: 'edge-free', reducedMotion: false,
+      }));
+    } catch {}
+  });
   await page.goto(URL_TO_CHECK, { waitUntil: 'load', timeout: 30000 });
 
   // The title must actually appear. A blank page and a dead bundle both fail here.
