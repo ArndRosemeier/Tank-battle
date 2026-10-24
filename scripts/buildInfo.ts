@@ -18,7 +18,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** The last commit on main before versioning began (2026-10-24). */
-export const VERSION_ANCHOR = '6c09331183f4a64bf4d7e0a9487439952886b997';
+export const VERSION_ANCHOR = '8845c298a10582b676107032b5882105edf93299';
 /** Version number of the first build after the anchor, in thousandths (0.100). */
 export const FIRST_VERSION_THOUSANDTHS = 100;
 export const CHANGELOG_DIR = 'changelog';

@@ -6,4 +6,5 @@
 - Online play: create or join a room and battle friends over the internet.
 - Arena generator: pick a seed and a size and get a fresh, fair arena every time.
 - Launched from cued.de, the game shows who is playing and uses that name online.
+- Online shots feel fair: a guest's hits are checked against what the guest saw on screen (lag compensation).
 - Fixed a crash in online matches when your tank had already been destroyed.
