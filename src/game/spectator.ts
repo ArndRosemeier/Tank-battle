@@ -31,6 +31,7 @@ import {
 import { arenaTeamSetup, TEAM_MODE_AIM_ERROR_SCALE } from './aiBatch.ts';
 import { CRUCIBLE, type Arena } from './levels/catalog.ts';
 import { interpolateTanks, snapshotTanks, type TankRenderFrame } from './tankFrames.ts';
+import * as detMath from '../core/detMath.ts';
 
 export const SPECTATOR_TEAM_AIM_ERROR_SCALE = TEAM_MODE_AIM_ERROR_SCALE;
 export const DIRECTOR_INTERVAL_TICKS = 180;
@@ -308,7 +309,7 @@ export class SpectatorSession {
     if (shells.length > 0) {
       const shell = shells[0]!;
       const nearest = alive.reduce((a, b) =>
-        Math.hypot(shell.x - a.x, shell.z - a.z) <= Math.hypot(shell.x - b.x, shell.z - b.z) ? a : b,
+        detMath.hypot(shell.x - a.x, shell.z - a.z) <= detMath.hypot(shell.x - b.x, shell.z - b.z) ? a : b,
       );
       return {
         focusTankId: nearest.id,
@@ -325,7 +326,7 @@ export class SpectatorSession {
     const centerX = mean(alive.map((tank) => tank.x));
     const centerZ = mean(alive.map((tank) => tank.z));
     const focus = alive.reduce((a, b) =>
-      Math.hypot(centerX - a.x, centerZ - a.z) <= Math.hypot(centerX - b.x, centerZ - b.z) ? a : b,
+      detMath.hypot(centerX - a.x, centerZ - a.z) <= detMath.hypot(centerX - b.x, centerZ - b.z) ? a : b,
     );
     return {
       focusTankId: focus.id,
@@ -342,7 +343,7 @@ export class SpectatorSession {
 
   private overviewShot(alive: readonly Tank[]): DirectorShot {
     const focus = alive.reduce((a, b) =>
-      Math.hypot(this.centreX - a.x, this.centreZ - a.z) <= Math.hypot(this.centreX - b.x, this.centreZ - b.z) ? a : b,
+      detMath.hypot(this.centreX - a.x, this.centreZ - a.z) <= detMath.hypot(this.centreX - b.x, this.centreZ - b.z) ? a : b,
     );
     return {
       focusTankId: focus.id,
@@ -377,7 +378,7 @@ export class SpectatorSession {
     const { a, b } = engagement;
     const dx = b.x - a.x;
     const dz = b.z - a.z;
-    const length = Math.hypot(dx, dz) || 1;
+    const length = detMath.hypot(dx, dz) || 1;
     let px = -dz / length;
     let pz = dx / length;
     // Choose the side that does not put the camera outside the 48 m arena if one side
@@ -398,7 +399,7 @@ export class SpectatorSession {
       targetTankId: b.id,
       centerX: engagement.centerX,
       centerZ: engagement.centerZ,
-      yawDegrees: (Math.atan2(-px, -pz) * 180) / Math.PI,
+      yawDegrees: (detMath.atan2(-px, -pz) * 180) / Math.PI,
       distanceMetres: distance,
       pitchDegrees: engagement.nearTeams >= 4 ? 34 : 45,
       reason: engagement.shells > 0 ? 'shells' : 'engagement',
@@ -424,18 +425,18 @@ export class SpectatorSession {
   private scoreEngagement(a: Tank, b: Tank): Engagement {
     const centerX = (a.x + b.x) / 2;
     const centerZ = (a.z + b.z) / 2;
-    const distance = Math.hypot(a.x - b.x, a.z - b.z);
+    const distance = detMath.hypot(a.x - b.x, a.z - b.z);
     const shells = this.state.shells.filter(
-      (shell) => Math.hypot(shell.x - centerX, shell.z - centerZ) <= DIRECTOR_SHELL_RADIUS_METRES,
+      (shell) => detMath.hypot(shell.x - centerX, shell.z - centerZ) <= DIRECTOR_SHELL_RADIUS_METRES,
     ).length;
     const teams = new Set<number>();
     let injured = 0;
     for (const tank of this.state.tanks) {
       if (!tank.alive) continue;
-      if (Math.hypot(tank.x - centerX, tank.z - centerZ) <= DIRECTOR_NEAR_RADIUS_METRES) {
+      if (detMath.hypot(tank.x - centerX, tank.z - centerZ) <= DIRECTOR_NEAR_RADIUS_METRES) {
         teams.add(tank.teamId);
       }
-      if (tank.hp < tank.maxHp && Math.hypot(tank.x - centerX, tank.z - centerZ) <= DIRECTOR_NEAR_RADIUS_METRES) {
+      if (tank.hp < tank.maxHp && detMath.hypot(tank.x - centerX, tank.z - centerZ) <= DIRECTOR_NEAR_RADIUS_METRES) {
         injured += 1;
       }
     }
@@ -472,7 +473,7 @@ export class SpectatorSession {
           targetCentre(candidate),
         ),
       );
-    visible.sort((a, b) => Math.hypot(tank.x - a.x, tank.z - a.z) - Math.hypot(tank.x - b.x, tank.z - b.z) || a.id - b.id);
+    visible.sort((a, b) => detMath.hypot(tank.x - a.x, tank.z - a.z) - detMath.hypot(tank.x - b.x, tank.z - b.z) || a.id - b.id);
     return visible;
   }
 
@@ -481,7 +482,7 @@ export class SpectatorSession {
     let bestDistance = Infinity;
     for (const candidate of this.state.tanks) {
       if (!candidate.alive || candidate.teamId === tank.teamId) continue;
-      const distance = Math.hypot(tank.x - candidate.x, tank.z - candidate.z);
+      const distance = detMath.hypot(tank.x - candidate.x, tank.z - candidate.z);
       if (distance < bestDistance || (distance === bestDistance && best !== null && candidate.id < best.id)) {
         best = candidate;
         bestDistance = distance;

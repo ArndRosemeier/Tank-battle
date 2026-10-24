@@ -56,11 +56,10 @@ modes do not pass them and behave as before.
 
 ## Known limits
 
-- **Cross-browser determinism.** `Math.sin/cos/atan2/tan/hypot` are not guaranteed
-  bit-identical across JS engines. Chrome-vs-Chrome is safe; a Chrome-vs-Firefox/Safari room
-  may drift, which the hash check reports. The fix is a deterministic math module for
-  `src/core` plus a purity pin; hot spots are `terrainBody.ts`, `step.ts`, `navigation.ts`,
-  `perception.ts` and `world/raycast.ts`.
+- **Cross-browser determinism** is handled by `src/core/detMath.ts`: `sin/cos/tan/atan2` are
+  stdlib's pure-JS fdlibm ports and `hypot` is a plain `Math.sqrt` of squares, so Chrome,
+  Firefox and Safari compute the same bits. `purity.test.ts` bans the engine-approximated
+  `Math` functions and `**` in `src/core` and `src/game`; `detMath.test.ts` pins result bits.
 - A player who joins during a battle waits in the room and plays the next one (no
   mid-match spectating yet).
 - The pause menu does not pause an online match.

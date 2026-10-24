@@ -17,6 +17,7 @@
 
 import { MATERIAL_CRYSTAL, MATERIAL_ROCK, buildTerrain, type TerrainSample } from '../../core/world.ts';
 import type { LevelDefinition, LevelSpawn, SpawnSlot } from './format.ts';
+import * as detMath from '../../core/detMath.ts';
 
 const CELLS = 48;
 const CELLS_Y = 16;
@@ -68,15 +69,15 @@ const PAD_CENTRES: readonly (readonly [number, number])[] = [
 function groundHeight(x: number, z: number): number {
   const u = x - CENTRE;
   const v = z - CENTRE;
-  const r = Math.hypot(u, v);
+  const r = detMath.hypot(u, v);
   let padDistance = Infinity;
   for (const [px, pz] of PAD_CENTRES) {
-    padDistance = Math.min(padDistance, Math.hypot(x - px, z - pz));
+    padDistance = Math.min(padDistance, detMath.hypot(x - px, z - pz));
   }
   const rolling = 1 - smoothstep(PAD_FLAT_RADIUS, PAD_FLAT_RADIUS + PAD_BLEND, padDistance);
   const underHill = smoothstep(HILL_RADIUS - 6, HILL_RADIUS + 2, r);
   const bumps =
-    (0.45 * (Math.cos(u * 0.42) + Math.cos(v * 0.42)) + 0.3 * Math.cos(r * 0.55)) * (1 - rolling) * underHill;
+    (0.45 * (detMath.cos(u * 0.42) + detMath.cos(v * 0.42)) + 0.3 * detMath.cos(r * 0.55)) * (1 - rolling) * underHill;
   const edge = Math.min(x, z, SIZE - x, SIZE - z);
   const rim = RIM_HEIGHT * (1 - smoothstep(0, RIM_WIDTH, edge));
   return BASE + bumps + rim;
@@ -86,13 +87,13 @@ function groundHeight(x: number, z: number): number {
 function hillSolidity(x: number, y: number, z: number): number {
   const u = x - CENTRE;
   const v = z - CENTRE;
-  const r = Math.hypot(u, v);
+  const r = detMath.hypot(u, v);
   if (r >= HILL_RADIUS) return -Infinity;
-  const top = BASE + HILL_HEIGHT * 0.5 * (1 + Math.cos((Math.PI * r) / HILL_RADIUS));
+  const top = BASE + HILL_HEIGHT * 0.5 * (1 + detMath.cos((Math.PI * r) / HILL_RADIUS));
   const above = Math.max(0, y - BASE);
-  const tunnelX = TUNNEL_RADIUS - Math.hypot(v, above);
-  const tunnelZ = TUNNEL_RADIUS - Math.hypot(u, above);
-  const cavern = CAVERN_RADIUS - Math.hypot(r, above * 0.9);
+  const tunnelX = TUNNEL_RADIUS - detMath.hypot(v, above);
+  const tunnelZ = TUNNEL_RADIUS - detMath.hypot(u, above);
+  const cavern = CAVERN_RADIUS - detMath.hypot(r, above * 0.9);
   return Math.min(top - y, -tunnelX, -tunnelZ, -cavern);
 }
 
@@ -100,9 +101,9 @@ function hillSolidity(x: number, y: number, z: number): number {
 function ridgeSolidity(x: number, y: number, z: number): number {
   const u = x - CENTRE;
   const v = z - CENTRE;
-  const r = Math.hypot(u, v);
+  const r = detMath.hypot(u, v);
   if (Math.abs(r - RIDGE_RADIUS) > RIDGE_HALF_THICKNESS + 3) return -Infinity;
-  const angle = Math.atan2(v, u);
+  const angle = detMath.atan2(v, u);
   let best = -Infinity;
   for (const diagonal of [Math.PI / 4, (3 * Math.PI) / 4, (-3 * Math.PI) / 4, -Math.PI / 4]) {
     let delta = angle - diagonal;
@@ -111,8 +112,8 @@ function ridgeSolidity(x: number, y: number, z: number): number {
     const along = (RIDGE_HALF_ANGLE - Math.abs(delta)) * r;
     const wall = Math.min(RIDGE_HALF_THICKNESS - Math.abs(r - RIDGE_RADIUS), BASE + RIDGE_HEIGHT - y, along);
     // The arch: a round tunnel along the diagonal through the ridge.
-    const lateral = Math.abs(u * Math.sin(diagonal) - v * Math.cos(diagonal));
-    const arch = ARCH_RADIUS - Math.hypot(lateral, Math.max(0, y - BASE));
+    const lateral = Math.abs(u * detMath.sin(diagonal) - v * detMath.cos(diagonal));
+    const arch = ARCH_RADIUS - detMath.hypot(lateral, Math.max(0, y - BASE));
     best = Math.max(best, Math.min(wall, -arch));
   }
   return best;
@@ -129,11 +130,11 @@ function spireSolidity(x: number, y: number, z: number): { stem: number; cap: nu
   let stem = -Infinity;
   let cap = -Infinity;
   for (const [sx, sz] of SPIRES) {
-    const d = Math.hypot(x - sx, z - sz);
+    const d = detMath.hypot(x - sx, z - sz);
     if (d > SPIRE_CAP_RADIUS + 3) continue;
     const flare = 1.5 * (1 - smoothstep(BASE, BASE + 2.5, y));
     stem = Math.max(stem, Math.min(SPIRE_STEM_RADIUS + flare - d, BASE + SPIRE_STEM_TOP - y));
-    const e = Math.hypot(d / SPIRE_CAP_RADIUS, (y - BASE - SPIRE_CAP_CENTRE) / SPIRE_CAP_HALF_HEIGHT);
+    const e = detMath.hypot(d / SPIRE_CAP_RADIUS, (y - BASE - SPIRE_CAP_CENTRE) / SPIRE_CAP_HALF_HEIGHT);
     cap = Math.max(cap, (1 - e) * SPIRE_CAP_HALF_HEIGHT);
   }
   return { stem, cap };

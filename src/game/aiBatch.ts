@@ -23,6 +23,7 @@ import type { BatchSetup, TeamSetup } from '../core/ai.ts';
 import { ARENA, spawnCentreMetres } from './levels/arena.ts';
 import { CRUCIBLE, type Arena } from './levels/catalog.ts';
 import { validateLevel, type LevelSpawn } from './levels/format.ts';
+import * as detMath from '../core/detMath.ts';
 
 function spawnFor(teamId: number): LevelSpawn {
   const spawn = ARENA.spawns.find((candidate) => candidate.teamId === teamId);
@@ -231,7 +232,7 @@ function runCharacterMatch(
       const stats = charStats.get(tank.id);
       if (!stats) throw new Error(`runCharacterMatch: no stats for tank ${tank.id}`);
       const start = before.find((entry) => entry.id === tank.id);
-      if (start) stats.distanceMoved += Math.hypot(tank.x - start.x, tank.z - start.z);
+      if (start) stats.distanceMoved += detMath.hypot(tank.x - start.x, tank.z - start.z);
       stats.aliveTicks += 1;
 
       const eye = eyePosition(tank);
@@ -239,7 +240,7 @@ function runCharacterMatch(
       for (const enemy of state.tanks) {
         if (!enemy.alive || enemy.teamId === tank.teamId) continue;
         if (hasLineOfSight(state.world, eye, targetCentre(enemy))) {
-          const distance = Math.hypot(tank.x - enemy.x, tank.z - enemy.z);
+          const distance = detMath.hypot(tank.x - enemy.x, tank.z - enemy.z);
           if (nearestVisible === null || distance < nearestVisible) nearestVisible = distance;
         }
       }

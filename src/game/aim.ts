@@ -32,6 +32,7 @@ import {
   type Vec3,
 } from '../core/sim.ts';
 import { commandFromAim, type PlayerInput } from './input.ts';
+import * as detMath from '../core/detMath.ts';
 
 /** The turret's maximum absolute yaw offset from the hull, in degrees. */
 /**
@@ -86,7 +87,7 @@ function vector(value: Vec3, label: string): void {
 }
 
 function length(value: Vec3): number {
-  return Math.hypot(value.x, value.y, value.z);
+  return detMath.hypot(value.x, value.y, value.z);
 }
 
 function normalise(value: Vec3, label: string): Vec3 {
@@ -160,7 +161,7 @@ export function cameraRayFromPointer(
   );
   const right = normalise(cross(forward, camera.up), 'camera right');
   const up = normalise(cross(right, forward), 'camera up');
-  const tanHalfVertical = Math.tan((camera.fovDegrees * Math.PI) / 360);
+  const tanHalfVertical = detMath.tan((camera.fovDegrees * Math.PI) / 360);
   const tanHalfHorizontal = tanHalfVertical * camera.aspect;
   return normalise(
     {
@@ -181,14 +182,14 @@ function anglesFromMuzzle(muzzle: Vec3, point: Vec3): { yaw: number; pitch: numb
   const dx = point.x - muzzle.x;
   const dy = point.y - muzzle.y;
   const dz = point.z - muzzle.z;
-  const horizontal = Math.hypot(dx, dz);
+  const horizontal = detMath.hypot(dx, dz);
   if (horizontal < 1e-9) {
     return { yaw: 0, pitch: dy >= 0 ? 90 : -90 };
   }
   // -sin(yaw)=dx/h and -cos(yaw)=dz/h: positive yaw is LEFT (towards -x).
   return {
-    yaw: (Math.atan2(-dx, -dz) * 180) / Math.PI,
-    pitch: (Math.atan2(dy, horizontal) * 180) / Math.PI,
+    yaw: (detMath.atan2(-dx, -dz) * 180) / Math.PI,
+    pitch: (detMath.atan2(dy, horizontal) * 180) / Math.PI,
   };
 }
 

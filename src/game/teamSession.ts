@@ -37,6 +37,7 @@ import { CRUCIBLE, type Arena } from './levels/catalog.ts';
 import { idlePlayerInput, type PlayerInput } from './input.ts';
 import { PlayerAimController, type AimCamera } from './aim.ts';
 import { interpolateTanks, snapshotTanks, type TankRenderFrame } from './tankFrames.ts';
+import * as detMath from '../core/detMath.ts';
 
 /** The player's tank id. `createMatch` assigns team 0's tanks first, slot 0 first. */
 export const PLAYER_TANK_ID = 0;
@@ -179,7 +180,7 @@ export class TeamSession {
     for (const tankId of humanControllers.keys()) {
       const spawn = this.state.tanks[tankId]!;
       const facing = normaliseDegrees(
-        (Math.atan2(-(centreX - spawn.x), -(centreZ - spawn.z)) * 180) / Math.PI,
+        (detMath.atan2(-(centreX - spawn.x), -(centreZ - spawn.z)) * 180) / Math.PI,
       );
       spawn.hullYawDegrees = facing;
       spawn.turretYawDegrees = facing;

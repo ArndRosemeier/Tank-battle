@@ -28,6 +28,7 @@ import { hasLineOfSight, eyePosition, targetCentre } from './perception.ts';
 import { AI_DECISION_INTERVAL_TICKS } from './constants.ts';
 import { AI_PROFILES, getAIProfile, type AIProfile } from './profile.ts';
 import { mean, quantile } from './batchStats.ts';
+import * as detMath from '../detMath.ts';
 
 export interface TeamSpawnGroup {
   readonly teamId: number;
@@ -377,7 +378,7 @@ export function runTeamBatch(setup: TeamSetup, options: TeamBatchOptions): TeamB
       for (const start of before) {
         const tank = state.tanks.find((candidate) => candidate.id === start.id);
         if (!tank) continue;
-        const moved = Math.hypot(tank.x - start.x, tank.z - start.z);
+        const moved = detMath.hypot(tank.x - start.x, tank.z - start.z);
         totalDistance += moved;
         totalAliveTankTicks += 1;
         if (state.tick <= 600) {

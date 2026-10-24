@@ -21,6 +21,7 @@ import {
 } from '../sim.ts';
 import { columnSurfaces, groundBelow, isSolidAt, type World } from '../world.ts';
 import { AI_NAV_REBUILD_TICKS } from './constants.ts';
+import * as detMath from '../detMath.ts';
 
 export interface NavPoint {
   readonly x: number;
@@ -52,7 +53,7 @@ export interface NavGraph {
 export const NAV_MAX_LAYERS = 4;
 /** Air above a standable surface: the body plus a little clearance. */
 const NAV_HEADROOM_METRES = TANK_HEIGHT_METRES + 0.3;
-const MAX_SLOPE_TAN = Math.tan((TANK_MAX_SLOPE_DEGREES * Math.PI) / 180);
+const MAX_SLOPE_TAN = detMath.tan((TANK_MAX_SLOPE_DEGREES * Math.PI) / 180);
 /** How far above a surface the standing probe starts (covers a 40° rise over 1 m). */
 const PROBE_LIFT_METRES = 1.0;
 /** Uphill metres cost this much extra: the planner prefers going around a hill. */
@@ -193,7 +194,7 @@ function buildColumnEdges(world: World, graph: NavGraph, c: number): void {
         const nr = row + dz;
         if (nc < 0 || nr < 0 || nc >= graph.columns || nr >= graph.rows) continue;
         const other = nc + graph.columns * nr;
-        const run = Math.hypot(dx, dz) * s;
+        const run = detMath.hypot(dx, dz) * s;
         for (let otherLayer = 0; otherLayer < NAV_MAX_LAYERS; otherLayer += 1) {
           const b = other * NAV_MAX_LAYERS + otherLayer;
           if (!graph.nodeValid[b]) continue;
@@ -257,7 +258,7 @@ export function nodeNear(graph: NavGraph, x: number, y: number, z: number): numb
       const base = (nc + graph.columns * nr) * NAV_MAX_LAYERS;
       for (let n = base; n < base + NAV_MAX_LAYERS; n += 1) {
         if (!graph.nodeValid[n]) continue;
-        const distance = Math.hypot(graph.nodeX[n]! - x, (graph.nodeY[n]! - y) * 2, graph.nodeZ[n]! - z);
+        const distance = detMath.hypot(graph.nodeX[n]! - x, (graph.nodeY[n]! - y) * 2, graph.nodeZ[n]! - z);
         if (distance < bestDistance) {
           best = n;
           bestDistance = distance;
@@ -303,7 +304,7 @@ export function findNodePath(graph: NavGraph, start: number, goal: number): numb
   const gx = graph.nodeX[goal]!;
   const gy = graph.nodeY[goal]!;
   const gz = graph.nodeZ[goal]!;
-  const heuristic = (n: number): number => Math.hypot(graph.nodeX[n]! - gx, graph.nodeZ[n]! - gz) + Math.max(0, gy - graph.nodeY[n]!) * CLIMB_COST * 0.5;
+  const heuristic = (n: number): number => detMath.hypot(graph.nodeX[n]! - gx, graph.nodeZ[n]! - gz) + Math.max(0, gy - graph.nodeY[n]!) * CLIMB_COST * 0.5;
   g[start] = 0;
   heap.push(heuristic(start), start);
   while (heap.size > 0) {
@@ -437,7 +438,9 @@ export function reachablePointNear(world: World, tick: number, from: NavPoint, t
   let bestDistance = Infinity;
   for (let n = 0; n < graph.nodeCount; n += 1) {
     if (!reached[n]) continue;
-    const distance = (graph.nodeX[n]! - target.x) ** 2 + (graph.nodeZ[n]! - target.z) ** 2;
+    const dx = graph.nodeX[n]! - target.x;
+    const dz = graph.nodeZ[n]! - target.z;
+    const distance = dx * dx + dz * dz;
     if (distance < bestDistance - 1e-9) {
       best = n;
       bestDistance = distance;
