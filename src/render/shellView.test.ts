@@ -13,6 +13,7 @@ function shell(overrides: Partial<Parameters<ReturnType<typeof createShellView>[
     dy: 0,
     dz: -1,
     travelledMetres: 4,
+    lagTicks: 0,
     ...overrides,
   };
 }

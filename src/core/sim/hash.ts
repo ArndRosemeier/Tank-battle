@@ -44,7 +44,8 @@ export function hashMatch(state: MatchState): string {
       `shell ${shell.id} owner=${shell.ownerTankId} team=${shell.ownerTeamId} ` +
         `x=${millimetres(shell.x)} y=${millimetres(shell.y)} z=${millimetres(shell.z)} ` +
         `dir=${direction(shell.dx)},${direction(shell.dy)},${direction(shell.dz)} ` +
-        `travelled=${millimetres(shell.travelledMetres)}`,
+        `travelled=${millimetres(shell.travelledMetres)}` +
+        (shell.lagTicks > 0 ? ` lag=${shell.lagTicks}` : ''),
     );
   }
 

@@ -110,6 +110,18 @@ export interface Shell {
   dy: number;
   dz: number;
   travelledMetres: number;
+  /** Ticks into the past the shell sees tanks (lag compensation); 0 for most shots. */
+  readonly lagTicks: number;
+}
+
+/**
+ * Where every tank stood at one recent tick, as [x, y, z] per tank id. Lag-compensated
+ * shells collide with these. It is derived from earlier (hashed) states, so it is not
+ * part of the hash itself.
+ */
+export interface PoseFrame {
+  readonly tick: number;
+  readonly xyz: Float64Array;
 }
 
 /** A team in the live state. `tanks` is a stable creation-order view. */
@@ -159,6 +171,8 @@ export interface MatchState {
   readonly shells: Shell[];
   /** The team whose shell broke each falling chunk loose (crush kills are credited to it). */
   readonly chunkCauses: Map<number, number>;
+  /** Tank positions for the last MAX_FIRE_LAG_TICKS + 1 ticks, newest first. */
+  readonly poseHistory: PoseFrame[];
   /** Optional presentation-only event capture, enabled by a live scene. */
   capturePresentationEvents?: boolean;
   presentationEvents?: PresentationEvent[];
@@ -279,6 +293,7 @@ export function createMatch(input: CreateMatchInput): MatchState {
     tanks,
     shells: [],
     chunkCauses: new Map(),
+    poseHistory: [],
     tick: 0,
     nextShellId: 0,
     status: 'active',
