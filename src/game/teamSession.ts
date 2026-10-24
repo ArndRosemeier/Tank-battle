@@ -1,6 +1,7 @@
 /**
- * The player-team session: the human's tank plus three AI squadmates (team 0), against
- * three AI teams of four on the authored arena.
+ * The player-team session: the human's tank plus up to three AI squadmates (team 0),
+ * against one to three AI teams on the authored arena. The default is the authored
+ * 4×4; the match setup screen may choose fewer teams or smaller squads.
  *
  * This module is game layer: no three.js, no DOM, no wall clock. The player is ONE
  * `Controller` among the AI's `Controller`s — there is no `isPlayer` in the core and
@@ -41,13 +42,17 @@ import { interpolateTanks, snapshotTanks, type TankRenderFrame } from './tankFra
 export const PLAYER_TANK_ID = 0;
 /** The player's team id. Team 0 is always the human's side in this mode. */
 export const PLAYER_TEAM_ID = 0;
-/** Four tanks per team is the authored player-team mode. */
-const TEAM_SIZE = 4;
-const TEAM_COUNT = 4;
+/** Four teams of four is the authored player-team mode, and the default. */
+const DEFAULT_TEAM_SIZE = 4;
+const DEFAULT_TEAM_COUNT = 4;
 
 export interface TeamSessionOptions {
   /** The match seed; the same seed and input reproduce the same battle. */
   readonly seed: number;
+  /** Number of teams, 2…4 (team 0 is the player's). Defaults to 4. */
+  readonly teams?: number;
+  /** Tanks per team, 1…4, the player included. Defaults to 4. */
+  readonly tanksPerTeam?: number;
   /** Profile names by tank slot; slot 0 is the player's unused slot. Defaults the cast. */
   readonly characters?: readonly string[];
   /** Sampled once per simulation tick for the player's controller. */
@@ -96,20 +101,22 @@ export class TeamSession {
     if (!Number.isInteger(seed) || seed < 0) {
       throw new Error(`teamSession: seed must be a non-negative integer, got ${String(seed)}`);
     }
+    const teamCount = options.teams ?? DEFAULT_TEAM_COUNT;
+    const teamSize = options.tanksPerTeam ?? DEFAULT_TEAM_SIZE;
     const requested = [...(options.characters ?? AI_PROFILES.map((profile) => profile.name))];
-    if (requested.length < TEAM_SIZE) {
+    if (requested.length < teamSize) {
       throw new Error(
-        `teamSession: ${requested.length} characters cannot fill ${TEAM_SIZE} tanks per team`,
+        `teamSession: ${requested.length} characters cannot fill ${teamSize} tanks per team`,
       );
     }
     if (new Set(requested).size !== requested.length) {
       throw new Error('teamSession: character names must be unique');
     }
-    this.characters = requested.slice(0, TEAM_SIZE);
+    this.characters = requested.slice(0, teamSize);
     this.characters.forEach((name) => getAIProfile(name));
     const profiles: readonly AIProfile[] = this.characters.map((name) => getAIProfile(name));
 
-    this.state = createTeamMatch(arenaTeamSetup(TEAM_COUNT, TEAM_SIZE), seed, options.rules ?? DEFAULT_MATCH_RULES).state;
+    this.state = createTeamMatch(arenaTeamSetup(teamCount, teamSize), seed, options.rules ?? DEFAULT_MATCH_RULES).state;
     const playerSpawn = this.state.tanks[PLAYER_TANK_ID];
     if (playerSpawn?.teamId !== PLAYER_TEAM_ID) {
       throw new Error('teamSession: tank id 0 is not on team 0');

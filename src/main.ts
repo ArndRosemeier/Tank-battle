@@ -33,7 +33,9 @@ import { createTopPlan, spawnMarkerColor, TOP_LEGEND_COLORS } from './render/top
 import { measureScene } from './render/sceneStats.ts';
 import { createBrowserInput } from './game/browserInput.ts';
 import {
+  DEFAULT_MATCH_RULES,
   RELOAD_TICKS,
+  type MatchRules,
   type MatchState,
   type Tank,
   type TankCommand,
@@ -45,6 +47,15 @@ import { KillFeedTracker, describeKill, type KillFeedRow } from './game/killFeed
 import { type PlayerInput } from './game/input.ts';
 import { TitleAudioGate } from './game/titleAudioGate.ts';
 import { TeamSession, createVanguardStandIn } from './game/teamSession.ts';
+import {
+  DEFAULT_MATCH_MINUTES,
+  freshMatchSeed,
+  matchSetupQuery,
+  matchTickCap,
+  validateMatchSetup,
+  type MatchSetup,
+} from './game/matchSetup.ts';
+import { describeMatchResult, secondsRemaining } from './game/matchResult.ts';
 import { PlayerAimController, solveAim, type AimCamera, type AimSolution } from './game/aim.ts';
 
 /**
@@ -92,6 +103,8 @@ interface LaunchOptions {
   readonly ticks: number | null;
   readonly teams: number;
   readonly tanksPerTeam: number;
+  /** The time limit in minutes (team and spectate). */
+  readonly minutes: number;
   readonly seed: number;
   /** `?settings=1` on the title screen opens the settings panel. */
   readonly settings: boolean;
@@ -100,7 +113,7 @@ interface LaunchOptions {
 /** `?mode=title`, `?detail=…&pose=…&demo=duel&ticks=571` or `?mode=spectate&…`. Unknown values fail visibly. */
 function readLaunchOptions(): LaunchOptions {
   const query = new URLSearchParams(window.location.search);
-  const hasGameParameter = ['pose', 'demo', 'ticks', 'teams', 'tanksPerTeam', 'seed'].some((key) =>
+  const hasGameParameter = ['pose', 'demo', 'ticks', 'teams', 'tanksPerTeam', 'minutes', 'seed'].some((key) =>
     query.has(key),
   );
 
@@ -195,12 +208,10 @@ function readLaunchOptions(): LaunchOptions {
   }
 
   const teamsText = query.get('teams');
-  if (mode === 'title' && (teamsText !== null || query.get('tanksPerTeam') !== null)) {
-    throw new Error('launch: the title screen takes no ?teams/?tanksPerTeam');
-  }
-  if (mode === 'team' && (teamsText !== null || query.get('tanksPerTeam') !== null)) {
+  const setupKeys = ['teams', 'tanksPerTeam', 'minutes'];
+  if ((mode === 'title' || mode === 'play') && setupKeys.some((key) => query.has(key))) {
     throw new Error(
-      'launch: ?teams/?tanksPerTeam are spectator-only; team mode is the player plus three squadmates against three teams of four',
+      `launch: ?teams/?tanksPerTeam/?minutes are for team and spectate matches, not "${mode}"`,
     );
   }
   const teams = teamsText === null ? 4 : Number(teamsText);
@@ -219,8 +230,14 @@ function readLaunchOptions(): LaunchOptions {
   if (!Number.isInteger(seed) || seed < 0) {
     throw new Error(`launch: ?seed must be a non-negative integer, got "${seedText ?? seed}"`);
   }
+  const minutesText = query.get('minutes');
+  const minutes = minutesText === null ? DEFAULT_MATCH_MINUTES : Number(minutesText);
+  if (mode === 'team' || mode === 'spectate') {
+    // The one validation of a custom setup; a bad link fails loudly, never quietly.
+    validateMatchSetup({ mode, teams, tanksPerTeam, minutes, seed });
+  }
 
-  return { mode, detail, pose, demo, ticks, teams, tanksPerTeam, seed, settings };
+  return { mode, detail, pose, demo, ticks, teams, tanksPerTeam, minutes, seed, settings };
 }
 
 const VIGNETTE_SHADER = {
@@ -258,6 +275,7 @@ function bootSpectate(launch: LaunchOptions, audio: AudioEngine): (nowMillisecon
     teams: launch.teams,
     tanksPerTeam: launch.tanksPerTeam,
     seed: launch.seed,
+    rules: launchRules(launch),
   });
   if (launch.ticks !== null) {
     spectator.runTicks(launch.ticks);
@@ -299,6 +317,7 @@ function bootSpectate(launch: LaunchOptions, audio: AudioEngine): (nowMillisecon
   let drawCalls = 0;
   let lastSeconds: number | null = null;
   let pauseOnNextWreck = false;
+  const endWatch = createEndWatch(spectator.frozenFrame);
 
   function applyCamera(): void {
     const shot = spectator.directorShot();
@@ -361,6 +380,7 @@ function bootSpectate(launch: LaunchOptions, audio: AudioEngine): (nowMillisecon
       }
       scene.updateEffects(paused || spectator.frozenFrame ? 0 : frameSeconds);
       applyCamera();
+      endWatch.update(spectator.state, null, nowMilliseconds);
 
       renderer.info.reset();
       composer.render();
@@ -555,6 +575,65 @@ function teamHudState(session: TeamSession, fps: number): HudState {
   };
 }
 
+/** The match rules a launch asks for: the default rules with its time limit. */
+function launchRules(launch: LaunchOptions): MatchRules {
+  if (launch.mode !== 'team' && launch.mode !== 'spectate') return DEFAULT_MATCH_RULES;
+  return {
+    ...DEFAULT_MATCH_RULES,
+    tickCap: matchTickCap({
+      mode: launch.mode,
+      teams: launch.teams,
+      tanksPerTeam: launch.tanksPerTeam,
+      minutes: launch.minutes,
+      seed: launch.seed,
+    }),
+  };
+}
+
+/** How long the result stays on the battlefield before the end panel opens. */
+const END_SCREEN_DELAY_MS = 2200;
+
+/**
+ * Watches a match for its end and opens the end panel once, after a short beat so the
+ * last kill and the banner are seen. A frozen screenshot demo never opens it.
+ */
+function createEndWatch(frozen: boolean): {
+  update(state: MatchState, playerTeamId: number | null, nowMilliseconds: number): void;
+} {
+  let endedAt: number | null = null;
+  let shown = false;
+  return {
+    update(state, playerTeamId, nowMilliseconds) {
+      if (frozen || shown || state.status !== 'ended') return;
+      if (endedAt === null) endedAt = nowMilliseconds;
+      if (nowMilliseconds - endedAt < END_SCREEN_DELAY_MS) return;
+      shown = true;
+      const result = describeMatchResult(state, playerTeamId);
+      document.body.classList.add('match-over');
+      screensUi?.showEnd(
+        result.headline,
+        result.detail,
+        result.colorTeamId === null ? PALETTE.iceWhite : teamColor(result.colorTeamId),
+      );
+    },
+  };
+}
+
+/** The URL a REMATCH loads: the same setup on a fresh seed (the duel has none). */
+function rematchUrl(launch: LaunchOptions): string {
+  if (launch.mode === 'team' || launch.mode === 'spectate') {
+    const setup: MatchSetup = {
+      mode: launch.mode,
+      teams: launch.teams,
+      tanksPerTeam: launch.tanksPerTeam,
+      minutes: launch.minutes,
+      seed: freshMatchSeed(Math.random),
+    };
+    return `?${matchSetupQuery(setup)}`;
+  }
+  return '?mode=play';
+}
+
 /** The single app shell state shared by the title, pause, settings and the match. */
 let currentSettings = loadSettings();
 let audioEngine: AudioEngine | null = null;
@@ -565,6 +644,7 @@ let activeQuality: ((settings: GameSettings) => void) | null = null;
 let titleBackground: TitleBackground | null = null;
 let titleGate: TitleAudioGate | null = null;
 let titleGestureCleanup: (() => void) | null = null;
+let activeLaunch: LaunchOptions | null = null;
 
 function applySettings(settings: GameSettings): void {
   currentSettings = settings;
@@ -591,7 +671,7 @@ function ensureAudio(track: 'menu' | 'combat'): void {
 }
 
 function pauseMatch(): void {
-  if (!gameStarted || paused || screensUi?.isSettingsOpen()) return;
+  if (!gameStarted || paused || screensUi?.isSettingsOpen() || screensUi?.isEndOpen()) return;
   paused = true;
   audioEngine?.setDucked(true);
   screensUi?.showPause();
@@ -604,7 +684,7 @@ function resumeMatch(): void {
   audioEngine?.setDucked(false);
 }
 
-function startGame(mode: 'play' | 'team' | 'spectate'): void {
+function startGame(mode: 'play' | 'team' | 'spectate', setup: MatchSetup | null = null): void {
   if (gameStarted) return;
   if (titleBackground) {
     titleBackground.dispose();
@@ -618,18 +698,35 @@ function startGame(mode: 'play' | 'team' | 'spectate'): void {
   screensUi?.hideAll();
   document.body.classList.remove('title-mode');
   ensureAudio('combat');
-  window.history.replaceState(null, '', `?mode=${mode}`);
+  if (setup !== null && setup.mode !== mode) {
+    throw new Error(`main: setup mode ${setup.mode} does not match the started mode ${mode}`);
+  }
   const launch: LaunchOptions = {
     mode,
     detail: null,
     pose: null,
     demo: false,
     ticks: null,
-    teams: 4,
-    tanksPerTeam: 4,
-    seed: 1,
+    teams: setup?.teams ?? 4,
+    tanksPerTeam: setup?.tanksPerTeam ?? 4,
+    minutes: setup?.minutes ?? DEFAULT_MATCH_MINUTES,
+    seed: setup?.seed ?? (mode === 'play' ? 1 : freshMatchSeed(Math.random)),
     settings: false,
   };
+  // The address bar always reproduces the running match, so a link or reload replays it.
+  window.history.replaceState(
+    null,
+    '',
+    mode === 'play'
+      ? '?mode=play'
+      : `?${matchSetupQuery({
+          mode,
+          teams: launch.teams,
+          tanksPerTeam: launch.tanksPerTeam,
+          minutes: launch.minutes,
+          seed: launch.seed,
+        })}`,
+  );
   const audio = audioEngine;
   if (!audio) throw new Error('main: audio engine is missing');
   const frame = bootGame(launch, audio);
@@ -666,6 +763,7 @@ function bootMatch(
   let lastRegenTick = -999;
   let lastAim: AimSolution | null = null;
   let pauseOnNextWreck = false;
+  const endWatch = createEndWatch(session.frozen);
   const cameraDirection = new Vector3();
   const initialPlayer = session.player;
   const sceneStats = measureScene(scene.group);
@@ -836,7 +934,12 @@ function bootMatch(
       victimLabel: row.victimLabel,
       cause: row.cause,
     }));
-    hud.update({ ...hudState(lastFps), feed, damageFlash });
+    hud.update({
+      ...hudState(lastFps),
+      feed,
+      damageFlash,
+      secondsRemaining: secondsRemaining(session.state),
+    });
   }
 
   function frame(nowMilliseconds: number): void {
@@ -965,6 +1068,11 @@ function bootMatch(
         if (session.state.winnerTeamId === playerTeam) audio.playSfx('victory', 0.9);
         else if (session.state.winnerTeamId !== null) audio.playSfx('defeat', 0.9);
       }
+      endWatch.update(
+        session.state,
+        session.state.tanks[session.playerTankId]?.teamId ?? 0,
+        nowMilliseconds,
+      );
       scene.updateEffects(paused || session.frozen ? 0 : frameSeconds);
 
       renderer.info.reset();
@@ -1147,6 +1255,7 @@ function bootMatch(
 }
 
 function bootGame(launch: LaunchOptions, audio: AudioEngine): (nowMilliseconds: number) => void {
+  activeLaunch = launch;
   if (launch.mode === 'spectate') {
     return bootSpectate(launch, audio);
   }
@@ -1166,7 +1275,13 @@ function bootGame(launch: LaunchOptions, audio: AudioEngine): (nowMilliseconds: 
           seed: launch.seed,
           playerController: createVanguardStandIn(launch.seed),
         })
-      : new TeamSession({ seed: launch.seed, playerController: aimController });
+      : new TeamSession({
+          seed: launch.seed,
+          teams: launch.teams,
+          tanksPerTeam: launch.tanksPerTeam,
+          rules: launchRules(launch),
+          playerController: aimController,
+        });
     if (launch.demo) {
       session.runTicks(launch.ticks ?? 480);
     }
@@ -1210,8 +1325,12 @@ try {
   });
   screensUi = createScreens(currentSettings, {
     onPlay: () => startGame('play'),
-    onTeam: () => startGame('team'),
+    onStartSetup: (setup) => startGame(setup.mode, setup),
     onSpectate: () => startGame('spectate'),
+    onRematch: () => {
+      if (!activeLaunch) throw new Error('main: rematch without a running match');
+      window.location.assign(rematchUrl(activeLaunch));
+    },
     onResume: resumeMatch,
     onQuit: () => window.location.assign('?mode=title'),
     onGesture: () => {
@@ -1281,7 +1400,7 @@ try {
 
   window.addEventListener('keydown', (event) => {
     if (event.code !== 'Escape' || !gameStarted) return;
-    if (screensUi?.isSettingsOpen()) return;
+    if (screensUi?.isSettingsOpen() || screensUi?.isEndOpen()) return;
     if (paused) resumeMatch();
     else pauseMatch();
   });

@@ -20,6 +20,7 @@ import {
   DEFAULT_MATCH_RULES,
   collectControllerOrders,
   stepMatch,
+  type MatchRules,
   type MatchState,
   type Tank,
 } from '../core/sim.ts';
@@ -44,6 +45,8 @@ export interface SpectatorOptions {
   readonly characters?: readonly string[];
   /** Ticks between director cuts; defaults to the spectator's 180 (3 s). */
   readonly directorIntervalTicks?: number;
+  /** Match rules (the time limit); defaults to the app's rules. */
+  readonly rules?: MatchRules;
 }
 
 /** What the director wants the renderer to frame. */
@@ -120,7 +123,7 @@ export class SpectatorSession {
     this.directorIntervalTicks = directorIntervalTicks;
     const profiles = this.characters.map((name) => getAIProfile(name));
 
-    this.state = createTeamMatch(arenaTeamSetup(teams, tanksPerTeam), seed, DEFAULT_MATCH_RULES).state;
+    this.state = createTeamMatch(arenaTeamSetup(teams, tanksPerTeam), seed, options.rules ?? DEFAULT_MATCH_RULES).state;
     for (const tank of this.state.tanks) {
       const profile = profiles[tank.teamIndex];
       if (!profile) {

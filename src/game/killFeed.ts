@@ -8,6 +8,7 @@
  */
 
 import type { DeathCause, MatchState } from '../core/sim.ts';
+import { teamName } from './matchResult.ts';
 
 export interface KillNotice {
   readonly tankId: number;
@@ -92,7 +93,7 @@ export function describeKill(
     ? 'YOU'
     : notice.victimTeamId === playerTeamId
       ? (characters[notice.victimTeamIndex] ?? `SLOT ${notice.victimTeamIndex + 1}`).toUpperCase()
-      : `TEAM ${notice.victimTeamId + 1}`;
+      : teamName(notice.victimTeamId);
   if (notice.killerTeamId === null) {
     return {
       killerTeamId: null,
@@ -105,7 +106,7 @@ export function describeKill(
   const killerIsPlayer = notice.killerTeamId === playerTeamId;
   return {
     killerTeamId: notice.killerTeamId,
-    killerLabel: killerIsPlayer ? 'SQUAD' : `TEAM ${notice.killerTeamId + 1}`,
+    killerLabel: killerIsPlayer ? 'SQUAD' : teamName(notice.killerTeamId),
     victimTeamId: notice.victimTeamId,
     victimLabel,
     cause: notice.cause,

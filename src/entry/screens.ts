@@ -10,14 +10,28 @@
 
 import { requireElement } from './dom.ts';
 import { saveSettings, withSetting, type GameSettings } from './settings.ts';
+import {
+  DEFAULT_MATCH_SETUP,
+  MATCH_MINUTE_CHOICES,
+  MIN_TANKS_PER_TEAM,
+  MIN_TEAMS,
+  freshMatchSeed,
+  stepMatchSetup,
+  validateMatchSetup,
+  type MatchSetup,
+} from '../game/matchSetup.ts';
+import { MAX_TANKS_PER_TEAM, MAX_TEAMS } from '../core/sim.ts';
 
-type ScreenName = 'title' | 'settings' | 'pause';
+type ScreenName = 'title' | 'settings' | 'pause' | 'setup' | 'end';
 type SettingsOrigin = 'title' | 'pause';
 
 export interface ScreensCallbacks {
   readonly onPlay: () => void;
-  readonly onTeam: () => void;
+  /** The setup screen's START: the chosen, validated setup. */
+  readonly onStartSetup: (setup: MatchSetup) => void;
   readonly onSpectate: () => void;
+  /** The end screen's REMATCH. */
+  readonly onRematch: () => void;
   readonly onResume: () => void;
   readonly onQuit: () => void;
   readonly onGesture: () => void;
@@ -30,6 +44,10 @@ export interface Screens {
   showTitle(): void;
   showSettings(origin: SettingsOrigin): void;
   showPause(): void;
+  showSetup(): void;
+  /** The end-of-match panel; `color` is the headline's palette colour. */
+  showEnd(headline: string, detail: string, color: string): void;
+  isEndOpen(): boolean;
   hideAll(): void;
   setSoundUnlocked(unlocked: boolean): void;
   applySettings(settings: GameSettings): void;
@@ -57,7 +75,17 @@ export function createScreens(initial: GameSettings, callbacks: ScreensCallbacks
   const pauseScreen = requireElement('pause-screen', HTMLElement, 'pause screen');
   const soundHint = requireElement('title-audio-hint', HTMLElement, 'audio hint');
   const play = requireElement('title-play', HTMLButtonElement, 'play button');
-  const team = requireElement('title-team', HTMLButtonElement, 'team button');
+  const setupButton = requireElement('title-setup', HTMLButtonElement, 'battle setup button');
+  const setupScreen = requireElement('setup-screen', HTMLElement, 'setup screen');
+  const setupStart = requireElement('setup-start', HTMLButtonElement, 'setup start button');
+  const setupBack = requireElement('setup-back', HTMLButtonElement, 'setup back button');
+  const setupReroll = requireElement('setup-reroll', HTMLButtonElement, 'setup reroll button');
+  const setupSummary = requireElement('setup-summary', HTMLElement, 'setup summary');
+  const endScreen = requireElement('end-screen', HTMLElement, 'end screen');
+  const endHeadline = requireElement('end-headline', HTMLElement, 'end headline');
+  const endDetail = requireElement('end-detail', HTMLElement, 'end detail');
+  const endRematch = requireElement('end-rematch', HTMLButtonElement, 'rematch button');
+  const endQuit = requireElement('end-quit', HTMLButtonElement, 'end quit button');
   const spectate = requireElement('title-spectate', HTMLButtonElement, 'spectate button');
   const settingsButton = requireElement('title-settings', HTMLButtonElement, 'settings button');
   const settingsBack = requireElement('settings-back', HTMLButtonElement, 'settings back button');
@@ -85,6 +113,58 @@ export function createScreens(initial: GameSettings, callbacks: ScreensCallbacks
     title.hidden = name !== 'title';
     settingsScreen.hidden = name !== 'settings';
     pauseScreen.hidden = name !== 'pause';
+    setupScreen.hidden = name !== 'setup';
+    endScreen.hidden = name !== 'end';
+  };
+
+  // ---- the custom battle setup ----
+  let setup: MatchSetup = { ...DEFAULT_MATCH_SETUP, seed: freshMatchSeed(Math.random) };
+  const modeButtons = [...setupScreen.querySelectorAll<HTMLButtonElement>('[data-setup-mode]')];
+  const stepButtons = [...setupScreen.querySelectorAll<HTMLButtonElement>('[data-step]')];
+  if (modeButtons.length !== 2 || stepButtons.length !== 6) {
+    throw new Error(
+      `screens: setup expects 2 mode and 6 step buttons, found ${modeButtons.length}/${stepButtons.length}`,
+    );
+  }
+  const setupValue = (key: string): HTMLElement => {
+    const element = setupScreen.querySelector<HTMLElement>(`[data-setup-value="${key}"]`);
+    if (!element) throw new Error(`screens: setup has no value label for ${key}`);
+    return element;
+  };
+  const syncSetup = (): void => {
+    validateMatchSetup(setup);
+    for (const button of modeButtons) {
+      const on = button.dataset.setupMode === setup.mode;
+      button.classList.toggle('on', on);
+      button.setAttribute('aria-checked', String(on));
+    }
+    setupValue('teams').textContent = String(setup.teams);
+    setupValue('tanksPerTeam').textContent = String(setup.tanksPerTeam);
+    setupValue('minutes').textContent = `${setup.minutes} MIN`;
+    setupValue('seed').textContent = String(setup.seed);
+    for (const button of stepButtons) {
+      const field = button.dataset.step;
+      const direction = Number(button.dataset.dir);
+      const value =
+        field === 'teams' ? setup.teams : field === 'tanksPerTeam' ? setup.tanksPerTeam : setup.minutes;
+      const [min, max] =
+        field === 'teams'
+          ? [MIN_TEAMS, MAX_TEAMS]
+          : field === 'tanksPerTeam'
+            ? [MIN_TANKS_PER_TEAM, MAX_TANKS_PER_TEAM]
+            : [MATCH_MINUTE_CHOICES[0]!, MATCH_MINUTE_CHOICES[MATCH_MINUTE_CHOICES.length - 1]!];
+      button.disabled = direction < 0 ? value <= min : value >= max;
+    }
+    const enemies = setup.teams - 1;
+    const enemyText = `${enemies} ${enemies === 1 ? 'TEAM' : 'TEAMS'} OF ${setup.tanksPerTeam}`;
+    if (setup.mode === 'spectate') {
+      setupSummary.textContent = `ALL AI · ${setup.teams} TEAMS OF ${setup.tanksPerTeam}`;
+    } else if (setup.tanksPerTeam === 1) {
+      setupSummary.textContent = `YOU ALONE VS ${enemyText}`;
+    } else {
+      const mates = setup.tanksPerTeam - 1;
+      setupSummary.textContent = `YOU + ${mates} ${mates === 1 ? 'SQUADMATE' : 'SQUADMATES'} VS ${enemyText}`;
+    }
   };
 
   const notifyChange = (): void => {
@@ -170,7 +250,39 @@ export function createScreens(initial: GameSettings, callbacks: ScreensCallbacks
     });
   };
   bind(play, callbacks.onPlay);
-  bind(team, callbacks.onTeam);
+  bind(setupButton, () => showSetup());
+  for (const button of modeButtons) {
+    bind(button, () => {
+      const mode = button.dataset.setupMode;
+      if (mode !== 'team' && mode !== 'spectate') {
+        throw new Error(`screens: unknown setup mode "${String(mode)}"`);
+      }
+      setup = validateMatchSetup({ ...setup, mode });
+      syncSetup();
+    });
+  }
+  for (const button of stepButtons) {
+    bind(button, () => {
+      const field = button.dataset.step;
+      const direction = Number(button.dataset.dir);
+      if (field !== 'teams' && field !== 'tanksPerTeam' && field !== 'minutes') {
+        throw new Error(`screens: unknown setup field "${String(field)}"`);
+      }
+      if (direction !== -1 && direction !== 1) {
+        throw new Error(`screens: setup step direction must be ±1, got ${String(direction)}`);
+      }
+      setup = stepMatchSetup(setup, field, direction);
+      syncSetup();
+    });
+  }
+  bind(setupReroll, () => {
+    setup = validateMatchSetup({ ...setup, seed: freshMatchSeed(Math.random) });
+    syncSetup();
+  });
+  bind(setupStart, () => callbacks.onStartSetup(validateMatchSetup(setup)));
+  bind(setupBack, () => showTitle());
+  bind(endRematch, callbacks.onRematch);
+  bind(endQuit, callbacks.onQuit);
   bind(spectate, callbacks.onSpectate);
   bind(settingsButton, () => showSettings('title'));
   bind(settingsBack, () => {
@@ -202,6 +314,11 @@ export function createScreens(initial: GameSettings, callbacks: ScreensCallbacks
   const showPause = (): void => {
     setScreen('pause');
   };
+  const showSetup = (): void => {
+    setScreen('setup');
+    syncSetup();
+    setupStart.focus({ preventScroll: true });
+  };
 
   play.focus({ preventScroll: true });
   syncSliders();
@@ -211,10 +328,23 @@ export function createScreens(initial: GameSettings, callbacks: ScreensCallbacks
     showTitle,
     showSettings,
     showPause,
+    showSetup,
+    showEnd(headline: string, detail: string, color: string): void {
+      endHeadline.textContent = headline;
+      endHeadline.style.color = color;
+      endDetail.textContent = detail;
+      setScreen('end');
+      endRematch.focus({ preventScroll: true });
+    },
+    isEndOpen(): boolean {
+      return !endScreen.hidden;
+    },
     hideAll(): void {
       title.hidden = true;
       settingsScreen.hidden = true;
       pauseScreen.hidden = true;
+      setupScreen.hidden = true;
+      endScreen.hidden = true;
     },
     setSoundUnlocked(unlocked: boolean): void {
       soundUnlocked = unlocked;
