@@ -87,6 +87,7 @@ const FEED_ROWS = 4;
 
 function segments(container: HTMLElement, className: string): readonly HTMLElement[] {
   const result: HTMLElement[] = [];
+  container.replaceChildren(); // a HUD built again for a second match starts empty
   for (let index = 0; index < HP_SEGMENTS; index += 1) {
     const segment = document.createElement('span');
     segment.className = className;
