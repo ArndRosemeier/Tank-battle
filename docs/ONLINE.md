@@ -22,6 +22,16 @@ Clients run a few ticks behind the newest row they hold, never past it, and catc
 they fall behind. There is no client-side prediction yet: a guest's own tank responds after
 one round trip plus the buffer (roughly 100–200 ms).
 
+**Lag-compensated shots:** a guest's screen is a few ticks behind the host, so by the time
+its fire command is sequenced a moving target has moved on (about 1 m at full speed, the
+whole body radius). Each `cmd` intent therefore carries `t`, the tick the guest's screen
+showed. The host turns it into `fireLagTicks` (ticks between that view and the tick the
+command applies at, at most `MAX_FIRE_LAG_TICKS` = 20, 333 ms) in the row it ships. The sim
+then fires that shell from where the shooter stood then and tests it against the tanks
+where they stood then, for its whole flight (terrain stays live). The host's own shots and
+the AI's have lag 0, so offline play is unchanged. A target can still be hit a moment after
+it reached cover on its own screen; that is the usual trade.
+
 **Host migration:** when the host leaves, GameHub promotes the lowest player id. The new host
 asks every peer for the rows it holds beyond its own (`sync?` / `sync`), takes the longest
 stream, re-sends from the shortest peer's position, hands the departed seats to the AI, and

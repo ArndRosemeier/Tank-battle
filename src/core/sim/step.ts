@@ -37,6 +37,7 @@ import {
 import {
   MUZZLE_FORWARD_METRES,
   MUZZLE_HEIGHT_METRES,
+  MAX_FIRE_LAG_TICKS,
   RELOAD_TICKS,
   SHELL_DAMAGE,
   SHELL_METRES_PER_TICK,
@@ -110,6 +111,7 @@ export function stepMatch(state: MatchState, orders: readonly TankCommandOrder[]
 
   advanceWorld(state, turnOrder);
   bleedWoundedTanks(state, turnOrder);
+  recordPoses(state);
   advanceShells(state, turnOrder);
 
   if (checkLastTeam(state)) {
@@ -417,6 +419,33 @@ function bleedWoundedTanks(state: MatchState, turnOrder: readonly number[]): voi
   }
 }
 
+/**
+ * Remembers where every tank stands this tick, for lag-compensated shells. Recorded
+ * after movement and falls, before shells move, so lag 0 is exactly the live world.
+ */
+function recordPoses(state: MatchState): void {
+  const xyz = new Float64Array(state.tanks.length * 3);
+  for (const tank of state.tanks) {
+    xyz[tank.id * 3] = tank.x;
+    xyz[tank.id * 3 + 1] = tank.y;
+    xyz[tank.id * 3 + 2] = tank.z;
+  }
+  state.poseHistory.unshift({ tick: state.tick, xyz });
+  if (state.poseHistory.length > MAX_FIRE_LAG_TICKS + 1) state.poseHistory.length = MAX_FIRE_LAG_TICKS + 1;
+}
+
+/**
+ * A tank's position `lagTicks` ago. Early in a match the history is shorter than the
+ * lag; the oldest recorded tick (the first tick of the match) is the furthest back a
+ * shot can see.
+ */
+function poseAt(state: MatchState, tank: Tank, lagTicks: number): Vec3 {
+  if (lagTicks === 0) return { x: tank.x, y: tank.y, z: tank.z };
+  const frame = state.poseHistory[Math.min(lagTicks, state.poseHistory.length - 1)];
+  if (!frame) throw new Error('sim: a lag-compensated shot before any tick was recorded');
+  return { x: frame.xyz[tank.id * 3]!, y: frame.xyz[tank.id * 3 + 1]!, z: frame.xyz[tank.id * 3 + 2]! };
+}
+
 /** Advances every shell one tick of travel, removing the ones that hit or expire. */
 function advanceShells(state: MatchState, turnOrder: readonly number[]): void {
   const survivors: Shell[] = [];
@@ -449,7 +478,7 @@ function advanceShell(state: MatchState, shell: Shell): boolean {
     y: from.y + shell.dy * remaining,
     z: from.z + shell.dz * remaining,
   };
-  const hit = earliestCollision(state, from, to);
+  const hit = earliestCollision(state, from, to, undefined, shell.lagTicks);
   if (!hit) {
     shell.x = to.x;
     shell.y = to.y;
@@ -479,8 +508,10 @@ interface ShellHit {
 /**
  * The earliest collision along the segment: the terrain, then live tank bodies. On an
  * exact tie the terrain wins, then the lower tank id. The earliest POSITION always wins.
+ * With `lagTicks` > 0 the tank bodies stand where they were that many ticks ago (only
+ * tanks alive now can be hit); the terrain is always the live one.
  */
-function earliestCollision(state: MatchState, from: Vec3, to: Vec3, ignoredTankId?: number): ShellHit | null {
+function earliestCollision(state: MatchState, from: Vec3, to: Vec3, ignoredTankId?: number, lagTicks = 0): ShellHit | null {
   let best: ShellHit | null = null;
   const terrain = raycastTerrain(state.world, from, to);
   if (terrain) {
@@ -490,7 +521,8 @@ function earliestCollision(state: MatchState, from: Vec3, to: Vec3, ignoredTankI
     if (!tank.alive || tank.id === ignoredTankId) {
       continue;
     }
-    const t = segmentCylinderIntersection(from, to, tank.x, tank.z, TANK_RADIUS_METRES, tank.y, tank.y + TANK_HEIGHT_METRES);
+    const body = poseAt(state, tank, lagTicks);
+    const t = segmentCylinderIntersection(from, to, body.x, body.z, TANK_RADIUS_METRES, body.y, body.y + TANK_HEIGHT_METRES);
     if (t === null) {
       continue;
     }
@@ -581,12 +613,12 @@ function killTank(
 }
 
 /** The muzzle point: `MUZZLE_FORWARD_METRES` ahead of the hull origin, at muzzle height. */
-export function muzzlePosition(tank: Tank): Vec3 {
+export function muzzlePosition(tank: Tank, base: Vec3 = tank): Vec3 {
   const forward = forwardFromYaw(tank.turretYawDegrees);
   return {
-    x: tank.x + forward.x * MUZZLE_FORWARD_METRES,
-    y: tank.y + MUZZLE_HEIGHT_METRES,
-    z: tank.z + forward.z * MUZZLE_FORWARD_METRES,
+    x: base.x + forward.x * MUZZLE_FORWARD_METRES,
+    y: base.y + MUZZLE_HEIGHT_METRES,
+    z: base.z + forward.z * MUZZLE_FORWARD_METRES,
   };
 }
 
@@ -610,8 +642,12 @@ function fireShells(state: MatchState, commands: ReadonlyMap<number, TankCommand
       continue;
     }
     const direction = directionFromAim(tank.turretYawDegrees, tank.aimPitchDegrees);
-    const muzzle = muzzlePosition(tank);
-    const origin: Vec3 = { x: tank.x, y: muzzle.y, z: tank.z };
+    // A lag-compensated shot happens in the shooter's view: it leaves from where the
+    // shooter stood then, and meets the other tanks where they stood then.
+    const lagTicks = command.fireLagTicks ?? 0;
+    const base = poseAt(state, tank, lagTicks);
+    const muzzle = muzzlePosition(tank, base);
+    const origin: Vec3 = { x: base.x, y: muzzle.y, z: base.z };
 
     state.stats.shotsFired += 1;
     tank.reloadTicksRemaining = RELOAD_TICKS;
@@ -621,7 +657,7 @@ function fireShells(state: MatchState, commands: ReadonlyMap<number, TankCommand
       dx: direction.x, dy: direction.y, dz: direction.z,
     });
 
-    const obstruction = earliestCollision(state, origin, muzzle, tank.id);
+    const obstruction = earliestCollision(state, origin, muzzle, tank.id, lagTicks);
     if (obstruction) {
       resolveHit(state, tank.teamId, obstruction, pointAt(origin, muzzle, obstruction.t), direction);
       if (checkLastTeam(state)) {
@@ -641,6 +677,7 @@ function fireShells(state: MatchState, commands: ReadonlyMap<number, TankCommand
       dy: direction.y,
       dz: direction.z,
       travelledMetres: 0,
+      lagTicks,
     });
     state.nextShellId += 1;
   }

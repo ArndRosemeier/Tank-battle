@@ -13,15 +13,20 @@ import { changeRoomSetup, createRoomState, addMember, roomMeta, setMemberTeam, s
 describe('protocol parsing', () => {
   it('quantises a command once, so encode → JSON → decode is exact', () => {
     const wire = encodeCommand({ throttle: 0.33333, steer: -1, aimYaw: 190.123, aimPitch: 24.999, fire: true });
-    expect(wire).toEqual([0.333, -1, -169.88, 25, 1]);
+    expect(wire).toEqual([0.333, -1, -169.88, 25, 1, 0]);
     const back = encodeCommand(decodeCommand(JSON.parse(JSON.stringify(wire)), 'c'));
     expect(back).toEqual(wire);
+    // A host-set fire lag survives the round trip; without fire it is dropped.
+    const lagged = [0, 0, 0, 0, 1, 7];
+    expect(encodeCommand(decodeCommand(JSON.parse(JSON.stringify(lagged)), 'c'))).toEqual(lagged);
+    expect(encodeCommand(decodeCommand([0, 0, 0, 0, 0, 7], 'c'))).toEqual([0, 0, 0, 0, 0, 0]);
   });
 
   it('rejects malformed commands loudly', () => {
-    expect(() => decodeCommand([2, 0, 0, 0, 0], 'c')).toThrow(/throttle/);
-    expect(() => decodeCommand([0, 0, 0, 0, true], 'c')).toThrow(/fire/);
-    expect(() => decodeCommand([0, 0, 0], 'c')).toThrow(/5-element/);
+    expect(() => decodeCommand([2, 0, 0, 0, 0, 0], 'c')).toThrow(/throttle/);
+    expect(() => decodeCommand([0, 0, 0, 0, 1, 21], 'c')).toThrow(/fireLagTicks/);
+    expect(() => decodeCommand([0, 0, 0, 0, true, 0], 'c')).toThrow(/fire/);
+    expect(() => decodeCommand([0, 0, 0], 'c')).toThrow(/6-element/);
   });
 
   it('refuses a room of another protocol version with a reload hint', () => {
@@ -31,7 +36,7 @@ describe('protocol parsing', () => {
   });
 
   it('checks a tick batch row against the seat count', () => {
-    expect(() => parseTickBatch({ k: 'ticks', matchNo: 1, from: 0, c: [[[0, 0, 0, 0, 0]]] }, 2)).toThrow(/1 commands for 2 seats/);
+    expect(() => parseTickBatch({ k: 'ticks', matchNo: 1, from: 0, c: [[[0, 0, 0, 0, 0, 0]]] }, 2)).toThrow(/1 commands for 2 seats/);
   });
 
   it('rejects unknown intents', () => {

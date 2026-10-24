@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { TankCommand } from '../core/sim.ts';
+import { MAX_FIRE_LAG_TICKS, type TankCommand } from '../core/sim.ts';
 import { NetMatch, TICKS_PER_BATCH } from './netMatch.ts';
 import { encodeCommand, parseTickBatch, type MatchSpec, type TickBatch } from './protocol.ts';
 
@@ -31,7 +31,7 @@ describe('netMatch lockstep', () => {
     const client = new NetMatch({ spec: SPEC, localSeat: 1, role: 'client' });
     let batches = 0;
     for (let frame = 0; frame < 600; frame += 1) {
-      host.setSeatCommand(1, encodeCommand(drive(frame + 7)));
+      host.setSeatCommand(1, encodeCommand(drive(frame + 7)), client.state.tick);
       for (const batch of host.produce(FRAME, () => drive(frame))) {
         batches += 1;
         expect(batch.c.length).toBeLessThanOrEqual(TICKS_PER_BATCH);
@@ -47,6 +47,26 @@ describe('netMatch lockstep', () => {
     expect(client.desync).toBeNull();
     // The players actually moved: the test is not comparing two idle worlds.
     expect(host.state.tanks[client.localTankId!]!.x).not.toBe(client.session.tankInSlot({ teamId: 1, teamIndex: 1 }).x);
+  });
+
+  it('lag-compensates a guest shot by how far behind the host its screen was', () => {
+    const host = new NetMatch({ spec: SPEC, localSeat: 0, role: 'host' });
+    const idle = (): TankCommand => ({ throttle: 0, steer: 0, aimYaw: 0, aimPitch: 0, fire: false });
+    for (let frame = 0; frame < 40; frame += 1) host.produce(FRAME, idle);
+    const rowsBefore = host.rowCount;
+    const fire = encodeCommand({ ...idle(), fire: true });
+    const lagOfNextRow = (): number => {
+      const batch = host.produce(FRAME, idle)[0] ?? host.flushPending()!;
+      return batch.c[batch.c.length - 1]![1]![5];
+    };
+    // The guest saw tick rowsBefore - 9; the next row steps to rowsBefore + 1.
+    host.setSeatCommand(1, fire, rowsBefore - 9);
+    expect(lagOfNextRow()).toBe(10);
+    // Far behind: capped at the sim's limit. Not firing: no lag at all.
+    host.setSeatCommand(1, fire, 0);
+    expect(lagOfNextRow()).toBe(MAX_FIRE_LAG_TICKS);
+    host.setSeatCommand(1, encodeCommand(idle()), 0);
+    expect(lagOfNextRow()).toBe(0);
   });
 
   it('flags a divergence when the host hash differs', () => {

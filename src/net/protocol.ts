@@ -17,11 +17,11 @@
  */
 
 import { AIM_PITCH_MAX_DEGREES, AIM_PITCH_MIN_DEGREES, MAX_TANKS_PER_TEAM, MAX_TEAMS } from '../core/sim.ts';
-import { normaliseDegrees, type TankCommand } from '../core/sim.ts';
+import { MAX_FIRE_LAG_TICKS, normaliseDegrees, type TankCommand } from '../core/sim.ts';
 import { MATCH_MINUTE_CHOICES, MAX_MATCH_SEED, MIN_TANKS_PER_TEAM, MIN_TEAMS } from '../game/matchSetup.ts';
 
 /** Bumped whenever the wire format or the simulation changes incompatibly. */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 /** The `game` tag in room meta, so a stray room of another app is never joined. */
 export const ROOM_GAME_TAG = 'tank-battle';
 
@@ -34,8 +34,11 @@ export class ProtocolError extends Error {
 
 // ---------------------------------------------------------------- commands
 
-/** A command on the wire: [throttle, steer, aimYaw, aimPitch, fire]. */
-export type WireCommand = readonly [number, number, number, number, 0 | 1];
+/**
+ * A command on the wire: [throttle, steer, aimYaw, aimPitch, fire, fireLagTicks]. The
+ * lag is set by the host (see `NetMatch.setSeatCommand`) and is 0 when not firing.
+ */
+export type WireCommand = readonly [number, number, number, number, 0 | 1, number];
 
 const round = (value: number, scale: number): number => Math.round(value * scale) / scale;
 
@@ -47,25 +50,27 @@ export function quantiseCommand(command: TankCommand): TankCommand {
   const pitch = Math.max(AIM_PITCH_MIN_DEGREES, Math.min(AIM_PITCH_MAX_DEGREES, round(command.aimPitch, 100)));
   let yaw = round(normaliseDegrees(command.aimYaw), 100);
   if (yaw >= 180) yaw -= 360;
+  const lag = command.fire ? command.fireLagTicks ?? 0 : 0;
   return {
     throttle: round(command.throttle, 1000),
     steer: round(command.steer, 1000),
     aimYaw: yaw,
     aimPitch: pitch,
     fire: command.fire,
+    ...(lag > 0 ? { fireLagTicks: lag } : {}),
   };
 }
 
 export function encodeCommand(command: TankCommand): WireCommand {
   const q = quantiseCommand(command);
-  return [q.throttle, q.steer, q.aimYaw, q.aimPitch, q.fire ? 1 : 0];
+  return [q.throttle, q.steer, q.aimYaw, q.aimPitch, q.fire ? 1 : 0, q.fireLagTicks ?? 0];
 }
 
 export function decodeCommand(value: unknown, label: string): TankCommand {
-  if (!Array.isArray(value) || value.length !== 5) {
-    throw new ProtocolError(`${label} must be a 5-element command array`);
+  if (!Array.isArray(value) || value.length !== 6) {
+    throw new ProtocolError(`${label} must be a 6-element command array`);
   }
-  const [throttle, steer, aimYaw, aimPitch, fire] = value as unknown[];
+  const [throttle, steer, aimYaw, aimPitch, fire, lag] = value as unknown[];
   const finite = (v: unknown, name: string, min: number, max: number): number => {
     if (typeof v !== 'number' || !Number.isFinite(v) || v < min || v > max) {
       throw new ProtocolError(`${label}.${name} must be a number in ${min}…${max}, got ${String(v)}`);
@@ -73,16 +78,18 @@ export function decodeCommand(value: unknown, label: string): TankCommand {
     return v;
   };
   if (fire !== 0 && fire !== 1) throw new ProtocolError(`${label}.fire must be 0 or 1, got ${String(fire)}`);
+  const fireLagTicks = int(lag, `${label}.fireLagTicks`, 0, MAX_FIRE_LAG_TICKS);
   return quantiseCommand({
     throttle: finite(throttle, 'throttle', -1, 1),
     steer: finite(steer, 'steer', -1, 1),
     aimYaw: finite(aimYaw, 'aimYaw', -360, 360),
     aimPitch: finite(aimPitch, 'aimPitch', AIM_PITCH_MIN_DEGREES, AIM_PITCH_MAX_DEGREES),
     fire: fire === 1,
+    fireLagTicks,
   });
 }
 
-export const IDLE_WIRE_COMMAND: WireCommand = [0, 0, 0, 0, 0];
+export const IDLE_WIRE_COMMAND: WireCommand = [0, 0, 0, 0, 0, 0];
 
 // ---------------------------------------------------------------- room state
 
@@ -154,7 +161,8 @@ export interface TickBatch {
 // ---------------------------------------------------------------- intents
 
 export type Intent =
-  | { readonly type: 'cmd'; readonly matchNo: number; readonly c: WireCommand }
+  /** `t`: the tick the player's screen showed when this command was made. */
+  | { readonly type: 'cmd'; readonly matchNo: number; readonly c: WireCommand; readonly t: number }
   | { readonly type: 'team'; readonly teamId: number }
   /** Sent to a newly promoted host: the ticks this peer holds beyond `have`. */
   | { readonly type: 'sync'; readonly matchNo: number; readonly from: number; readonly c: readonly TickCommands[]; readonly ai: readonly (readonly [number, number])[] }
@@ -299,7 +307,12 @@ export function parseIntent(value: unknown, seatCount: number, teams: number): I
   const r = record(value, 'intent');
   switch (r.type) {
     case 'cmd':
-      return { type: 'cmd', matchNo: int(r.matchNo, 'cmd.matchNo', 1, 1_000_000), c: encodeCommand(decodeCommand(r.c, 'cmd.c')) };
+      return {
+        type: 'cmd',
+        matchNo: int(r.matchNo, 'cmd.matchNo', 1, 1_000_000),
+        c: encodeCommand(decodeCommand(r.c, 'cmd.c')),
+        t: int(r.t, 'cmd.t', 0, MAX_TICK),
+      };
     case 'team':
       return { type: 'team', teamId: int(r.teamId, 'team.teamId', 0, teams - 1) };
     case 'sync':
