@@ -5,7 +5,7 @@
  *
  * A block column is re-meshed only when the world bumped one of its block revisions,
  * so a crater costs a handful of small re-meshes, never the whole arena. Every mesh
- * shares ONE shader: a dark facet, an anti-aliased glowing edge on every triangle
+ * shares ONE shader: a dark facet, an anti-aliased glowing edge on every drawn triangle edge
  * (barycentric distance with screen-space derivatives), a height ramp from cyan to
  * magenta, hot crystal, amber wounds where the rock differs from the authored
  * landscape, the glow clock's pulse ring and breathing, and distance fog.
@@ -45,13 +45,16 @@ export interface TerrainView {
 const VERTEX_SHADER = /* glsl */ `
   attribute vec3 aBary;
   attribute vec2 aShade;
+  attribute vec3 aEdgeMask;
   varying vec3 vBary;
+  varying vec3 vEdgeMask;
   varying vec2 vShade;
   varying vec3 vWorldPosition;
   varying vec3 vNormal;
 
   void main() {
     vBary = aBary;
+    vEdgeMask = aEdgeMask;
     vShade = aShade;
     vec4 world = modelMatrix * vec4(position, 1.0);
     vWorldPosition = world.xyz;
@@ -86,8 +89,10 @@ const FRAGMENT_SHADER = /* glsl */ `
   uniform float uPulseGain;
   uniform float uBreathePeriod;
   uniform float uBreatheDepth;
+  uniform float uSpacing;
 
   varying vec3 vBary;
+  varying vec3 vEdgeMask;
   varying vec2 vShade;
   varying vec3 vWorldPosition;
   varying vec3 vNormal;
@@ -96,7 +101,21 @@ const FRAGMENT_SHADER = /* glsl */ `
     // Distance to the nearest triangle edge, in pixels.
     vec3 width = fwidth(vBary);
     vec3 edgeDistance = vBary / max(width, vec3(1e-6));
+    // Hidden edges (the mesher's internal cuts) are pushed out of reach.
+    edgeDistance += (1.0 - step(0.5, vEdgeMask)) * 1e6;
     float nearest = min(min(edgeDistance.x, edgeDistance.y), edgeDistance.z);
+
+    // Flat floors and walls show the lattice as squares; one diagonal per square, drawn
+    // in world space through the lattice corners, turns them into a steady triangle grid.
+    vec3 axisNormal = abs(normalize(vNormal));
+    vec3 diagonal = vec3(
+      vWorldPosition.y - vWorldPosition.z,
+      vWorldPosition.x - vWorldPosition.z,
+      vWorldPosition.y - vWorldPosition.x
+    ) / uSpacing;
+    vec3 diagonalDistance = abs(fract(diagonal + 0.5) - 0.5) / max(fwidth(diagonal), vec3(1e-6));
+    diagonalDistance += (1.0 - smoothstep(0.75, 0.9, axisNormal)) * 1e6;
+    nearest = min(nearest, min(min(diagonalDistance.x, diagonalDistance.y), diagonalDistance.z));
     float edge = 1.0 - smoothstep(0.0, uEdgeWidth, nearest);
 
     float heightT = clamp((vWorldPosition.y - uLowY) / (uHighY - uLowY), 0.0, 1.0);
@@ -124,7 +143,7 @@ const FRAGMENT_SHADER = /* glsl */ `
   }
 `;
 
-function createTerrainMaterial(centreX: number, centreZ: number): ShaderMaterial {
+function createTerrainMaterial(centreX: number, centreZ: number, spacing: number): ShaderMaterial {
   return new ShaderMaterial({
     uniforms: {
       uFill: { value: new Color(TERRAIN_PALETTE.fill) },
@@ -136,6 +155,7 @@ function createTerrainMaterial(centreX: number, centreZ: number): ShaderMaterial
       uLowY: { value: TERRAIN.lowHeightMetres },
       uHighY: { value: TERRAIN.highHeightMetres },
       uEdgeWidth: { value: TERRAIN.edgeWidthPixels },
+      uSpacing: { value: spacing },
       uEdgeGain: { value: TERRAIN.edgeGain },
       uCrystalGain: { value: TERRAIN.crystalEdgeGain },
       uDamageGain: { value: TERRAIN.damageEdgeGain },
@@ -164,6 +184,7 @@ function geometryFrom(data: TerrainMeshData): BufferGeometry {
   geometry.setAttribute('normal', new BufferAttribute(data.normals, 3));
   geometry.setAttribute('aBary', new BufferAttribute(data.barycentric, 3));
   geometry.setAttribute('aShade', new BufferAttribute(data.shade, 2));
+  geometry.setAttribute('aEdgeMask', new BufferAttribute(data.edgeMask, 3));
   geometry.computeBoundingSphere();
   return geometry;
 }
@@ -213,7 +234,7 @@ function worldShade(world: World): (x: number, y: number, z: number) => Triangle
 export function createTerrainView(world: World): TerrainView {
   const group = new Group();
   group.name = 'terrain';
-  const material = createTerrainMaterial(world.widthMetres / 2, world.depthMetres / 2);
+  const material = createTerrainMaterial(world.widthMetres / 2, world.depthMetres / 2, world.spacing);
   const sample = worldSampler(world);
   const shade = worldShade(world);
   const cellsX = world.nx - 1;
