@@ -8,8 +8,11 @@
  * a direction the gun can follow. Camera yaw and pitch are presentation only; the
  * simulation still receives ordinary `TankCommand`s, so online play is unaffected.
  *
- * Three modes (the player picks one in SETTINGS):
- *  - `edge-push` (default): pointer lock with our own cursor. The cursor moves freely
+ * Four modes (the player picks one in SETTINGS):
+ *  - `offset` (default): pointer lock with our own cursor. The further the cursor is
+ *    from the centre (left/right), the faster the camera turns that way: nothing inside
+ *    a small dead zone, gentle a little further out, fast near the edge (a cubic curve).
+ *  - `edge-push`: pointer lock with our own cursor. The cursor moves freely
  *    on screen; pushing it past an edge turns the camera by the pushed distance, and
  *    holding it pinned at the left/right edge keeps turning.
  *  - `centred`: pointer lock, crosshair fixed above the screen centre. Mouse X turns the
@@ -22,9 +25,9 @@
  * DECREASES yaw. Pitch is the orbit arm's downward angle: a larger pitch looks down.
  */
 
-export const MOUSE_MODES = ['edge-push', 'centred', 'edge-free'] as const;
+export const MOUSE_MODES = ['offset', 'edge-push', 'centred', 'edge-free'] as const;
 export type MouseMode = (typeof MOUSE_MODES)[number];
-export const DEFAULT_MOUSE_MODE: MouseMode = 'edge-push';
+export const DEFAULT_MOUSE_MODE: MouseMode = 'offset';
 
 export function isMouseMode(value: unknown): value is MouseMode {
   return typeof value === 'string' && (MOUSE_MODES as readonly string[]).includes(value);
@@ -42,6 +45,16 @@ export const MOUSE_LOOK = {
   pinnedEdge: 0.985,
   /** Locked cursor pinned at an edge keeps turning at this rate (degrees per second). */
   pinnedTurnDegreesPerSecond: 90,
+  /** Offset mode: no turning while |x| is inside this dead zone around the centre. */
+  offsetDeadZone: 0.08,
+  /** Offset mode: the turn rate with the cursor at the edge (degrees per second). */
+  offsetMaxTurnDegreesPerSecond: 220,
+  /**
+   * Offset mode: the curve is `(1 - c)·t² + c·t³` of the distance past the dead zone,
+   * so half way out turns at under a fifth of the top rate. Polynomial on purpose: the
+   * game layer avoids engine-approximated Math functions (purity test).
+   */
+  offsetCurveCubic: 0.3,
   /** Free cursor: the edge band starts at this |x| and ramps to the full rate at 1. */
   freeEdgeBand: 0.86,
   freeEdgeTurnDegreesPerSecond: 150,
@@ -101,7 +114,7 @@ export function applyLockedMove(
       pitchDegrees: clampPitch(state.pitchDegrees + dy * MOUSE_LOOK.degreesPerPixel),
     };
   }
-  if (mode === 'edge-push') {
+  if (mode === 'edge-push' || mode === 'offset') {
     const rawX = state.cursorX + (dx * 2) / width;
     const rawY = state.cursorY + (dy * 2) / height;
     const cursorX = clampUnit(rawX);
@@ -151,6 +164,13 @@ export function edgeTurnRate(cursorX: number, mode: MouseMode, pointerInside: bo
   finite(cursorX, 'cursorX');
   const side = Math.sign(cursorX);
   const reach = Math.abs(cursorX);
+  if (mode === 'offset') {
+    if (reach <= MOUSE_LOOK.offsetDeadZone) return 0;
+    const t = Math.min(1, (reach - MOUSE_LOOK.offsetDeadZone) / (1 - MOUSE_LOOK.offsetDeadZone));
+    const c = MOUSE_LOOK.offsetCurveCubic;
+    const curve = t * t * (1 - c + c * t);
+    return side * curve * MOUSE_LOOK.offsetMaxTurnDegreesPerSecond;
+  }
   if (mode === 'edge-push') {
     return reach >= MOUSE_LOOK.pinnedEdge ? side * MOUSE_LOOK.pinnedTurnDegreesPerSecond : 0;
   }

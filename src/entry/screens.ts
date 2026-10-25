@@ -144,9 +144,9 @@ export function createScreens(initial: GameSettings, callbacks: ScreensCallbacks
   if (sliders.length !== Object.keys(SLIDERS).length) {
     throw new Error(`screens: expected ${Object.keys(SLIDERS).length} drawn sliders, found ${sliders.length}`);
   }
-  const mouseModeButtons = [...settingsScreen.querySelectorAll<HTMLButtonElement>('[data-mouse-mode]')];
-  if (mouseModeButtons.length !== MOUSE_MODES.length) {
-    throw new Error(`screens: expected ${MOUSE_MODES.length} mouse mode buttons, found ${mouseModeButtons.length}`);
+  const mouseControlButtons = [...settingsScreen.querySelectorAll<HTMLButtonElement>('[data-mouse-mode]')];
+  if (mouseControlButtons.length !== MOUSE_MODES.length) {
+    throw new Error(`screens: expected ${MOUSE_MODES.length} mouse mode buttons, found ${mouseControlButtons.length}`);
   }
 
   const setScreen = (name: ScreenName): void => {
@@ -254,8 +254,8 @@ export function createScreens(initial: GameSettings, callbacks: ScreensCallbacks
       if (!valueLabel) throw new Error(`screens: no value label for ${key}`);
       valueLabel.textContent = spec.format(value);
     }
-    for (const button of mouseModeButtons) {
-      const on = button.dataset.mouseMode === settings.mouseMode;
+    for (const button of mouseControlButtons) {
+      const on = button.dataset.mouseMode === settings.mouseControl;
       button.classList.toggle('on', on);
       button.setAttribute('aria-checked', String(on));
     }
@@ -424,12 +424,12 @@ export function createScreens(initial: GameSettings, callbacks: ScreensCallbacks
   bind(resume, callbacks.onResume);
   bind(pauseSettings, () => showSettings('pause'));
   bind(quit, callbacks.onQuit);
-  for (const button of mouseModeButtons) {
+  for (const button of mouseControlButtons) {
     button.addEventListener('click', () => {
       const mode = button.dataset.mouseMode;
       if (!isMouseMode(mode)) throw new Error(`screens: unknown mouse mode "${String(mode)}"`);
       callbacks.onGesture();
-      settings = withSetting(settings, 'mouseMode', mode);
+      settings = withSetting(settings, 'mouseControl', mode);
       notifyChange();
     });
   }

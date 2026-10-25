@@ -73,7 +73,7 @@ try {
     try {
       localStorage.setItem('tank-battle.settings.v1', JSON.stringify({
         master: 0.8, music: 0.65, sfx: 0.8, quality: 0.3,
-        mouseSensitivity: 1, mouseMode: 'edge-free', reducedMotion: false,
+        mouseSensitivity: 1, mouseControl: 'edge-free', reducedMotion: false,
       }));
     } catch {}
   });

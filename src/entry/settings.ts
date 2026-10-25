@@ -21,8 +21,12 @@ export interface GameSettings {
   readonly quality: number;
   /** 0.2…2 mouse speed: locked-cursor movement and camera turning per mouse pixel. */
   readonly mouseSensitivity: number;
-  /** How the mouse turns the camera; see `mouseLook.ts`. */
-  readonly mouseMode: MouseMode;
+  /**
+   * How the mouse turns the camera; see `mouseLook.ts`. Stored as `mouseControl`: the
+   * first release's `mouseMode` key is deliberately ignored, so every player picks up
+   * the new `offset` default once (the old default was saved on every boot).
+   */
+  readonly mouseControl: MouseMode;
   readonly reducedMotion: boolean;
 }
 
@@ -34,7 +38,7 @@ export const DEFAULT_SETTINGS: GameSettings = Object.freeze({
   sfx: 0.8,
   quality: 0.3,
   mouseSensitivity: 1,
-  mouseMode: DEFAULT_MOUSE_MODE,
+  mouseControl: DEFAULT_MOUSE_MODE,
   reducedMotion: false,
 });
 
@@ -60,7 +64,7 @@ export function parseSettings(raw: unknown): GameSettings {
     sfx: requireRange(value.sfx, 0, 1, 'sfx'),
     quality: requireRange(value.quality, 0, 1, 'quality'),
     mouseSensitivity: requireRange(value.mouseSensitivity, 0.2, 2, 'mouseSensitivity'),
-    mouseMode: parseMouseMode(value.mouseMode),
+    mouseControl: parseMouseMode(value.mouseControl),
     reducedMotion: value.reducedMotion,
   };
 }
@@ -69,7 +73,7 @@ function parseMouseMode(value: unknown): MouseMode {
   // Settings saved before the mouse mode existed have no key: they get the default.
   if (value === undefined) return DEFAULT_MOUSE_MODE;
   if (!isMouseMode(value)) {
-    throw new Error(`settings: mouseMode must be one of ${MOUSE_MODES.join(', ')}, got ${String(value)}`);
+    throw new Error(`settings: mouseControl must be one of ${MOUSE_MODES.join(', ')}, got ${String(value)}`);
   }
   return value;
 }
