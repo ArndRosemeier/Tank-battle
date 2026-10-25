@@ -48,19 +48,24 @@ describe('settings persistence', () => {
   });
 
   it('defaults to edge push and persists the chosen mouse mode', () => {
-    expect(DEFAULT_SETTINGS.mouseMode).toBe('edge-push');
+    expect(DEFAULT_SETTINGS.mouseControl).toBe('offset');
     const store = memoryStore();
-    saveSettings(withSetting(DEFAULT_SETTINGS, 'mouseMode', 'centred'), store);
-    expect(loadSettings(store).mouseMode).toBe('centred');
+    saveSettings(withSetting(DEFAULT_SETTINGS, 'mouseControl', 'centred'), store);
+    expect(loadSettings(store).mouseControl).toBe('centred');
+  });
+
+  it('ignores the first release\'s mouseMode key so the new default reaches everyone', () => {
+    const store = memoryStore({ [SETTINGS_KEY]: JSON.stringify({ ...DEFAULT_SETTINGS, mouseControl: undefined, mouseMode: 'edge-push' }) });
+    expect(loadSettings(store).mouseControl).toBe('offset');
   });
 
   it('loads settings saved before the mouse mode existed, and rejects an unknown mode', () => {
-    const { mouseMode: _dropped, ...legacy } = DEFAULT_SETTINGS;
+    const { mouseControl: _dropped, ...legacy } = DEFAULT_SETTINGS;
     const store = memoryStore({ [SETTINGS_KEY]: JSON.stringify({ ...legacy, music: 0.3 }) });
     const loaded = loadSettings(store);
-    expect(loaded.mouseMode).toBe('edge-push');
+    expect(loaded.mouseControl).toBe('offset');
     expect(loaded.music).toBe(0.3);
-    expect(() => parseSettings({ ...DEFAULT_SETTINGS, mouseMode: 'trackball' })).toThrow(/mouseMode/);
+    expect(() => parseSettings({ ...DEFAULT_SETTINGS, mouseControl: 'trackball' })).toThrow(/mouseControl/);
   });
 
   it('rejects out-of-range values instead of clamping them into a silent default', () => {

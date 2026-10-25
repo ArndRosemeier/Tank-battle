@@ -82,6 +82,26 @@ describe('mouse look', () => {
     expect(applyLockedMove(atEdge, 'edge-free', 100, 100, W, H, 1)).toEqual(atEdge);
   });
 
+  it('offset: turns faster the further the cursor is from the centre, gently at first', () => {
+    expect(edgeTurnRate(0, 'offset', true)).toBe(0);
+    expect(edgeTurnRate(MOUSE_LOOK.offsetDeadZone, 'offset', true)).toBe(0);
+    const small = edgeTurnRate(0.25, 'offset', true);
+    const half = edgeTurnRate(0.5, 'offset', true);
+    const full = edgeTurnRate(1, 'offset', true);
+    expect(full).toBe(MOUSE_LOOK.offsetMaxTurnDegreesPerSecond);
+    expect(edgeTurnRate(-1, 'offset', true)).toBe(-full);
+    expect(small).toBeGreaterThan(0);
+    // Not linear: a quarter of the way out turns well under a quarter of the top rate.
+    expect(small).toBeLessThan(full * 0.1);
+    expect(half).toBeLessThan(full * 0.3);
+    expect(half / small).toBeGreaterThan(3);
+    // Cursor right turns right (yaw decreases), and it moves freely like edge push.
+    const right = applyLockedMove(initialLook('offset', 0), 'offset', 250, 0, W, H, 1);
+    expect(right.cursorX).toBeCloseTo(0.5);
+    expect(right.yawDegrees).toBe(0);
+    expect(advanceLook(right, 'offset', 0.1, true).yawDegrees).toBeCloseTo(-half * 0.1);
+  });
+
   it('wraps yaw and rejects bad numbers', () => {
     const start = initialLook('centred', 179);
     const wrapped = applyLockedMove(start, 'centred', -100, 0, W, H, 1);

@@ -71,7 +71,7 @@ export class CameraRig {
   private currentYawDegrees = 0;
   private targetDistance: number = CAMERA.defaultDistanceMetres;
   private currentDistance: number = CAMERA.defaultDistanceMetres;
-  /** The orbit arm's downward angle; the mouse can tilt it (centred / edge-push modes). */
+  /** The orbit arm's downward angle; the mouse can tilt it (centred / edge-push / offset modes). */
   private targetPitchDegrees: number = CAMERA.defaultPitchDegrees;
   private currentPitchDegrees: number = CAMERA.defaultPitchDegrees;
 

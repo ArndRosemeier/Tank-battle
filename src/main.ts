@@ -722,7 +722,7 @@ function ensureAudio(track: 'menu' | 'combat'): void {
 function createPlayerInput(): BrowserInput {
   playerInput?.dispose();
   const input = createBrowserInput(canvas, {
-    mode: () => currentSettings.mouseMode,
+    mode: () => currentSettings.mouseControl,
     sensitivity: () => currentSettings.mouseSensitivity,
     onLockLost: () => {
       lockLostAt = performance.now();
@@ -1306,7 +1306,7 @@ function bootMatch(
         rig.setPitch(look.pitchDegrees);
         mouseHint.hidden =
           paused ||
-          !usesPointerLock(currentSettings.mouseMode) ||
+          !usesPointerLock(currentSettings.mouseControl) ||
           input.locked ||
           document.body.classList.contains('match-over');
         rig.update(frameSeconds);
